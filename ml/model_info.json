@@ -1,0 +1,33 @@
+{
+  "model_name": "XGBoost Classifier",
+  "version": "1.0.0",
+  "trained_date": "2026-09-03 20:21:18",
+  "dataset_source": "UCI AI4I 2020 Predictive Maintenance Dataset",
+  "total_training_samples": 8004,
+  "total_test_samples": 2001,
+  "metrics": {
+    "roc_auc": 1.0,
+    "f1_score": 0.9927,
+    "precision": 0.9855,
+    "recall": 1.0,
+    "baseline_lr_roc": 1.0,
+    "random_forest_roc": 1.0
+  },
+  "feature_names": [
+    "temperature",
+    "rpm",
+    "pressure",
+    "vibration",
+    "operating_hours",
+    "temp_pressure_index",
+    "vibration_wear_index",
+    "rpm_vibration_ratio"
+  ],
+  "base_features": [
+    "temperature",
+    "rpm",
+    "pressure",
+    "vibration",
+    "operating_hours"
+  ]
+}
