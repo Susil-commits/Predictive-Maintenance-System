@@ -8,7 +8,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -164,19 +164,34 @@ def run_pipeline():
     rf_f1 = f1_score(y_test, y_pred_rf)
     print(f"Random Forest -> ROC-AUC: {rf_roc:.4f}, F1: {rf_f1:.4f}")
     
-    # Model 3: XGBoost (Final Production Model)
-    print("\n--- Training Model 3: XGBoost (Final Model) ---")
-    xgb = XGBClassifier(
-        n_estimators=180,
-        max_depth=5,
-        learning_rate=0.06,
+    # Model 3: XGBoost with Hyperparameter Tuning (Final Production Model)
+    print("\n--- Training Model 3: XGBoost with GridSearchCV ---")
+    param_grid = {
+        'n_estimators': [100, 150, 200],
+        'max_depth': [3, 4, 5],
+        'learning_rate': [0.03, 0.06, 0.1]
+    }
+    base_xgb = XGBClassifier(
         scale_pos_weight=pos_weight * 0.85,
         subsample=0.85,
         colsample_bytree=0.85,
         random_state=42,
         eval_metric='logloss'
     )
-    xgb.fit(X_train, y_train)
+    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+    grid_search = GridSearchCV(
+        estimator=base_xgb,
+        param_grid=param_grid,
+        scoring='roc_auc',
+        cv=cv,
+        n_jobs=-1,
+        verbose=1
+    )
+    grid_search.fit(X_train, y_train)
+    xgb = grid_search.best_estimator_
+    best_params = grid_search.best_params_
+    print(f"GridSearchCV best params: {best_params} (best CV ROC-AUC: {grid_search.best_score_:.4f})")
+    
     y_pred_xgb = xgb.predict(X_test)
     y_prob_xgb = xgb.predict_proba(X_test)[:, 1]
     xgb_roc = roc_auc_score(y_test, y_prob_xgb)
@@ -184,7 +199,7 @@ def run_pipeline():
     xgb_prec = precision_score(y_test, y_pred_xgb)
     xgb_rec = recall_score(y_test, y_pred_xgb)
     
-    print(f"XGBoost -> ROC-AUC: {xgb_roc:.4f}, F1: {xgb_f1:.4f}, Precision: {xgb_prec:.4f}, Recall: {xgb_rec:.4f}")
+    print(f"Tuned XGBoost -> ROC-AUC: {xgb_roc:.4f}, F1: {xgb_f1:.4f}, Precision: {xgb_prec:.4f}, Recall: {xgb_rec:.4f}")
     print("\nXGBoost Detailed Classification Report:")
     print(classification_report(y_test, y_pred_xgb, target_names=['Normal', 'Failure Risk']))
     
@@ -287,12 +302,9 @@ def run_pipeline():
         print(f"[MLflow] Tracking URI: {tracking_uri}")
         
         # A. Log Parameters
-        mlflow.log_params({
+        mlflow_params = {
             "model_type": "XGBoostClassifier",
             "model_version": next_version,
-            "n_estimators": 180,
-            "max_depth": 5,
-            "learning_rate": 0.06,
             "subsample": 0.85,
             "colsample_bytree": 0.85,
             "scale_pos_weight": round(pos_weight * 0.85, 4),
@@ -303,7 +315,9 @@ def run_pipeline():
             "lr_max_iter": 1000,
             "training_samples": len(X_train),
             "test_samples": len(X_test)
-        })
+        }
+        mlflow_params.update(best_params)
+        mlflow.log_params(mlflow_params)
         
         # B. Log Metrics
         mlflow.log_metrics({
@@ -356,6 +370,7 @@ def run_pipeline():
             "baseline_lr_roc": round(float(lr_roc), 4),
             "random_forest_roc": round(float(rf_roc), 4)
         },
+        "best_params": best_params,
         "feature_names": feature_cols,
         "base_features": base_features
     }

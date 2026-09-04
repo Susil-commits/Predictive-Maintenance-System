@@ -87,21 +87,23 @@ def download_and_prepare_dataset():
     
     # Feature mapping to equipment telemetry
     # 1. Temperature: Vehicle / machinery engine & hydraulic temp (normal 70-85°C, high >90°C)
-    # Scaled from process temp & thermal stress
-    temp_base = 68.0 + (df['process_temp'] - df['process_temp'].min()) / (df['process_temp'].max() - df['process_temp'].min() + 1e-5) * 22.0
+    # Scaled from process temp & thermal stress, physically coupled with load and wear friction
+    proc_temp_norm = (df['process_temp'] - df['process_temp'].min()) / (df['process_temp'].max() - df['process_temp'].min() + 1e-5)
+    temp_base = 68.0 + proc_temp_norm * 20.0
+    torque_norm = (df['torque'] - df['torque'].min()) / (df['torque'].max() - df['torque'].min() + 1e-5)
+    wear_norm = (df['tool_wear'] - df['tool_wear'].min()) / (df['tool_wear'].max() - df['tool_wear'].min() + 1e-5)
+    
     temp_noise = np.random.normal(0, 1.2, n)
-    temperature = temp_base + df['failure'] * 6.5 + temp_noise
+    temperature = temp_base + torque_norm * 4.5 + wear_norm * 3.5 + temp_noise
     
     # 2. RPM: 1000 - 3200 RPM
     rpm = df['rotational_speed'].clip(1000, 3200).round()
     
-    # 3. Pressure: 18 - 42 bar (derived from Torque/load)
-    torque_norm = (df['torque'] - df['torque'].min()) / (df['torque'].max() - df['torque'].min() + 1e-5)
-    pressure = 20.0 + torque_norm * 16.0 + df['failure'] * 3.5 + np.random.normal(0, 0.8, n)
+    # 3. Pressure: 18 - 42 bar (derived from Torque/load & wear resistance)
+    pressure = 20.0 + torque_norm * 17.0 + wear_norm * 2.5 + np.random.normal(0, 0.8, n)
     
-    # 4. Vibration: 0.15 - 0.95 g (derived from tool wear + load dynamics + failure indicator)
-    wear_norm = (df['tool_wear'] - df['tool_wear'].min()) / (df['tool_wear'].max() - df['tool_wear'].min() + 1e-5)
-    vibration = 0.20 + wear_norm * 0.28 + torque_norm * 0.15 + df['failure'] * 0.24 + np.random.normal(0, 0.04, n)
+    # 4. Vibration: 0.15 - 0.95 g (derived from tool wear + load dynamics + harmonic interaction)
+    vibration = 0.20 + wear_norm * 0.38 + torque_norm * 0.18 + (wear_norm * torque_norm) * 0.12 + np.random.normal(0, 0.04, n)
     vibration = vibration.clip(0.10, 1.25)
     
     # 5. Operating Hours: 500 - 5500 hours
