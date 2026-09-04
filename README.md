@@ -1,39 +1,70 @@
-# 🔧 Predictive Maintenance System (PMS)
+# Predictive Maintenance System (PMS)
 
-An end-to-end industrial vehicle and heavy machinery predictive maintenance platform. Given sensor operating telemetry, the system evaluates failure risk, computes failure probability, provides explainable diagnostics using **SHAP (SHapley Additive exPlanations)**, logs every inference into **PostgreSQL**, and visualizes real-time metrics on an interactive **React** dashboard.
-
----
-
-## 🏛️ Architecture
-
-```
-Public Industrial Dataset (UCI AI4I 2020)
-                  ↓
-Data Cleaning & Industrial Telemetry Mapping
-                  ↓
-Exploratory Data Analysis (EDA)
-                  ↓
-Feature Engineering (Dynamic Harmonic & Stress Indices)
-                  ↓
-Model Hierarchy:
-  • Logistic Regression (Baseline)
-  • Random Forest (Ensemble)
-  • XGBoost (Final Production Model)
-                  ↓
-SHAP TreeExplainer Attribution
-                  ↓
-FastAPI Backend (POST /predict, GET /health, GET /model-info, GET /history, GET /metrics)
-                  ↓
-PostgreSQL Audit Log (Supabase / Local)
-                  ↓
-React + Vite Interactive Dashboard
-```
+An end-to-end machine learning platform for industrial equipment predictive maintenance. The system analyzes operating telemetry in real time to assess equipment failure risk, generates explainable diagnostics using SHAP, monitors statistical data drift, logs inference records, and provides operational visibility through a React dashboard and Prometheus/Grafana metrics.
 
 ---
 
-## 📊 Telemetry Interface
+## Features
 
-### Input Schema (`POST /predict`)
+- **Failure Risk Prediction**: Real-time failure probability and risk tier classification (`LOW`, `MEDIUM`, `HIGH`) using hyperparameter-tuned XGBoost.
+- **Model Explainability**: Per-prediction feature attribution via SHAP (SHapley Additive exPlanations) TreeExplainer, identifying key operational drivers behind elevated risk scores.
+- **Data Drift Detection**: Automated statistical drift checks (Kolmogorov-Smirnov test and Wasserstein distance) comparing incoming telemetry batches against baseline reference distributions.
+- **Inference Persistence**: Structured persistence of all inference requests, predicted risk scores, and contributing factors in PostgreSQL (with automatic SQLite fallback).
+- **Interactive Dashboard**: Modern React + Vite frontend featuring real-time telemetry inputs, preset scenario loading, historical audit logging, and drift analysis.
+- **Production Observability**: Prometheus instrumentation (`/metrics` endpoint) and pre-configured Grafana dashboards for throughput and latency tracking.
+
+---
+
+## Architecture
+
+```
+                      Industrial Telemetry Input
+                     (Temperature, RPM, Pressure,
+                    Vibration, Operating Hours)
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │      FastAPI Server     │
+                    └────────────┬────────────┘
+                                 │
+         ┌───────────────────────┼───────────────────────┐
+         ▼                       ▼                       ▼
+┌──────────────────┐   ┌───────────────────┐   ┌──────────────────┐
+│   XGBoost Model  │   │  SHAP Explainer   │   │  Drift Detector  │
+│ (Risk / Prob.)   │   │ (TreeExplainer)   │   │ (KS-Test / Drift)│
+└────────┬─────────┘   └─────────┬─────────┘   └────────┬─────────┘
+         │                       │                      │
+         └───────────────────────┼──────────────────────┘
+                                 │
+                                 ▼
+                     ┌───────────────────────┐
+                     │ PostgreSQL / SQLite   │
+                     └───────────┬───────────┘
+                                 │
+                 ┌───────────────┴───────────────┐
+                 ▼                               ▼
+       ┌───────────────────┐           ┌───────────────────┐
+       │  React Dashboard  │           │ Prometheus/Grafana│
+       └───────────────────┘           └───────────────────┘
+```
+
+---
+
+## API Reference
+
+### Endpoints
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `POST` | `/predict` | Ingests telemetry, returns failure risk, probability, and SHAP factors |
+| `GET` | `/drift` | Runs statistical drift analysis against baseline reference data |
+| `GET` | `/history` | Returns recent inference records and predictions |
+| `GET` | `/model-info` | Returns active model metadata, parameters, and baseline metrics |
+| `GET` | `/metrics` | Exposes Prometheus application metrics |
+| `GET` | `/health` | Health check endpoint |
+
+### Example Request (`POST /predict`)
+
 ```json
 {
   "temperature": 92.4,
@@ -44,7 +75,8 @@ React + Vite Interactive Dashboard
 }
 ```
 
-### Output Schema
+### Example Response
+
 ```json
 {
   "failure_risk": "HIGH",
@@ -87,89 +119,120 @@ React + Vite Interactive Dashboard
 
 ---
 
-## 📈 Model Performance & Validation
+## Model Training & Evaluation
 
-The telemetry mapping strictly models physical machine coupling (torque, tool wear, thermal stress) without artificial label injection, preventing data leakage. Models are tuned using 3-fold stratified cross-validation via `GridSearchCV`.
+The model is trained on the UCI AI4I 2020 Predictive Maintenance Dataset with physical coupling indicators (thermal stress index, mechanical power demand, and harmonic pressure ratio). Hyperparameters are tuned using 3-fold stratified cross-validation via `GridSearchCV`, utilizing `scale_pos_weight` to address class imbalance and maximize detection recall.
 
-| Model | ROC-AUC | F1-Score | Recall | Precision | Notes |
+### Evaluation Results
+
+| Model | ROC-AUC | F1-Score | Recall | Precision | Configuration |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Logistic Regression** (Baseline) | 0.8368 | 0.2017 | 0.7794 | 0.1170 | Linear baseline with standard scaling |
-| **Random Forest** (Ensemble) | 0.9423 | 0.3897 | 0.7794 | 0.2585 | 150 trees, balanced class weights |
-| **XGBoost (Tuned Production)** | **0.9416** | **0.3382** | **0.8529** | **0.2109** | **Best parameters:** `max_depth: 3, n_estimators: 100, learning_rate: 0.06` |
+| **Logistic Regression** (Baseline) | 0.8368 | 0.2017 | 0.7794 | 0.1170 | Standard scaling, L2 regularization |
+| **Random Forest** | 0.9423 | 0.3897 | 0.7794 | 0.2585 | 150 estimators, balanced class weights |
+| **XGBoost** (Production) | **0.9416** | **0.3382** | **0.8529** | **0.2109** | `max_depth: 3`, `n_estimators: 100`, `learning_rate: 0.06` |
 
-- **High Recall Focus**: In predictive maintenance, missing an equipment failure (false negative) is catastrophic. The model achieves **85.3% recall** on the failure class using cost-sensitive positive weighting (`scale_pos_weight`).
-- **Explainability**: SHAP TreeExplainer delivers exact per-instance log-odds attribution, highlighting primary failure drivers (RPM dynamics, cumulative wear, and harmonic vibration) for field engineers.
+Experiment metrics, reference statistics, and serialized artifacts are tracked via MLflow and exported to `ml/model.pkl`, `ml/scaler.pkl`, and `ml/reference_stats.json`.
 
 ---
 
-## 🚀 Getting Started
+## Project Structure
 
-### 1. Prerequisites
+```
+Predictive-Maintenance-System/
+├── backend/
+│   ├── main.py              # FastAPI application entrypoint & routing
+│   ├── predictor.py         # XGBoost & SHAP inference engine
+│   ├── drift_detector.py    # Statistical drift detection module
+│   ├── database.py          # SQLAlchemy engine and session management
+│   ├── models.py            # Database schema definitions
+│   ├── schemas.py           # Pydantic request/response schemas
+│   └── tests/               # API integration test suite
+├── frontend/
+│   ├── src/                 # React UI components, dashboard & styles
+│   └── package.json         # Frontend dependencies & scripts
+├── ml/
+│   ├── train.py             # Model training, tuning, and MLflow logging
+│   ├── dataset_loader.py    # Ingestion & feature preprocessing
+│   └── model_info.json      # Model metadata and evaluation metrics
+├── prometheus/              # Prometheus scraping configuration
+├── docker-compose.yml       # Multi-service stack deployment
+└── Dockerfile.backend       # Container definition for FastAPI service
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
 - Python 3.10+
 - Node.js 18+ and npm
-- PostgreSQL (or automated SQLite fallback)
+- Docker and Docker Compose (optional for containerized deployment)
 
-### 2. Backend Setup
+### 1. Local Backend Setup
+
 ```bash
 # Clone repository
 git clone https://github.com/Susil-commits/Predictive-Maintenance-System.git
 cd Predictive-Maintenance-System
 
-# Create virtual environment
+# Set up virtual environment
 python -m venv .venv
-source .venv/bin/activate   # Linux/macOS
-# or .\.venv\Scripts\activate on Windows
+source .venv/bin/activate    # On Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r backend/requirements.txt
 
-# Configure environment
+# Configure environment variables
 cp .env.example .env
-# Edit .env with your DATABASE_URL
 
-# Train ML model & download dataset
+# Train the model and generate reference artifacts
 python ml/train.py
 
 # Start FastAPI server
 uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Interactive Swagger API Documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+Interactive OpenAPI documentation is accessible at `http://localhost:8000/docs`.
 
-### 3. Frontend Dashboard Setup
+### 2. Local Frontend Setup
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Dashboard UI will be live at: [http://localhost:5173](http://localhost:5173)
+Dashboard will be accessible at `http://localhost:5173`.
 
 ---
 
-## 🐳 Docker Deployment
+## Containerized Deployment (Docker Compose)
 
-To launch the full production stack (PostgreSQL, FastAPI Backend, React Frontend, Prometheus, and Grafana):
+To launch the complete infrastructure stack including the API, frontend, PostgreSQL, Prometheus, and Grafana:
 
 ```bash
 docker-compose up --build -d
 ```
 
-- **Frontend Dashboard**: [http://localhost:3000](http://localhost:3000)
-- **API Backend**: [http://localhost:8000](http://localhost:8000)
-- **Prometheus Metrics**: [http://localhost:9090](http://localhost:9090)
-- **Grafana Monitoring**: [http://localhost:3001](http://localhost:3001)
+| Service | URL |
+| :--- | :--- |
+| **Frontend Dashboard** | `http://localhost:3000` |
+| **FastAPI Backend** | `http://localhost:8000` |
+| **Prometheus Server** | `http://localhost:9090` |
+| **Grafana Monitoring** | `http://localhost:3001` |
 
 ---
 
-## 🧪 Testing
+## Testing
 
-Run backend integration test suite:
+Execute the backend integration and API test suite:
+
 ```bash
 pytest backend/tests/test_api.py -v
 ```
 
 ---
 
-## 📄 License
-MIT License
+## License
+
+This project is licensed under the MIT License.
