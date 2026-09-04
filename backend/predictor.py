@@ -46,8 +46,14 @@ class MaintenancePredictor:
                 self.mlflow_run_id = self.metadata.get("mlflow_run_id")
                 self.threshold = float(self.metadata.get("decision_threshold", 0.50))
                     
-        # Initialize SHAP explainer for the tree-based model
-        self.explainer = shap.TreeExplainer(self.model)
+        # Initialize SHAP explainer for the tree-based model (extract base estimator if calibrated)
+        tree_model = self.model
+        if hasattr(self.model, "calibrated_classifiers_") and self.model.calibrated_classifiers_:
+            tree_model = self.model.calibrated_classifiers_[0].estimator
+        elif hasattr(self.model, "estimator"):
+            tree_model = self.model.estimator
+
+        self.explainer = shap.TreeExplainer(tree_model)
         print(f"Model ({self.version}) and SHAP explainer successfully loaded (Decision Threshold: {self.threshold:.4f}).")
 
     def engineer_features(self, input_dict: dict) -> pd.DataFrame:
@@ -55,11 +61,13 @@ class MaintenancePredictor:
         df['temp_pressure_index'] = (df['temperature'] * df['pressure']) / 100.0
         df['vibration_wear_index'] = df['vibration'] * (df['operating_hours'] / 1000.0)
         df['rpm_vibration_ratio'] = (df['rpm'] * df['vibration']) / 1000.0
-        return df[self.feature_names]
+        return pd.DataFrame(df[self.feature_names])
 
     def predict(self, input_dict: dict, threshold: Optional[float] = None) -> dict:
-        if self.model is None:
+        if self.model is None or self.explainer is None:
             self.load_model()
+        if self.model is None or self.explainer is None:
+            raise RuntimeError("Model or SHAP explainer failed to load")
 
         active_threshold = self.threshold if threshold is None else float(threshold)
 

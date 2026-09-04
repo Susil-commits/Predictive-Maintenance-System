@@ -28,6 +28,7 @@ class PredictionOutput(BaseModel):
 class ModelInfoResponse(BaseModel):
     model_name: str
     version: str
+    calibration: Optional[Dict[str, Any]] = None
     mlflow_run_id: Optional[str] = None
     mlflow_experiment: Optional[str] = None
     trained_date: str

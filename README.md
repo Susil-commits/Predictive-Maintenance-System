@@ -1,13 +1,28 @@
 # Predictive Maintenance System (PMS)
 
-An end-to-end machine learning platform for industrial equipment predictive maintenance. The system analyzes operating telemetry in real time to assess equipment failure risk, generates explainable diagnostics using SHAP, monitors statistical data drift, logs inference records, and provides operational visibility through a React dashboard and Prometheus/Grafana metrics.
+[![PMS CI Pipeline](https://github.com/Susil-commits/Predictive-Maintenance-System/actions/workflows/ci.yml/badge.svg)](https://github.com/Susil-commits/Predictive-Maintenance-System/actions/workflows/ci.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
+[![XGBoost](https://img.shields.io/badge/XGBoost-Calibrated-EB5424)](https://xgboost.readthedocs.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+> **Live Deployments & Quick Links:**
+> - 🌐 **Production Frontend (Vercel)**: [https://pms-frontend.vercel.app](https://pms-frontend.vercel.app) *(or your deployed Vercel URL)*
+> - ⚡ **Production API (Render)**: [https://pms-backend.onrender.com](https://pms-backend.onrender.com)
+> - 📖 **Interactive Swagger Docs**: [https://pms-backend.onrender.com/docs](https://pms-backend.onrender.com/docs)
+> - 📊 **Prometheus Metrics**: [https://pms-backend.onrender.com/metrics](https://pms-backend.onrender.com/metrics)
+
+An end-to-end machine learning platform for industrial equipment predictive maintenance. The system analyzes operating telemetry in real time to assess equipment failure risk, delivers statistically calibrated probabilities via `CalibratedClassifierCV`, generates explainable diagnostics using SHAP, monitors statistical data drift, logs inference records, and provides operational visibility through a React dashboard and Prometheus/Grafana metrics.
 
 ---
 
 ## Features
 
-- **Failure Risk Prediction**: Real-time failure probability and risk tier classification (`LOW`, `MEDIUM`, `HIGH`) using hyperparameter-tuned XGBoost.
+- **Calibrated Failure Risk Prediction**: Real-time failure probability and risk tier classification (`LOW`, `HIGH`) using hyperparameter-tuned XGBoost wrapped in `CalibratedClassifierCV` (Platt sigmoid calibration) to ensure predicted probabilities reflect true empirical risk.
+- **Rate-Limited Inference API**: Protected by `slowapi` rate limiting (60 requests/minute per client) to prevent abuse and denial-of-service.
+- **Administrative Key Authentication**: Mutating operations (`DELETE /history`, `POST /retrain`) are secured by an `X-API-Key` administrative header check.
 - **Model Explainability**: Per-prediction feature attribution via SHAP (SHapley Additive exPlanations) TreeExplainer, identifying key operational drivers behind elevated risk scores.
+- **Multi-Model Benchmark**: Comprehensive performance comparison across Logistic Regression, Random Forest, LightGBM, uncalibrated XGBoost, and calibrated XGBoost.
 - **Data Drift Monitoring**: Population Stability Index (PSI) tracking comparing incoming telemetry distributions against baseline reference distributions, triggering automated alerts when PSI exceeds industry thresholds (<0.10 stable, 0.10–0.25 warning, ≥0.25 significant drift).
 - **Inference Persistence**: Structured persistence of all inference requests, predicted risk scores, and contributing factors in PostgreSQL (with automatic SQLite fallback).
 - **Interactive Dashboard**: Modern React + Vite frontend featuring real-time telemetry inputs, preset scenario loading, historical audit logging, and drift analysis.
@@ -54,17 +69,17 @@ An end-to-end machine learning platform for industrial equipment predictive main
 
 ### Endpoints
 
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `POST` | `/predict` | Ingests telemetry, returns failure risk, probability, and SHAP factors |
-| `GET` | `/drift-status` | Evaluates Population Stability Index (PSI) drift against baseline reference |
-| `POST` | `/drift-status/reset` | Reloads baseline reference statistics from model training |
-| `GET` | `/history` | Returns recent inference records and predictions |
-| `DELETE` | `/history` | Clears prediction audit history (for development & demo reset) |
-| `POST` | `/retrain` | Triggers background model retraining and hot-reload upon drift |
-| `GET` | `/model-info` | Returns active model metadata, parameters, and baseline metrics |
-| `GET` | `/metrics` | Exposes Prometheus application and drift metrics |
-| `GET` | `/health` | Health check endpoint returning system, model, and DB status |
+| Method | Path | Auth / Limits | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/predict` | Rate-limited (`60/min`) | Ingests telemetry, returns calibrated failure risk, probability, and SHAP factors |
+| `GET` | `/drift-status` | Public | Evaluates Population Stability Index (PSI) drift against baseline reference |
+| `POST` | `/drift-status/reset` | Public | Reloads baseline reference statistics from model training |
+| `GET` | `/history` | Public | Returns recent inference records and predictions |
+| `DELETE` | `/history` | **Admin API Key** (`X-API-Key`) | Clears prediction audit history (for development & demo reset) |
+| `POST` | `/retrain` | **Admin API Key** (`X-API-Key`) | Triggers background model retraining and hot-reload upon drift |
+| `GET` | `/model-info` | Public | Returns active model metadata, parameters, calibration metrics, and benchmarks |
+| `GET` | `/metrics` | Public | Exposes Prometheus application and drift metrics |
+| `GET` | `/health` | Public | Health check endpoint returning system, model, and DB status |
 
 ### Example Request (`POST /predict`)
 
@@ -129,22 +144,28 @@ The model is trained on the UCI AI4I 2020 Predictive Maintenance Dataset with ph
 
 ### Evaluation Results
 
-| Model | ROC-AUC | F1-Score | Recall | Precision | Configuration |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **Logistic Regression** (Baseline) | 0.8368 | 0.2017 | 0.7794 | 0.1170 | Standard scaling, L2 regularization |
-| **Random Forest** | 0.9423 | 0.3897 | 0.7794 | 0.2585 | 150 estimators, balanced class weights |
-| **XGBoost** (Default 0.50 Cutoff) | 0.9398 | 0.3583 | 0.8088 | 0.2301 | `scale_pos_weight: 28.21`, default 0.50 cutoff |
-| **XGBoost** (PR-Tuned Production) | **0.9398** | **0.4462** | **0.4265** | **0.4677** | `scale_pos_weight: 28.21`, optimal threshold `0.8367` |
+| Model | ROC-AUC | F1-Score | Brier Score Loss | Recall | Precision | Configuration / Notes |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Logistic Regression** (Baseline) | 0.8368 | 0.2017 | 0.1398 | 0.7794 | 0.1170 | Standard scaling, balanced weights |
+| **Random Forest** | 0.9423 | 0.3897 | 0.0529 | 0.7794 | 0.2585 | 150 estimators, balanced class weights |
+| **LightGBM** | 0.9389 | 0.4142 | 0.0342 | 0.7353 | 0.2874 | 150 estimators, `scale_pos_weight: 28.21` |
+| **XGBoost** (Uncalibrated, 0.50 Cutoff) | 0.9398 | 0.1111 | 0.0638 | 0.0588 | 1.0000 | GridSearchCV tuned, uncalibrated probabilities |
+| **Calibrated XGBoost** (PR-Tuned Production) | **0.9489** | **0.4966** | **0.0237** | **0.5294** | **0.4675** | `CalibratedClassifierCV` (sigmoid, cv=3), threshold `0.2619` |
+
+### Probability Calibration & Brier Score Loss
+
+- **Why Calibration Matters**: While tree-based models (like XGBoost and Random Forest) yield strong discriminative ranking (high ROC-AUC), their raw output scores are frequently distorted by extreme gradient boosting iterations and class reweighting (`scale_pos_weight`). Consequently, a predicted score of "0.70" does not mean a 70% chance of failure—it is merely a relative ranking score.
+- **Platt Sigmoid Scaling (`CalibratedClassifierCV`)**: Using 3-fold cross-validated Platt scaling maps raw decision values through a calibrated sigmoid transformation, aligning predicted probabilities with true empirical event frequencies.
+- **Quantifiable Error Reduction**: The Brier Score Loss drops from **0.0638** (uncalibrated XGBoost) to **0.0237** (calibrated XGBoost)—a **62.9% reduction in probabilistic error**. This ensures that threshold tuning operates on trustworthy probabilities rather than arbitrary monotonic ranks.
 
 ### Class Imbalance & Threshold Tuning Insights
 
 > **"AUC 0.94 but low precision is class imbalance + default threshold, not a broken model"**
 
 - **Class Imbalance Dynamics**: In industrial equipment telemetry, failures represent ~3.4% of total observations (9,663 normal vs. 342 failure records, an approximate 28:1 ratio).
-- **Impact of `scale_pos_weight`**: Setting `scale_pos_weight = (neg_count / pos_count)` (28.21) scales the gradient loss of positive minority instances by 28.2x, preventing the model from collapsing to the majority class. However, this shifts the raw predicted probabilities upward.
-- **Why Default 0.5 Cutoff Underperforms**: Using the unadjusted 0.50 cutoff captures high recall (80.88%) but incurs false positives, yielding a low precision of 23.01% and an F1 score of 0.3583.
-- **Precision-Recall Curve Tuning**: Instead of the default 0.50 cutoff, the decision threshold is tuned across the Precision-Recall curve to maximize the $F_1$-score. Tuning to **0.8367** elevates Precision from **0.2301 to 0.4677** (+103% improvement) and increases overall $F_1$ from **0.3583 to 0.4462** while maintaining an excellent ROC-AUC of **0.9398**.
-- **Operational Reality & Honest Metric Assessment**: At the tuned threshold, the model achieves **Precision 0.47 / Recall 0.43 / F1 0.45** (alongside ROC-AUC 0.94). In an operational environment, this means roughly half of flagged "HIGH risk" warnings are false alarms, and over half of actual failures may still be missed. Rather than claiming off-the-shelf production readiness, this reflects legitimate, explainable boundaries of a small synthetic dataset (~340 total failure records). It demonstrates rigorous MLOps practice—transparently navigating the precision/recall tradeoff rather than chasing misleading accuracy.
+- **Impact of `scale_pos_weight`**: Setting `scale_pos_weight = (neg_count / pos_count)` (28.21) scales the gradient loss of positive minority instances by 28.2x, preventing the model from collapsing to the majority class.
+- **Precision-Recall Curve Tuning**: Instead of the default 0.50 cutoff, the decision threshold is tuned across the Precision-Recall curve to maximize the $F_1$-score. Tuning to **0.2619** on calibrated probabilities elevates $F_1$ to **0.4966** while maintaining an exceptional ROC-AUC of **0.9489**.
+- **Operational Reality & Honest Metric Assessment**: At the tuned threshold, the model achieves **Precision 0.47 / Recall 0.53 / F1 0.50** (alongside ROC-AUC 0.95 and Brier 0.0237). In an operational environment, this means roughly half of flagged "HIGH risk" warnings are actionable alerts. Rather than claiming 99% off-the-shelf accuracy on an imbalanced dataset, this demonstrates rigorous MLOps practice—transparently calibrating probabilities and navigating the precision/recall tradeoff.
 
 ### Next-Step Production Enhancements
 
@@ -254,19 +275,19 @@ pytest backend/tests/test_api.py -v
 
 ---
 
-## Known Limitations & Production Roadmap
+## Security Controls & Production Roadmap
 
-This system is built as a technical demonstration and reference architecture for industrial ML systems. The following intentional trade-offs and roadmap items are recognized:
-
-1. **Authentication & Authorization (Zero-Trust API)**:
-   - **Current State**: Endpoints such as `DELETE /history` (which purges inference history) and `POST /retrain` (which initiates background model retraining) are currently unauthenticated to facilitate immediate local development and interactive review.
-   - **Production Roadmap**: Introduce API Key or OAuth2 / JWT bearer authentication, restricting mutating or administrative operations (`DELETE /history`, `POST /retrain`, `/drift-status/reset`) to authorized MLOps administrators and automated pipelines.
-2. **CORS Policy & Origin Isolation**:
+1. **Authentication & Authorization (Active Control / Resolved)**:
+   - **Implemented**: Mutating and resource-intensive administrative operations (`DELETE /history` to purge audit records and `POST /retrain` to trigger background retraining) are guarded by an `X-API-Key` administrative header matching `PMS_API_KEY`. Unauthenticated requests are rejected with `401 Unauthorized`.
+   - **Production Roadmap**: Introduce OAuth2/OIDC JWT tokens with fine-grained role-based access control (RBAC) for multi-tenant organizational hierarchy.
+2. **Rate Limiting & Abuse Prevention (Active Control / Resolved)**:
+   - **Implemented**: The core inference endpoint (`POST /predict`) is shielded against automated abuse and traffic bursts via `slowapi` rate limiting (60 requests per minute per IP), answering security concerns before they become production vulnerabilities.
+3. **CORS Policy & Origin Isolation**:
    - Configured with `allow_origins=["*"]` and `allow_credentials=False` to strictly satisfy W3C CORS standards while avoiding wildcard credential rejection in modern browsers. Enterprise deployments should restrict `allow_origins` to explicitly enumerated company domains.
-3. **Training Worker Isolation**:
+4. **Training Worker Isolation**:
    - **Current State**: Retraining runs as an asynchronous background subprocess on the application host.
    - **Production Roadmap**: Decouple heavy training workloads from the inference API by dispatching tasks to dedicated distributed worker queues (e.g., Celery, Redis Queue, Argo Workflows, or Kubeflow).
-4. **Telemetry Realism & Dataset Size**:
+5. **Telemetry Realism & Dataset Size**:
    - Synthetic telemetry provides clean statistical properties but lacks non-stationary industrial sensor degradation patterns, intermittent communication drops, and multi-mode mechanical failure progressions present in field deployments.
 
 ---

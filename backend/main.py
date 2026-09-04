@@ -6,8 +6,11 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, status
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, status, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -29,6 +32,8 @@ try:
 except Exception as e:
     print(f"Table creation note: {e}")
 
+limiter = Limiter(key_func=get_remote_address)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
@@ -39,6 +44,21 @@ app = FastAPI(
     version="1.1.0",
     lifespan=lifespan
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+def require_admin_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
+    """
+    Lightweight administrative API key check for destructive or resource-intensive operations
+    (DELETE /history and POST /retrain). Converts documented known limitation into an active control.
+    """
+    expected_key = os.getenv("PMS_API_KEY", "pms-admin-secret-key")
+    if not x_api_key or x_api_key != expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key. Provide a valid 'X-API-Key' header."
+        )
+    return x_api_key
 
 # Operational & Drift metrics
 METRICS = {
@@ -114,7 +134,12 @@ def get_model_info():
     return metadata
 
 @app.post("/predict", response_model=PredictionOutput, tags=["Prediction"])
-def predict_maintenance(input_data: PredictionInput, db: Session = Depends(get_db)):
+@limiter.limit("60/minute")
+def predict_maintenance(
+    request: Request,
+    input_data: PredictionInput,
+    db: Session = Depends(get_db)
+):
     """
     Given vehicle/equipment telemetry, predicts failure risk, probability,
     and computes SHAP-based feature contributions. Logs result to PostgreSQL/database.
@@ -196,9 +221,13 @@ def get_prediction_history(
         )
 
 @app.delete("/history", tags=["History"])
-def clear_prediction_history(db: Session = Depends(get_db)):
+def clear_prediction_history(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(require_admin_api_key)
+):
     """
     Clears logged history (useful for dashboard resetting).
+    Requires administrative API key ('X-API-Key' header).
     """
     try:
         num_deleted = db.query(PredictionRecord).delete()
@@ -274,9 +303,13 @@ def execute_retraining():
         print(f"[Retraining] Pipeline error: {e}")
 
 @app.post("/retrain", tags=["MLOps"])
-def trigger_retraining(background_tasks: BackgroundTasks):
+def trigger_retraining(
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(require_admin_api_key)
+):
     """
     Triggers the training pipeline in the background to address data/model drift.
+    Requires administrative API key ('X-API-Key' header).
     Increments model version (v1 -> v2 -> v3), logs to MLflow, and reloads model.
     """
     background_tasks.add_task(execute_retraining)

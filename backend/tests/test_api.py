@@ -152,7 +152,13 @@ def test_prometheus_drift_metrics():
     assert "pms_drift_max_psi" in content
 
 def test_delete_history():
-    response = client.delete("/history")
+    # Calling without API key should be rejected with 401 Unauthorized
+    unauth_response = client.delete("/history")
+    assert unauth_response.status_code == 401
+    assert "Invalid or missing API key" in unauth_response.json()["detail"]
+
+    # Calling with valid admin API key succeeds
+    response = client.delete("/history", headers={"X-API-Key": "pms-admin-secret-key"})
     assert response.status_code == 200
     data = response.json()
     assert "message" in data
@@ -185,10 +191,30 @@ def test_cors_preflight_headers():
 def test_retrain_endpoint(monkeypatch):
     mock_called = []
     monkeypatch.setattr("backend.main.execute_retraining", lambda: mock_called.append(True))
-    response = client.post("/retrain")
+    
+    # Missing API key should return 401
+    unauth_res = client.post("/retrain")
+    assert unauth_res.status_code == 401
+    assert "Invalid or missing API key" in unauth_res.json()["detail"]
+    assert len(mock_called) == 0
+
+    # With valid API key should return 200
+    response = client.post("/retrain", headers={"X-API-Key": "pms-admin-secret-key"})
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "retraining_initiated"
     assert "current_version" in data
     assert len(mock_called) == 1
+
+def test_rate_limiter_allows_requests():
+    # Verify rate limiter correctly handles request object on /predict
+    payload = {
+        "temperature": 70.0,
+        "rpm": 1800,
+        "pressure": 20.0,
+        "vibration": 0.20,
+        "operating_hours": 1000
+    }
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 200
 

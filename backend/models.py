@@ -28,7 +28,7 @@ class PredictionRecord(Base):
     def to_dict(self):
         return {
             "prediction_id": self.prediction_id,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": self.timestamp.isoformat() if self.timestamp is not None else None,
             "input_features": {
                 "temperature": self.temperature,
                 "rpm": self.rpm,
@@ -37,7 +37,7 @@ class PredictionRecord(Base):
                 "operating_hours": self.operating_hours,
             },
             "failure_risk": self.failure_risk,
-            "probability": round(float(self.probability), 4),
+            "probability": round(float(self.probability), 4) if self.probability is not None else 0.0,  # type: ignore
             "maintenance_required": self.maintenance_required,
             "contributing_factors": self.contributing_factors or [],
             "shap_values": self.shap_values or {}
