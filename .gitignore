@@ -22,6 +22,7 @@ ENV/
 pms.db
 mlruns/
 mlartifacts/
+mlflow/
 
 # Node / Frontend
 frontend/node_modules/

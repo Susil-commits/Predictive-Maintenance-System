@@ -23,6 +23,7 @@ class PredictionOutput(BaseModel):
     prediction_id: Optional[str] = None
     timestamp: Optional[str] = None
     model_version: Optional[str] = None
+    decision_threshold: Optional[float] = Field(None, description="Optimal decision threshold tuned via Precision-Recall curve", json_schema_extra={"example": 0.84})
 
 class ModelInfoResponse(BaseModel):
     model_name: str
@@ -33,6 +34,7 @@ class ModelInfoResponse(BaseModel):
     dataset_source: str
     total_training_samples: int
     total_test_samples: int
+    decision_threshold: Optional[float] = None
     metrics: Dict[str, Any]
     feature_names: List[str]
     base_features: List[str]

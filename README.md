@@ -80,37 +80,38 @@ An end-to-end machine learning platform for industrial equipment predictive main
 ```json
 {
   "failure_risk": "HIGH",
-  "probability": 0.9616,
+  "probability": 0.9734,
   "maintenance_required": true,
+  "decision_threshold": 0.8367,
   "contributing_factors": [
     {
       "factor": "RPM",
-      "impact": 1.8775,
-      "importance": 1.8775,
+      "impact": 1.6461,
+      "importance": 1.6461,
       "description": "Rotational speed and dynamic rotor stresses"
     },
     {
       "factor": "Operating Hours",
-      "impact": 1.4799,
-      "importance": 1.4799,
+      "impact": 1.4402,
+      "importance": 1.4402,
       "description": "Cumulative service wear and fatigue aging"
     },
     {
       "factor": "Vibration",
-      "impact": 0.5538,
-      "importance": 0.5538,
+      "impact": 0.3850,
+      "importance": 0.3850,
       "description": "Harmonic oscillation and mechanical instability"
     },
     {
       "factor": "Pressure",
-      "impact": -0.4172,
-      "importance": 0.4172,
+      "impact": -0.2105,
+      "importance": 0.2105,
       "description": "Hydraulic / pneumatic system pressure loading"
     },
     {
       "factor": "Temperature",
-      "impact": -0.1763,
-      "importance": 0.1763,
+      "impact": -0.1524,
+      "importance": 0.1524,
       "description": "Thermal stress on cooling and lubrication circuits"
     }
   ]
@@ -121,7 +122,7 @@ An end-to-end machine learning platform for industrial equipment predictive main
 
 ## Model Training & Evaluation
 
-The model is trained on the UCI AI4I 2020 Predictive Maintenance Dataset with physical coupling indicators (thermal stress index, mechanical power demand, and harmonic pressure ratio). Hyperparameters are tuned using 3-fold stratified cross-validation via `GridSearchCV`, utilizing `scale_pos_weight` to address class imbalance and maximize detection recall.
+The model is trained on the UCI AI4I 2020 Predictive Maintenance Dataset with physical coupling indicators (thermal stress index, mechanical power demand, and harmonic pressure ratio). Hyperparameters are tuned using 3-fold stratified cross-validation via `GridSearchCV`, utilizing `scale_pos_weight = (neg_count / pos_count)` to address severe class imbalance.
 
 ### Evaluation Results
 
@@ -129,9 +130,25 @@ The model is trained on the UCI AI4I 2020 Predictive Maintenance Dataset with ph
 | :--- | :---: | :---: | :---: | :---: | :--- |
 | **Logistic Regression** (Baseline) | 0.8368 | 0.2017 | 0.7794 | 0.1170 | Standard scaling, L2 regularization |
 | **Random Forest** | 0.9423 | 0.3897 | 0.7794 | 0.2585 | 150 estimators, balanced class weights |
-| **XGBoost** (Production) | **0.9416** | **0.3382** | **0.8529** | **0.2109** | `max_depth: 3`, `n_estimators: 100`, `learning_rate: 0.06` |
+| **XGBoost** (Default 0.50 Cutoff) | 0.9398 | 0.3583 | 0.8088 | 0.2301 | `scale_pos_weight: 28.21`, default 0.50 cutoff |
+| **XGBoost** (PR-Tuned Production) | **0.9398** | **0.4462** | **0.4265** | **0.4677** | `scale_pos_weight: 28.21`, optimal threshold `0.8367` |
 
-Experiment metrics, reference statistics, and serialized artifacts are tracked via MLflow and exported to `ml/model.pkl`, `ml/scaler.pkl`, and `ml/reference_stats.json`.
+### Class Imbalance & Threshold Tuning Insights
+
+> **"AUC 0.94 but low precision is class imbalance + default threshold, not a broken model"**
+
+- **Class Imbalance Dynamics**: In industrial equipment telemetry, failures represent ~3.4% of total observations (9,663 normal vs. 342 failure records, an approximate 28:1 ratio).
+- **Impact of `scale_pos_weight`**: Setting `scale_pos_weight = (neg_count / pos_count)` (28.21) scales the gradient loss of positive minority instances by 28.2x, preventing the model from collapsing to the majority class. However, this shifts the raw predicted probabilities upward.
+- **Why Default 0.5 Cutoff Underperforms**: Using the unadjusted 0.50 cutoff captures high recall (80.88%) but incurs false positives, yielding a low precision of 23.01% and an F1 score of 0.3583.
+- **Precision-Recall Curve Tuning**: Instead of the default 0.50 cutoff, the decision threshold is tuned across the Precision-Recall curve to maximize the $F_1$-score. Tuning to **0.8367** elevates Precision from **0.2301 to 0.4677** (+103% improvement) and increases overall $F_1$ from **0.3583 to 0.4462** while maintaining an excellent ROC-AUC of **0.9398**.
+
+### Next-Step Production Enhancements
+
+1. **SMOTE / ADASYN**: Introduce Synthetic Minority Over-sampling Technique (SMOTE) or ADASYN to interpolate synthetic failure instances along feature boundaries, complementing algorithmic weight scaling.
+2. **Cost-Sensitive Learning**: Formalize an operational cost matrix balancing the financial cost of an unscheduled catastrophic downtime event ($C_{\text{FN}}$) against the marginal cost of a preventive inspection ($C_{\text{FP}}$) to directly optimize business expected value.
+3. **More Failure Samples**: Ingest real-world telemetry from extended fleet deployments, accelerated wear test rigs, and hardware failure simulations to augment the empirical representation of mechanical failure modes.
+
+Experiment metrics, reference statistics, serialized artifacts, and the Precision-Recall plot are tracked via MLflow and exported to `ml/model.pkl`, `ml/scaler.pkl`, `ml/pr_curve.png`, and `ml/reference_stats.json`.
 
 ---
 

@@ -1,5 +1,6 @@
 import os
 import json
+from typing import Optional, Dict, Any, List
 import joblib
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ class MaintenancePredictor:
         self.explainer = None
         self.metadata = {}
         self.version = "1.0.0"
+        self.threshold = 0.50
         self.mlflow_run_id = None
         self.feature_names = [
             'temperature',
@@ -42,10 +44,11 @@ class MaintenancePredictor:
                     self.feature_names = self.metadata["feature_names"]
                 self.version = self.metadata.get("version", "1.0.0")
                 self.mlflow_run_id = self.metadata.get("mlflow_run_id")
+                self.threshold = float(self.metadata.get("decision_threshold", 0.50))
                     
         # Initialize SHAP explainer for the tree-based model
         self.explainer = shap.TreeExplainer(self.model)
-        print(f"Model ({self.version}) and SHAP explainer successfully loaded.")
+        print(f"Model ({self.version}) and SHAP explainer successfully loaded (Decision Threshold: {self.threshold:.4f}).")
 
     def engineer_features(self, input_dict: dict) -> pd.DataFrame:
         df = pd.DataFrame([input_dict])
@@ -54,18 +57,20 @@ class MaintenancePredictor:
         df['rpm_vibration_ratio'] = (df['rpm'] * df['vibration']) / 1000.0
         return df[self.feature_names]
 
-    def predict(self, input_dict: dict) -> dict:
+    def predict(self, input_dict: dict, threshold: Optional[float] = None) -> dict:
         if self.model is None:
             self.load_model()
+
+        active_threshold = self.threshold if threshold is None else float(threshold)
 
         X = self.engineer_features(input_dict)
         probabilities = self.model.predict_proba(X)[0]
         # Probability of class 1 (Failure Risk)
         failure_prob = float(probabilities[1])
         
-        # Risk thresholding
-        risk = "HIGH" if failure_prob >= 0.50 else "LOW"
-        maintenance_required = failure_prob >= 0.50
+        # Risk thresholding tuned via Precision-Recall curve
+        risk = "HIGH" if failure_prob >= active_threshold else "LOW"
+        maintenance_required = failure_prob >= active_threshold
 
         # SHAP calculation for single instance
         shap_raw = self.explainer.shap_values(X)[0]
@@ -110,7 +115,8 @@ class MaintenancePredictor:
             "maintenance_required": maintenance_required,
             "contributing_factors": contributing_factors,
             "shap_values": shap_dict,
-            "model_version": self.version
+            "model_version": self.version,
+            "decision_threshold": round(active_threshold, 4)
         }
 
 # Global singleton

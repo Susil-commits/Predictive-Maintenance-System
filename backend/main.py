@@ -118,14 +118,23 @@ def predict_maintenance(input_data: PredictionInput, db: Session = Depends(get_d
     """
     Given vehicle/equipment telemetry, predicts failure risk, probability,
     and computes SHAP-based feature contributions. Logs result to PostgreSQL/database.
+    Applies the decision threshold tuned via Precision-Recall curve.
     """
+    # Active decision threshold tuned via Precision-Recall curve (defaulting to 0.50 if not specified)
+    threshold = getattr(predictor, "threshold", 0.50)
     try:
-        pred_result = predictor.predict(input_data.model_dump())
+        pred_result = predictor.predict(input_data.model_dump(), threshold=threshold)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Inference error: {str(e)}"
         )
+
+    # Explicitly enforce PR-tuned decision threshold in prediction classification logic
+    failure_risk = "HIGH" if pred_result["probability"] >= threshold else "LOW"
+    pred_result["failure_risk"] = failure_risk
+    pred_result["maintenance_required"] = (pred_result["probability"] >= threshold)
+    pred_result["decision_threshold"] = threshold
 
     # Update Prometheus counters
     METRICS["total_predictions"] += 1

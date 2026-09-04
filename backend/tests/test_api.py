@@ -91,6 +91,33 @@ def test_prediction_output_includes_version():
     assert "model_version" in data
     assert data["model_version"] is not None
 
+def test_prediction_tuned_decision_threshold():
+    # Verify model-info contains tuned decision_threshold
+    info_res = client.get("/model-info")
+    assert info_res.status_code == 200
+    info_data = info_res.json()
+    assert "decision_threshold" in info_data
+    threshold = info_data["decision_threshold"]
+    assert threshold is not None
+    assert 0.1 <= threshold <= 0.99
+
+    # Verify predict output exposes the tuned decision threshold and applies it correctly
+    payload = {
+        "temperature": 92.4,
+        "rpm": 2800,
+        "pressure": 31.5,
+        "vibration": 0.64,
+        "operating_hours": 4820
+    }
+    pred_res = client.post("/predict", json=payload)
+    assert pred_res.status_code == 200
+    pred_data = pred_res.json()
+    assert "decision_threshold" in pred_data
+    assert pred_data["decision_threshold"] == threshold
+    expected_risk = "HIGH" if pred_data["probability"] >= threshold else "LOW"
+    assert pred_data["failure_risk"] == expected_risk
+    assert pred_data["maintenance_required"] == (pred_data["probability"] >= threshold)
+
 def test_drift_status_endpoint():
     # Generate a few predictions to have samples in DB
     for _ in range(6):
