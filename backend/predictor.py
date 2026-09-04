@@ -14,6 +14,8 @@ class MaintenancePredictor:
         self.model = None
         self.explainer = None
         self.metadata = {}
+        self.version = "1.0.0"
+        self.mlflow_run_id = None
         self.feature_names = [
             'temperature',
             'rpm',
@@ -38,10 +40,12 @@ class MaintenancePredictor:
                 self.metadata = json.load(f)
                 if "feature_names" in self.metadata:
                     self.feature_names = self.metadata["feature_names"]
+                self.version = self.metadata.get("version", "1.0.0")
+                self.mlflow_run_id = self.metadata.get("mlflow_run_id")
                     
         # Initialize SHAP explainer for the tree-based model
         self.explainer = shap.TreeExplainer(self.model)
-        print("Model and SHAP explainer successfully loaded.")
+        print(f"Model ({self.version}) and SHAP explainer successfully loaded.")
 
     def engineer_features(self, input_dict: dict) -> pd.DataFrame:
         df = pd.DataFrame([input_dict])
@@ -105,7 +109,8 @@ class MaintenancePredictor:
             "probability": round(failure_prob, 4),
             "maintenance_required": maintenance_required,
             "contributing_factors": contributing_factors,
-            "shap_values": shap_dict
+            "shap_values": shap_dict,
+            "model_version": self.version
         }
 
 # Global singleton

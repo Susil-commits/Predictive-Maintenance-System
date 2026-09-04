@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Cpu, Server } from 'lucide-react';
+import { Activity, Cpu } from 'lucide-react';
 
 export default function Header({ health, modelInfo }) {
   const isHealthy = health?.status === 'healthy';
@@ -22,7 +22,7 @@ export default function Header({ health, modelInfo }) {
         {modelInfo?.metrics?.roc_auc && (
           <div className="model-badge">
             <Cpu size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
-            XGBoost • ROC-AUC {(modelInfo.metrics.roc_auc * 100).toFixed(1)}%
+            XGBoost {modelInfo.version ? `[${modelInfo.version}]` : ''} • ROC-AUC {(modelInfo.metrics.roc_auc * 100).toFixed(1)}%
           </div>
         )}
         <div className="status-chip" title={isHealthy ? "API and Inference Engine Operational" : "Connecting to API..."}>

@@ -22,6 +22,28 @@ from sklearn.metrics import (
 )
 from xgboost import XGBClassifier
 import shap
+import mlflow
+import mlflow.sklearn
+import mlflow.xgboost
+
+def determine_next_version(metadata_path: str) -> str:
+    """
+    Computes the next incremental model version: v1 -> v2 -> v3 ...
+    """
+    if not os.path.exists(metadata_path):
+        return "v1"
+    try:
+        with open(metadata_path, "r") as f:
+            meta = json.load(f)
+            curr = str(meta.get("version", "v0"))
+            if curr.startswith("v") and curr[1:].isdigit():
+                return f"v{int(curr[1:]) + 1}"
+            elif curr == "1.0.0":
+                return "v2"
+            else:
+                return "v2"
+    except Exception:
+        return "v1"
 
 ML_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(os.path.dirname(ML_DIR), "data", "equipment_maintenance_data.csv")
@@ -205,17 +227,123 @@ def run_pipeline():
     for i, factor in enumerate(factors[:4], 1):
         print(f"  {i}. {factor['feature']}: {factor['impact']:+.3f}")
     
-    # 7. Save Model Artifacts
+    # 7. Save Model Artifacts, Reference Stats, and Log with MLflow
     model_file = os.path.join(ML_DIR, "model.pkl")
     scaler_file = os.path.join(ML_DIR, "scaler.pkl")
     metadata_file = os.path.join(ML_DIR, "model_info.json")
+    ref_stats_file = os.path.join(ML_DIR, "reference_stats.json")
     
+    next_version = determine_next_version(metadata_file)
+    print(f"\n[Versioning] Promoting model version to: {next_version}")
+    
+    # Save local joblib files for low-latency production fallback
     joblib.dump(xgb, model_file)
     joblib.dump(scaler, scaler_file)
     
+    # Compute baseline reference distribution for production drift detection
+    base_features = ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours']
+    features_stats = {}
+    for feat in base_features:
+        series = df[feat]
+        quantiles = np.linspace(0, 1, 11)
+        bin_edges = np.unique(np.percentile(series, quantiles * 100))
+        counts, _ = np.histogram(series, bins=bin_edges)
+        expected_pct = (counts / len(series)).tolist()
+        features_stats[feat] = {
+            "mean": round(float(series.mean()), 4),
+            "std": round(float(series.std()), 4),
+            "min": round(float(series.min()), 4),
+            "max": round(float(series.max()), 4),
+            "bin_edges": [round(float(b), 4) for b in bin_edges],
+            "expected_pct": [round(float(p), 4) for p in expected_pct]
+        }
+    
+    reference_stats = {
+        "model_version": next_version,
+        "generated_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "sample_count": len(df),
+        "features": features_stats
+    }
+    with open(ref_stats_file, "w") as f:
+        json.dump(reference_stats, f, indent=2)
+    print(f"Saved drift reference statistics to {ref_stats_file}")
+
+    # Configure MLflow tracking (SQLite database supports the full MLflow Model Registry)
+    db_path = os.path.abspath(os.path.join(os.path.dirname(ML_DIR), "mlflow.db"))
+    default_tracking_uri = f"sqlite:///{db_path.replace(os.sep, '/')}"
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", default_tracking_uri)
+    os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
+    mlflow.set_tracking_uri(tracking_uri)
+    experiment_name = "Predictive-Maintenance-System"
+    try:
+        mlflow.set_experiment(experiment_name)
+    except Exception as exp_err:
+        print(f"[MLflow] Experiment setup note: {exp_err}")
+
+    mlflow_run_id = None
+    with mlflow.start_run(run_name=f"PMS_Training_{next_version}") as run:
+        mlflow_run_id = run.info.run_id
+        print(f"[MLflow] Active Run ID: {mlflow_run_id}")
+        print(f"[MLflow] Tracking URI: {tracking_uri}")
+        
+        # A. Log Parameters
+        mlflow.log_params({
+            "model_type": "XGBoostClassifier",
+            "model_version": next_version,
+            "n_estimators": 180,
+            "max_depth": 5,
+            "learning_rate": 0.06,
+            "subsample": 0.85,
+            "colsample_bytree": 0.85,
+            "scale_pos_weight": round(pos_weight * 0.85, 4),
+            "random_state": 42,
+            "eval_metric": "logloss",
+            "rf_n_estimators": 150,
+            "rf_max_depth": 8,
+            "lr_max_iter": 1000,
+            "training_samples": len(X_train),
+            "test_samples": len(X_test)
+        })
+        
+        # B. Log Metrics
+        mlflow.log_metrics({
+            "xgb_roc_auc": round(float(xgb_roc), 4),
+            "xgb_f1_score": round(float(xgb_f1), 4),
+            "xgb_precision": round(float(xgb_prec), 4),
+            "xgb_recall": round(float(xgb_rec), 4),
+            "baseline_lr_roc": round(float(lr_roc), 4),
+            "baseline_lr_f1": round(float(lr_f1), 4),
+            "random_forest_roc": round(float(rf_roc), 4),
+            "random_forest_f1": round(float(rf_f1), 4)
+        })
+        
+        # C. Log Artifacts
+        if os.path.exists(eda_plot_path):
+            mlflow.log_artifact(eda_plot_path, artifact_path="eda")
+        if os.path.exists(shap_plot_path):
+            mlflow.log_artifact(shap_plot_path, artifact_path="explainability")
+        if os.path.exists(scaler_file):
+            mlflow.log_artifact(scaler_file, artifact_path="preprocessing")
+        if os.path.exists(ref_stats_file):
+            mlflow.log_artifact(ref_stats_file, artifact_path="drift_baseline")
+            
+        # D. Log Model and Register with MLflow Model Registry
+        try:
+            mlflow.xgboost.log_model(
+                xgb_model=xgb,
+                artifact_path="model",
+                registered_model_name="PMS-XGBoost"
+            )
+            print("[MLflow] Model registered as 'PMS-XGBoost' in Model Registry")
+        except Exception as reg_err:
+            print(f"[MLflow] Model registry registration note: {reg_err}")
+
+    # Update model metadata JSON with version and MLflow run ID
     model_metadata = {
         "model_name": "XGBoost Classifier",
-        "version": "1.0.0",
+        "version": next_version,
+        "mlflow_run_id": mlflow_run_id,
+        "mlflow_experiment": experiment_name,
         "trained_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         "dataset_source": "UCI AI4I 2020 Predictive Maintenance Dataset",
         "total_training_samples": len(X_train),
@@ -229,7 +357,7 @@ def run_pipeline():
             "random_forest_roc": round(float(rf_roc), 4)
         },
         "feature_names": feature_cols,
-        "base_features": ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours']
+        "base_features": base_features
     }
     
     with open(metadata_file, "w") as f:
@@ -238,7 +366,7 @@ def run_pipeline():
     print(f"\nSaved model to {model_file}")
     print(f"Saved scaler to {scaler_file}")
     print(f"Saved metadata to {metadata_file}")
-    print("Training pipeline completed successfully!")
+    print("Training pipeline and MLOps tracking completed successfully!")
 
 if __name__ == "__main__":
     run_pipeline()

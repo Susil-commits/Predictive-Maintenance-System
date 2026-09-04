@@ -35,4 +35,20 @@ export const clearHistory = async () => {
   return response.data;
 };
 
+export const getDriftStatus = async () => {
+  const response = await api.get('/drift-status');
+  return response.data;
+};
+
+export const resetDriftStatus = async () => {
+  const response = await api.post('/drift-status/reset');
+  return response.data;
+};
+
+export const triggerRetrain = async () => {
+  const response = await api.post('/retrain');
+  return response.data;
+};
+
 export default api;
+

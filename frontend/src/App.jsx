@@ -4,7 +4,8 @@ import PresetBar from './components/PresetBar';
 import TelemetryForm from './components/TelemetryForm';
 import PredictionResult from './components/PredictionResult';
 import HistoryTable from './components/HistoryTable';
-import { getHealth, getModelInfo, predictMaintenance, getHistory, clearHistory } from './api';
+import DriftMonitor from './components/DriftMonitor';
+import { getHealth, getModelInfo, predictMaintenance, getHistory, clearHistory, getDriftStatus } from './api';
 
 export default function App() {
   // Default initialized with user's exact specification
@@ -20,27 +21,30 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [health, setHealth] = useState(null);
   const [modelInfo, setModelInfo] = useState(null);
+  const [driftStatus, setDriftStatus] = useState(null);
   const [history, setHistory] = useState([]);
   const [errorMsg, setErrorMsg] = useState(null);
 
+  const fetchSystemStatus = async () => {
+    try {
+      const [healthRes, infoRes, historyRes, driftRes] = await Promise.all([
+        getHealth().catch(() => null),
+        getModelInfo().catch(() => null),
+        getHistory().catch(() => []),
+        getDriftStatus().catch(() => null)
+      ]);
+
+      if (healthRes) setHealth(healthRes);
+      if (infoRes) setModelInfo(infoRes);
+      if (historyRes) setHistory(historyRes);
+      if (driftRes) setDriftStatus(driftRes);
+    } catch (err) {
+      console.warn("Status fetch warning:", err);
+    }
+  };
+
   // Initial data loading
   useEffect(() => {
-    const fetchSystemStatus = async () => {
-      try {
-        const [healthRes, infoRes, historyRes] = await Promise.all([
-          getHealth().catch(() => null),
-          getModelInfo().catch(() => null),
-          getHistory().catch(() => [])
-        ]);
-
-        if (healthRes) setHealth(healthRes);
-        if (infoRes) setModelInfo(infoRes);
-        if (historyRes) setHistory(historyRes);
-      } catch (err) {
-        console.warn("Initial status fetch warning:", err);
-      }
-    };
-
     fetchSystemStatus();
   }, []);
 
@@ -72,9 +76,13 @@ export default function App() {
       const pred = await predictMaintenance(formData);
       setResult(pred);
 
-      // Refresh history
-      const updatedHistory = await getHistory();
+      // Refresh history & drift metrics
+      const [updatedHistory, updatedDrift] = await Promise.all([
+        getHistory().catch(() => []),
+        getDriftStatus().catch(() => null)
+      ]);
       setHistory(updatedHistory);
+      if (updatedDrift) setDriftStatus(updatedDrift);
     } catch (err) {
       console.error("Prediction error:", err);
       setErrorMsg(
@@ -125,6 +133,12 @@ export default function App() {
 
         <PredictionResult result={result} />
       </div>
+
+      <DriftMonitor
+        driftStatus={driftStatus}
+        modelInfo={modelInfo}
+        onRefresh={fetchSystemStatus}
+      />
 
       <HistoryTable
         history={history}

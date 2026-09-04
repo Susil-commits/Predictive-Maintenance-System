@@ -28,8 +28,20 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://pms_user:pms_secret@db:5432/pms_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     ports:
       - "8000:8000"
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: pms-mlflow
+    restart: unless-stopped
+    command: mlflow server --backend-store-uri sqlite:////app/mlflow.db --default-artifact-root /app/mlruns --host 0.0.0.0 --port 5000
+    volumes:
+      - ./mlflow.db:/app/mlflow.db
+      - ./mlruns:/app/mlruns
+    ports:
+      - "5000:5000"
 
   frontend:
     build:

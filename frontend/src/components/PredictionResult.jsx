@@ -33,7 +33,9 @@ export default function PredictionResult({ result }) {
           <ShieldAlert size={20} className="panel-icon" />
           Health Evaluation & Explanation
         </h2>
-        <span className="field-unit">SHAP TREE-EXPLAINER</span>
+        <span className="field-unit">
+          SHAP TREE-EXPLAINER {result.model_version ? `• ${result.model_version.toUpperCase()}` : ''}
+        </span>
       </div>
 
       <div className="results-container">

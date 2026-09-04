@@ -16,10 +16,12 @@ venv/
 ENV/
 .pytest_cache/
 
-# Databases
+# Databases & MLOps
 *.db
 *.sqlite3
 pms.db
+mlruns/
+mlartifacts/
 
 # Node / Frontend
 frontend/node_modules/
