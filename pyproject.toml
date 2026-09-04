@@ -11,3 +11,8 @@ venv = ".venv"
 extraPaths = [
     ".venv/Lib/site-packages"
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["backend/tests"]
+

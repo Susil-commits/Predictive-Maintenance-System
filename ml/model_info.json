@@ -1,9 +1,9 @@
 {
   "model_name": "XGBoost Classifier",
-  "version": "v10",
-  "mlflow_run_id": "66bd4009a2254cceb2957a7069831a03",
+  "version": "v11",
+  "mlflow_run_id": "6e55b906aea649c2a0fce449f69da8de",
   "mlflow_experiment": "Predictive-Maintenance-System",
-  "trained_date": "2026-09-04 14:54:42",
+  "trained_date": "2026-09-04 15:21:24",
   "dataset_source": "UCI AI4I 2020 Predictive Maintenance Dataset",
   "total_training_samples": 8004,
   "total_test_samples": 2001,

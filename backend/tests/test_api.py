@@ -151,9 +151,44 @@ def test_prometheus_drift_metrics():
     assert "pms_drift_detected" in content
     assert "pms_drift_max_psi" in content
 
-def test_retrain_endpoint():
+def test_delete_history():
+    response = client.delete("/history")
+    assert response.status_code == 200
+    data = response.json()
+    assert "message" in data
+    assert "Successfully deleted" in data["message"]
+
+    # Verify history is now empty
+    hist_response = client.get("/history")
+    assert hist_response.status_code == 200
+    assert len(hist_response.json()) == 0
+
+def test_predict_invalid_input():
+    # Sending invalid data (e.g. string instead of float or missing fields)
+    response = client.post("/predict", json={"temperature": "invalid_string"})
+    assert response.status_code == 422
+
+def test_cors_preflight_headers():
+    response = client.options(
+        "/predict",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "*"
+    # Verify allow-credentials is not set to true when wildcard origin is returned
+    assert response.headers.get("access-control-allow-credentials") != "true"
+
+def test_retrain_endpoint(monkeypatch):
+    mock_called = []
+    monkeypatch.setattr("backend.main.execute_retraining", lambda: mock_called.append(True))
     response = client.post("/retrain")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "retraining_initiated"
     assert "current_version" in data
+    assert len(mock_called) == 1
+

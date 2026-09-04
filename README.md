@@ -8,7 +8,7 @@ An end-to-end machine learning platform for industrial equipment predictive main
 
 - **Failure Risk Prediction**: Real-time failure probability and risk tier classification (`LOW`, `MEDIUM`, `HIGH`) using hyperparameter-tuned XGBoost.
 - **Model Explainability**: Per-prediction feature attribution via SHAP (SHapley Additive exPlanations) TreeExplainer, identifying key operational drivers behind elevated risk scores.
-- **Data Drift Detection**: Automated statistical drift checks (Kolmogorov-Smirnov test and Wasserstein distance) comparing incoming telemetry batches against baseline reference distributions.
+- **Data Drift Monitoring**: Population Stability Index (PSI) tracking comparing incoming telemetry distributions against baseline reference distributions, triggering automated alerts when PSI exceeds industry thresholds (<0.10 stable, 0.10–0.25 warning, ≥0.25 significant drift).
 - **Inference Persistence**: Structured persistence of all inference requests, predicted risk scores, and contributing factors in PostgreSQL (with automatic SQLite fallback).
 - **Interactive Dashboard**: Modern React + Vite frontend featuring real-time telemetry inputs, preset scenario loading, historical audit logging, and drift analysis.
 - **Production Observability**: Prometheus instrumentation (`/metrics` endpoint) and pre-configured Grafana dashboards for throughput and latency tracking.
@@ -31,7 +31,7 @@ An end-to-end machine learning platform for industrial equipment predictive main
          ▼                       ▼                       ▼
 ┌──────────────────┐   ┌───────────────────┐   ┌──────────────────┐
 │   XGBoost Model  │   │  SHAP Explainer   │   │  Drift Detector  │
-│ (Risk / Prob.)   │   │ (TreeExplainer)   │   │ (KS-Test / Drift)│
+│ (Risk / Prob.)   │   │ (TreeExplainer)   │   │ (PSI Drift Engine)│
 └────────┬─────────┘   └─────────┬─────────┘   └────────┬─────────┘
          │                       │                      │
          └───────────────────────┼──────────────────────┘
@@ -57,11 +57,14 @@ An end-to-end machine learning platform for industrial equipment predictive main
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `POST` | `/predict` | Ingests telemetry, returns failure risk, probability, and SHAP factors |
-| `GET` | `/drift` | Runs statistical drift analysis against baseline reference data |
+| `GET` | `/drift-status` | Evaluates Population Stability Index (PSI) drift against baseline reference |
+| `POST` | `/drift-status/reset` | Reloads baseline reference statistics from model training |
 | `GET` | `/history` | Returns recent inference records and predictions |
+| `DELETE` | `/history` | Clears prediction audit history (for development & demo reset) |
+| `POST` | `/retrain` | Triggers background model retraining and hot-reload upon drift |
 | `GET` | `/model-info` | Returns active model metadata, parameters, and baseline metrics |
-| `GET` | `/metrics` | Exposes Prometheus application metrics |
-| `GET` | `/health` | Health check endpoint |
+| `GET` | `/metrics` | Exposes Prometheus application and drift metrics |
+| `GET` | `/health` | Health check endpoint returning system, model, and DB status |
 
 ### Example Request (`POST /predict`)
 
@@ -141,6 +144,7 @@ The model is trained on the UCI AI4I 2020 Predictive Maintenance Dataset with ph
 - **Impact of `scale_pos_weight`**: Setting `scale_pos_weight = (neg_count / pos_count)` (28.21) scales the gradient loss of positive minority instances by 28.2x, preventing the model from collapsing to the majority class. However, this shifts the raw predicted probabilities upward.
 - **Why Default 0.5 Cutoff Underperforms**: Using the unadjusted 0.50 cutoff captures high recall (80.88%) but incurs false positives, yielding a low precision of 23.01% and an F1 score of 0.3583.
 - **Precision-Recall Curve Tuning**: Instead of the default 0.50 cutoff, the decision threshold is tuned across the Precision-Recall curve to maximize the $F_1$-score. Tuning to **0.8367** elevates Precision from **0.2301 to 0.4677** (+103% improvement) and increases overall $F_1$ from **0.3583 to 0.4462** while maintaining an excellent ROC-AUC of **0.9398**.
+- **Operational Reality & Honest Metric Assessment**: At the tuned threshold, the model achieves **Precision 0.47 / Recall 0.43 / F1 0.45** (alongside ROC-AUC 0.94). In an operational environment, this means roughly half of flagged "HIGH risk" warnings are false alarms, and over half of actual failures may still be missed. Rather than claiming off-the-shelf production readiness, this reflects legitimate, explainable boundaries of a small synthetic dataset (~340 total failure records). It demonstrates rigorous MLOps practice—transparently navigating the precision/recall tradeoff rather than chasing misleading accuracy.
 
 ### Next-Step Production Enhancements
 
@@ -247,6 +251,23 @@ Execute the backend integration and API test suite:
 ```bash
 pytest backend/tests/test_api.py -v
 ```
+
+---
+
+## Known Limitations & Production Roadmap
+
+This system is built as a technical demonstration and reference architecture for industrial ML systems. The following intentional trade-offs and roadmap items are recognized:
+
+1. **Authentication & Authorization (Zero-Trust API)**:
+   - **Current State**: Endpoints such as `DELETE /history` (which purges inference history) and `POST /retrain` (which initiates background model retraining) are currently unauthenticated to facilitate immediate local development and interactive review.
+   - **Production Roadmap**: Introduce API Key or OAuth2 / JWT bearer authentication, restricting mutating or administrative operations (`DELETE /history`, `POST /retrain`, `/drift-status/reset`) to authorized MLOps administrators and automated pipelines.
+2. **CORS Policy & Origin Isolation**:
+   - Configured with `allow_origins=["*"]` and `allow_credentials=False` to strictly satisfy W3C CORS standards while avoiding wildcard credential rejection in modern browsers. Enterprise deployments should restrict `allow_origins` to explicitly enumerated company domains.
+3. **Training Worker Isolation**:
+   - **Current State**: Retraining runs as an asynchronous background subprocess on the application host.
+   - **Production Roadmap**: Decouple heavy training workloads from the inference API by dispatching tasks to dedicated distributed worker queues (e.g., Celery, Redis Queue, Argo Workflows, or Kubeflow).
+4. **Telemetry Realism & Dataset Size**:
+   - Synthetic telemetry provides clean statistical properties but lacks non-stationary industrial sensor degradation patterns, intermittent communication drops, and multi-mode mechanical failure progressions present in field deployments.
 
 ---
 
