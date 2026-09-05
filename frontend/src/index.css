@@ -1923,3 +1923,54 @@ body {
     justify-content: center;
   }
 }
+
+/* =================================================================
+   CLOUDINARY  —  shared cloud-link + avatar-upload-btn styles
+   ================================================================= */
+
+.cloud-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 3px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card-subtle);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.cloud-link:hover {
+  border-color: var(--border-medium);
+  color: #ffffff;
+  background: var(--bg-card-hover);
+}
+
+.avatar-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.avatar-upload-btn:hover:not(:disabled) {
+  color: var(--text-secondary);
+  border-color: var(--border-medium);
+}
+
+.avatar-upload-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

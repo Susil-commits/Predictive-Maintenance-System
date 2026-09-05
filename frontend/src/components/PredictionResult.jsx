@@ -1,16 +1,38 @@
-import React from 'react';
-import { 
-  AlertOctagon, 
-  CheckCircle2, 
-  TrendingUp, 
-  TrendingDown, 
-  Terminal, 
+import React, { useState } from 'react';
+import {
+  AlertOctagon,
+  CheckCircle2,
+  TrendingUp,
+  TrendingDown,
+  Terminal,
   ShieldAlert,
   Hash,
-  Clock
+  Clock,
+  Upload,
+  ExternalLink,
+  Loader2
 } from 'lucide-react';
+import { uploadPredictionReport, isCloudinaryConfigured } from '../cloudinary';
 
 export default function PredictionResult({ result }) {
+  const [exporting, setExporting] = useState(false);
+  const [exportUrl, setExportUrl] = useState(null);
+  const [exportErr, setExportErr] = useState('');
+
+  const handleExportReport = async () => {
+    if (!result) return;
+    setExporting(true);
+    setExportErr('');
+    try {
+      const url = await uploadPredictionReport(result, result.prediction_id || Date.now());
+      setExportUrl(url);
+    } catch (err) {
+      setExportErr(err.message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (!result) {
     return (
       <div className="glass-panel">
@@ -58,10 +80,42 @@ export default function PredictionResult({ result }) {
           <ShieldAlert size={18} className="panel-icon" />
           <span>Diagnostic Evaluation</span>
         </h2>
-        <span className="field-unit">
-          TREE-EXPLAINER {result.model_version ? `// ${result.model_version.toUpperCase()}` : ''}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="field-unit">
+            TREE-EXPLAINER {result.model_version ? `// ${result.model_version.toUpperCase()}` : ''}
+          </span>
+          {isCloudinaryConfigured() && (
+            exportUrl ? (
+              <a
+                href={exportUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="cloud-link"
+              >
+                <ExternalLink size={11} /> View Report
+              </a>
+            ) : (
+              <button
+                type="button"
+                className="preset-btn"
+                onClick={handleExportReport}
+                disabled={exporting}
+                style={{ padding: '4px 10px', gap: 6, fontSize: '0.72rem' }}
+                title="Export SHAP report to Cloudinary"
+              >
+                {exporting
+                  ? <><Loader2 size={11} className="batch-spin" /> Exporting...</>
+                  : <><Upload size={11} /> Export Report</>}
+              </button>
+            )
+          )}
+        </div>
       </div>
+      {exportErr && (
+        <div className="login-error-msg" style={{ margin: '0 0 12px', fontSize: '0.76rem' }}>
+          {exportErr}
+        </div>
+      )}
 
       <div className="results-container">
         {/* Risk Banner */}

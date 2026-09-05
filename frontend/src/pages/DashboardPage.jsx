@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Terminal, LogOut, Shield, User, Clock, Radio } from 'lucide-react';
+import { Terminal, LogOut, Shield, User, Clock, Radio, Camera } from 'lucide-react';
 import { getSession, logout, logPageAccess, getAccessLog } from '../auth';
+import { isCloudinaryConfigured } from '../cloudinary';
 
 // Existing PMS modules
 import PresetBar from '../components/PresetBar';
@@ -151,7 +152,11 @@ export default function DashboardPage({ onLogout }) {
         </div>
 
         <div className="header-status">
-          {/* Employee identity chip */}
+          {/* Employee avatar */}
+          {session?.avatarUrl
+            ? <img src={session.avatarUrl} alt={session?.name} style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border-medium)', flexShrink: 0 }} />
+            : <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#18181b', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-secondary)', flexShrink: 0 }}>{session?.name?.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()}</div>
+          }
           <div className="model-badge">
             <User size={13} />
             <span>{session?.name}</span>

@@ -2,9 +2,11 @@ import React, { useState, useRef } from 'react';
 import {
   Upload, FileText, AlertTriangle, CheckCircle2,
   BarChart3, ChevronDown, ChevronUp, Loader2, X,
-  AlertCircle, TrendingUp, TrendingDown, Download
+  AlertCircle, TrendingUp, TrendingDown, Download,
+  Cloud, ExternalLink
 } from 'lucide-react';
 import { batchPredict } from '../api';
+import { uploadBatchFile, isCloudinaryConfigured } from '../cloudinary';
 
 const ACCEPTED_EXTS = ['.csv', '.json', '.xlsx', '.parquet'];
 
@@ -90,11 +92,14 @@ function RowResult({ row, index }) {
 }
 
 export default function BatchPredict() {
-  const [dragging, setDragging] = useState(false);
-  const [file, setFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+  const [dragging, setDragging]         = useState(false);
+  const [file, setFile]                 = useState(null);
+  const [loading, setLoading]           = useState(false);
+  const [result, setResult]             = useState(null);
+  const [error, setError]               = useState(null);
+  const [cloudUrl, setCloudUrl]         = useState(null);
+  const [cloudUploading, setCloudUploading] = useState(false);
+  const [cloudProgress, setCloudProgress]   = useState(0);
   const fileInputRef = useRef();
 
   const processFile = async (f) => {
@@ -107,9 +112,24 @@ export default function BatchPredict() {
     setFile(f);
     setResult(null);
     setError(null);
+    setCloudUrl(null);
     setLoading(true);
+
+    // Run inference + Cloudinary upload in parallel
+    const inferencePromise = batchPredict(f).catch(err => ({ _error: err }));
+
+    if (isCloudinaryConfigured()) {
+      setCloudUploading(true);
+      setCloudProgress(0);
+      uploadBatchFile(f, setCloudProgress)
+        .then(r => { setCloudUrl(r.secure_url); })
+        .catch(() => { /* silent — upload is non-blocking */ })
+        .finally(() => { setCloudUploading(false); setCloudProgress(0); });
+    }
+
     try {
-      const res = await batchPredict(f);
+      const res = await inferencePromise;
+      if (res?._error) throw res._error;
       setResult(res);
     } catch (err) {
       const msg = err?.response?.data?.detail || err.message || 'Batch prediction failed';
@@ -135,6 +155,7 @@ export default function BatchPredict() {
     setFile(null);
     setResult(null);
     setError(null);
+    setCloudUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -150,11 +171,24 @@ export default function BatchPredict() {
           <span>Batch Predict</span>
           <span className="field-unit" style={{ marginLeft: 8 }}>CSV / JSON / XLSX / PARQUET</span>
         </h2>
-        {(file || result) && (
-          <button type="button" className="preset-btn" onClick={clearAll} style={{ padding: '4px 8px', fontSize: '0.7rem' }}>
-            <X size={12} /> Clear
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Cloudinary upload status */}
+          {cloudUploading && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+              <Cloud size={12} className="batch-spin" /> Storing {cloudProgress}%
+            </span>
+          )}
+          {cloudUrl && !cloudUploading && (
+            <a href={cloudUrl} target="_blank" rel="noreferrer" className="cloud-link">
+              <Cloud size={11} /> Stored File
+            </a>
+          )}
+          {(file || result) && (
+            <button type="button" className="preset-btn" onClick={clearAll} style={{ padding: '4px 8px', fontSize: '0.7rem' }}>
+              <X size={12} /> Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Drop Zone */}

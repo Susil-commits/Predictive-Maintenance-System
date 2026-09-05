@@ -3,21 +3,39 @@
  * ===================================================
  * All state is stored in localStorage. No backend required for auth.
  *
+ * Admin credentials are injected at build-time from VITE_ADMIN_USERNAME /
+ * VITE_ADMIN_PASSWORD in the .env file. They are NEVER hardcoded in source.
+ *
  * Storage layout:
- *   pms_users       → JSON array of { id, name, username, password, role, createdAt, createdBy }
- *   pms_session     → JSON { userId, username, name, role, loginAt }
+ *   pms_users       → JSON array of { id, name, username, password, role, createdAt, createdBy, avatarUrl }
+ *   pms_session     → JSON { userId, username, name, role, loginAt, avatarUrl }
  *   pms_access_log  → JSON array of { username, name, role, loginAt, page } (access tracking)
  */
 
-// ── Constants ───────────────────────────────────────────────────────────────
+// ── Admin credentials (sourced exclusively from .env — never hardcoded) ──────
 
-export const ADMIN_CREDENTIALS = {
-  username: 'PMS123@987321',
-  password: 'Susil@2004',
-  role: 'admin',
-  name: 'Administrator',
-  id: 'admin-root',
-};
+function _getAdminCredentials() {
+  const username = import.meta.env.VITE_ADMIN_USERNAME;
+  const password = import.meta.env.VITE_ADMIN_PASSWORD;
+
+  if (!username || !password) {
+    console.error(
+      '[PMS Auth] VITE_ADMIN_USERNAME or VITE_ADMIN_PASSWORD is not set in .env. ' +
+      'Admin login will not work until these environment variables are configured.'
+    );
+  }
+
+  return {
+    username: username || '__env_missing__',
+    password: password || '__env_missing__',
+    role: 'admin',
+    name: 'Administrator',
+    id: 'admin-root',
+  };
+}
+
+// Export a lazily-evaluated getter so tests / hot-reload pick up changes
+export const getAdminCredentials = _getAdminCredentials;
 
 const USERS_KEY   = 'pms_users';
 const SESSION_KEY = 'pms_session';
@@ -50,6 +68,7 @@ export function addUser({ name, username, password }) {
     role: 'employee',
     createdAt: new Date().toISOString(),
     createdBy: 'admin',
+    avatarUrl: null,   // set via updateUserAvatar()
   };
   users.push(newUser);
   saveUsers(users);
@@ -59,6 +78,36 @@ export function addUser({ name, username, password }) {
 export function deleteUser(userId) {
   const users = getUsers().filter(u => u.id !== userId);
   saveUsers(users);
+}
+
+/**
+ * Update the Cloudinary avatar URL for a user (or the admin).
+ * For admin: stored separately under pms_admin_avatar.
+ * For employees: stored on the user record in pms_users.
+ */
+export function updateUserAvatar(userId, avatarUrl) {
+  if (userId === 'admin-root') {
+    localStorage.setItem('pms_admin_avatar', avatarUrl);
+    // Also update current session if admin is logged in
+    const session = getSession();
+    if (session?.userId === 'admin-root') {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl }));
+    }
+    return;
+  }
+  const users = getUsers().map(u =>
+    u.id === userId ? { ...u, avatarUrl } : u
+  );
+  saveUsers(users);
+  // Update live session if this is the current user
+  const session = getSession();
+  if (session?.userId === userId) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl }));
+  }
+}
+
+export function getAdminAvatar() {
+  return localStorage.getItem('pms_admin_avatar') || null;
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────
@@ -85,15 +134,18 @@ export function isAdmin() {
  *   intruder: false → username known but password wrong
  */
 export function login(username, password) {
+  const ADMIN = getAdminCredentials();
+
   // Check admin first
-  if (username === ADMIN_CREDENTIALS.username) {
-    if (password === ADMIN_CREDENTIALS.password) {
+  if (username === ADMIN.username) {
+    if (password === ADMIN.password) {
       const session = {
-        userId: ADMIN_CREDENTIALS.id,
-        username: ADMIN_CREDENTIALS.username,
-        name: ADMIN_CREDENTIALS.name,
+        userId: ADMIN.id,
+        username: ADMIN.username,
+        name: ADMIN.name,
         role: 'admin',
         loginAt: new Date().toISOString(),
+        avatarUrl: getAdminAvatar(),
       };
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       _logAccess(session);
@@ -125,6 +177,7 @@ export function login(username, password) {
     name: user.name,
     role: 'employee',
     loginAt: new Date().toISOString(),
+    avatarUrl: user.avatarUrl || null,
   };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   _logAccess(session);
