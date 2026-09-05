@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Thermometer, Activity, Gauge, RotateCw, Clock,
   FileSpreadsheet, Database, Cpu, Radio, Shield,
-  BarChart3, Zap, AlertTriangle, CheckCircle2, Play,
-  Pause, RefreshCw, Eye, Layers
+  BarChart3, Zap, AlertTriangle, Play,
+  Pause, Eye
 } from 'lucide-react';
 
 const SOURCES = [
@@ -28,19 +28,7 @@ export default function TelemetryPipelineFlow() {
   const [selectedNode, setSelectedNode] = useState(null);
   const [anomalyMode, setAnomalyMode] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [viewMode, setViewMode] = useState('auto'); // 'auto' | 'map' | 'stream'
-  const [isMobile, setIsMobile] = useState(false);
 
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const effectiveView = viewMode === 'auto' ? (isMobile ? 'stream' : 'map') : viewMode;
   const activeColor = anomalyMode ? '#f43f5e' : '#10b981';
 
   return (
@@ -62,28 +50,6 @@ export default function TelemetryPipelineFlow() {
         </div>
 
         <div className="flow-actions-group">
-          {/* Responsive View Switcher for mobile & tab devices */}
-          <div className="flow-view-switcher">
-            <button
-              type="button"
-              className={`flow-view-btn ${effectiveView === 'map' ? 'active' : ''}`}
-              onClick={() => setViewMode('map')}
-              title="Full Vector Architecture Map (Shrinks to fit any device)"
-            >
-              <Layers size={11} />
-              <span>Map View</span>
-            </button>
-            <button
-              type="button"
-              className={`flow-view-btn ${effectiveView === 'stream' ? 'active' : ''}`}
-              onClick={() => setViewMode('stream')}
-              title="Mobile Vertical Live Pipeline Stream"
-            >
-              <Activity size={11} />
-              <span>Stream View</span>
-            </button>
-          </div>
-
           <button
             type="button"
             className={`flow-toggle-btn ${anomalyMode ? 'anomaly-active' : ''}`}
@@ -106,182 +72,14 @@ export default function TelemetryPipelineFlow() {
         </div>
       </div>
 
-      {effectiveView === 'stream' ? (
-        /* Dedicated Mobile & Tablet Live Vertical Pipeline Stream */
-        <div className="flow-mobile-stream">
-          {/* Stage 1: Physical Sensor Ingestion Bus */}
-          <div>
-            <div className="flow-mobile-stage-title">
-              <span>Stage 1 // Physical Ingestion Bus</span>
-              <span style={{ color: activeColor }}>500 Hz Active</span>
-            </div>
-            <div className="flow-mobile-grid">
-              {SOURCES.map((s) => {
-                const isSelected = selectedNode?.id === s.id;
-                const IconComp = s.icon;
-                const val = anomalyMode && s.id === 'temp'
-                  ? '118.6 °C [OVERHEAT]'
-                  : (anomalyMode && s.id === 'vib' ? '0.58 g [HIGH WEAR]' : s.val);
-
-                return (
-                  <div
-                    key={s.id}
-                    className={`flow-mobile-node-card ${isSelected ? (anomalyMode ? 'anomaly-selected' : 'selected') : ''}`}
-                    onClick={() => setSelectedNode(s)}
-                  >
-                    <div className="flow-mobile-node-top">
-                      <div className="flow-mobile-node-icon" style={{ color: s.color }}>
-                        <IconComp size={12} />
-                      </div>
-                      <span className="flow-mobile-node-name">{s.label}</span>
-                    </div>
-                    <span className="flow-mobile-node-sub">{s.sub}</span>
-                    <span className="flow-mobile-node-val" style={{ color: anomalyMode && (s.id === 'temp' || s.id === 'vib') ? '#f43f5e' : s.color }}>
-                      {val}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Animated Flow Conduit 1 */}
-          <div className="flow-mobile-conduit">
-            <div className={`flow-mobile-conduit-line ${anomalyMode ? 'anomaly' : ''}`}>
-              {!isPaused && <div className={`flow-mobile-conduit-pulse ${anomalyMode ? 'anomaly' : ''}`} />}
-            </div>
-            <div className="flow-mobile-conduit-badge">
-              <span className="status-dot" style={{ background: activeColor, color: activeColor }} />
-              <span>NOMINAL STREAM // 500 Hz BUS</span>
-            </div>
-            <div className={`flow-mobile-conduit-line ${anomalyMode ? 'anomaly' : ''}`}>
-              {!isPaused && <div className={`flow-mobile-conduit-pulse ${anomalyMode ? 'anomaly' : ''}`} />}
-            </div>
-          </div>
-
-          {/* Stage 2: Central Ingestion & Inference Core */}
-          <div className={`flow-mobile-core ${anomalyMode ? 'anomaly' : ''}`}>
-            <div className="flow-mobile-core-header">
-              <div className={`flow-mobile-core-rotator ${anomalyMode ? 'anomaly' : ''}`}>
-                <Cpu size={14} color={activeColor} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#ffffff' }}>
-                  CALIBRATED XGBOOST CORE
-                </span>
-                <span style={{ fontSize: '0.62rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                  v13 Engine · Platt Scaling · Latency 0.02ms
-                </span>
-              </div>
-            </div>
-
-            <div className="flow-mobile-core-modules">
-              <div
-                className="flow-mobile-core-mod"
-                onClick={() => setSelectedNode({
-                  id: 'ingest',
-                  label: 'INGESTION ENGINE',
-                  sub: '500Hz Sensory Input Validator',
-                  val: 'Fuzzy column mapping, bounds checking, NaN/Inf rejection.'
-                })}
-              >
-                INGEST (500Hz)
-              </div>
-              <div
-                className="flow-mobile-core-mod"
-                onClick={() => setSelectedNode({
-                  id: 'reduce',
-                  label: 'FEATURE ENGINEERING (REDUCE)',
-                  sub: 'Interaction Feature Generation',
-                  val: 'Computes Thermal Excess, Overstrain Index, Vibration Wear Index.'
-                })}
-              >
-                REDUCE (Features)
-              </div>
-              <div
-                className="flow-mobile-core-mod"
-                onClick={() => setSelectedNode({
-                  id: 'normalize',
-                  label: 'CALIBRATION & NORMALIZATION',
-                  sub: 'Platt Scaling & Robust Scaler',
-                  val: 'Maps model output to true calibrated posterior probabilities.'
-                })}
-              >
-                NORMALIZE (Platt)
-              </div>
-              <div
-                className="flow-mobile-core-mod"
-                onClick={() => setSelectedNode({
-                  id: 'route',
-                  label: 'INFERENCE & ROUTING CORE',
-                  sub: 'PR-Tuned Decision Threshold Engine',
-                  val: 'Evaluates XGBoost decision boundary (Threshold: 0.6444).'
-                })}
-              >
-                ROUTE (Threshold)
-              </div>
-            </div>
-          </div>
-
-          {/* Animated Flow Conduit 2 */}
-          <div className="flow-mobile-conduit">
-            <div className={`flow-mobile-conduit-line ${anomalyMode ? 'anomaly' : ''}`}>
-              {!isPaused && <div className={`flow-mobile-conduit-pulse ${anomalyMode ? 'anomaly' : ''}`} />}
-            </div>
-            <div className="flow-mobile-conduit-badge">
-              <Zap size={10} color={activeColor} />
-              <span>{anomalyMode ? 'SAFETY TRIP DISPATCH' : 'DIAGNOSTIC DISPATCH'}</span>
-            </div>
-            <div className={`flow-mobile-conduit-line ${anomalyMode ? 'anomaly' : ''}`}>
-              {!isPaused && <div className={`flow-mobile-conduit-pulse ${anomalyMode ? 'anomaly' : ''}`} />}
-            </div>
-          </div>
-
-          {/* Stage 3: Output Destinations */}
-          <div>
-            <div className="flow-mobile-stage-title">
-              <span>Stage 3 // Inference &amp; Actions</span>
-              <span style={{ color: activeColor }}>Active Output</span>
-            </div>
-            <div className="flow-mobile-grid">
-              {DESTINATIONS.map((d) => {
-                const isSelected = selectedNode?.id === d.id;
-                const IconComp = d.icon;
-                const outVal = anomalyMode && d.id === 'studio'
-                  ? 'Prob: 0.94 (HIGH RISK)'
-                  : (anomalyMode && d.id === 'trip' ? 'Status: TRIPPED (SAFETY SHUTDOWN)' : d.out);
-
-                return (
-                  <div
-                    key={d.id}
-                    className={`flow-mobile-node-card ${isSelected ? (anomalyMode ? 'anomaly-selected' : 'selected') : ''}`}
-                    onClick={() => setSelectedNode(d)}
-                  >
-                    <div className="flow-mobile-node-top">
-                      <div className="flow-mobile-node-icon" style={{ color: anomalyMode && d.id === 'trip' ? '#f43f5e' : d.color }}>
-                        <IconComp size={12} />
-                      </div>
-                      <span className="flow-mobile-node-name">{d.label}</span>
-                    </div>
-                    <span className="flow-mobile-node-sub">{d.sub}</span>
-                    <span className="flow-mobile-node-val" style={{ color: anomalyMode && (d.id === 'trip' || d.id === 'studio') ? '#f43f5e' : d.color }}>
-                      {outVal}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* Main SVG Flow Diagram Canvas (Shrinks to fit any screen with zero horizontal scrollbar / loader) */
-        <div className="flow-canvas-wrapper">
-          <svg
-            viewBox="0 0 1200 590"
-            preserveAspectRatio="xMidYMid meet"
-            className="flow-svg-canvas"
-            style={{ width: '100%', height: 'auto', display: 'block' }}
-          >
+      {/* Main SVG Flow Diagram Canvas (Shrinks fluidly to fit any screen on desktop, tablet, and mobile with zero scrollbar and zero loader) */}
+      <div className="flow-canvas-wrapper">
+        <svg
+          viewBox="0 0 1200 590"
+          preserveAspectRatio="xMidYMid meet"
+          className="flow-svg-canvas"
+          style={{ width: '100%', height: 'auto', display: 'block' }}
+        >
             <defs>
               {/* Soft Central Aura Radial Glow */}
               <radialGradient id="centerAura" cx="50%" cy="50%" r="50%">
@@ -390,9 +188,9 @@ export default function TelemetryPipelineFlow() {
             {/* 3. ANIMATED GLIDING PACKET BADGES                                 */}
             {/* ================================================================= */}
             {!isPaused && (
-              <g style={{ pointerEvents: 'none' }}>
+              <g className="flow-gliding-layer" style={{ pointerEvents: 'none' }}>
                 {/* Event Badge 1 on Source 1 (Temp) */}
-                <g>
+                <g className="flow-gliding-packet" style={{ pointerEvents: 'none' }}>
                   <animateMotion
                     path="M 205 70 C 365 70, 432 295, 512 295"
                     dur={anomalyMode ? '2.2s' : '3.6s'}
@@ -407,7 +205,7 @@ export default function TelemetryPipelineFlow() {
                 </g>
 
                 {/* Event Badge 2 on Source 2 (Vibration) */}
-                <g>
+                <g className="flow-gliding-packet" style={{ pointerEvents: 'none' }}>
                   <animateMotion
                     path="M 205 145 C 365 145, 432 295, 512 295"
                     dur={anomalyMode ? '1.9s' : '3.2s'}
@@ -422,7 +220,7 @@ export default function TelemetryPipelineFlow() {
                 </g>
 
                 {/* Event Badge 3 on Source 3 (Pressure) */}
-                <g>
+                <g className="flow-gliding-packet" style={{ pointerEvents: 'none' }}>
                   <animateMotion
                     path="M 205 220 C 365 220, 432 295, 512 295"
                     dur={anomalyMode ? '2.4s' : '3.8s'}
@@ -437,7 +235,7 @@ export default function TelemetryPipelineFlow() {
                 </g>
 
                 {/* Event Badge 4 on Source 4 (RPM) */}
-                <g>
+                <g className="flow-gliding-packet" style={{ pointerEvents: 'none' }}>
                   <animateMotion
                     path="M 205 295 C 365 295, 432 295, 512 295"
                     dur={anomalyMode ? '1.8s' : '3.0s'}
@@ -451,7 +249,7 @@ export default function TelemetryPipelineFlow() {
                 </g>
 
                 {/* Event Badge 5 on Source 6 (Operating Hours) */}
-                <g>
+                <g className="flow-gliding-packet" style={{ pointerEvents: 'none' }}>
                   <animateMotion
                     path="M 205 445 C 365 445, 432 295, 512 295"
                     dur="4.0s"
@@ -465,7 +263,7 @@ export default function TelemetryPipelineFlow() {
                 </g>
 
                 {/* Exit Trunk Badge: "ALERT" with Warning / Check icon */}
-                <g>
+                <g className="flow-gliding-packet" style={{ pointerEvents: 'none' }}>
                   <animateMotion
                     path="M 688 295 L 770 295 C 830 295, 880 190, 995 190"
                     dur={anomalyMode ? '2.1s' : '3.3s'}
@@ -486,7 +284,7 @@ export default function TelemetryPipelineFlow() {
                 </g>
 
                 {/* Output Branch Badge: "EVENT" to Cloud Storage / DB */}
-                <g>
+                <g className="flow-gliding-packet" style={{ pointerEvents: 'none' }}>
                   <animateMotion
                     path="M 770 295 C 830 295, 880 380, 995 380"
                     dur="3.4s"
@@ -635,15 +433,13 @@ export default function TelemetryPipelineFlow() {
                   className="flow-node-group"
                   transform={`translate(30, ${s.y})`}
                   onClick={() => setSelectedNode(s)}
-                  style={{ cursor: 'pointer' }}
                 >
                   {/* Rounded Pill Box */}
                   <rect
                     x="0" y="0" width="175" height="40" rx="20"
-                    fill={isSelected ? 'rgba(255,255,255,0.07)' : '#0d0d12'}
-                    stroke={isSelected ? s.color : 'rgba(255,255,255,0.12)'}
-                    strokeWidth={isSelected ? 1.8 : 1}
-                    filter={isSelected ? 'url(#nodeGlow)' : undefined}
+                    fill={isSelected ? 'rgba(255,255,255,0.1)' : '#0d0d12'}
+                    stroke={isSelected ? s.color : 'rgba(255,255,255,0.14)'}
+                    strokeWidth={isSelected ? 2 : 1}
                   />
                   {/* Node Icon */}
                   <circle cx="20" cy="20" r="11" fill="rgba(255,255,255,0.05)" />
@@ -673,15 +469,13 @@ export default function TelemetryPipelineFlow() {
                   className="flow-node-group"
                   transform={`translate(995, ${d.y})`}
                   onClick={() => setSelectedNode(d)}
-                  style={{ cursor: 'pointer' }}
                 >
                   {/* Rounded Pill Box */}
                   <rect
                     x="0" y="0" width="180" height="40" rx="20"
-                    fill={isSelected ? 'rgba(255,255,255,0.07)' : '#0d0d12'}
-                    stroke={isSelected ? d.color : (anomalyMode && d.id === 'trip' ? '#f43f5e' : 'rgba(255,255,255,0.12)')}
-                    strokeWidth={isSelected ? 1.8 : 1}
-                    filter={isSelected ? 'url(#nodeGlow)' : undefined}
+                    fill={isSelected ? 'rgba(255,255,255,0.1)' : '#0d0d12'}
+                    stroke={isSelected ? d.color : (anomalyMode && d.id === 'trip' ? '#f43f5e' : 'rgba(255,255,255,0.14)')}
+                    strokeWidth={isSelected ? 2 : 1}
                   />
                   {/* Node Icon */}
                   <circle cx="20" cy="20" r="11" fill="rgba(255,255,255,0.05)" />
@@ -700,7 +494,6 @@ export default function TelemetryPipelineFlow() {
             })}
           </svg>
         </div>
-      )}
 
       {/* Interactive Node Telemetry Inspector Drawer */}
       <div className="flow-inspect-panel">
