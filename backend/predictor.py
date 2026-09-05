@@ -26,7 +26,10 @@ class MaintenancePredictor:
             'operating_hours',
             'temp_pressure_index',
             'vibration_wear_index',
-            'rpm_vibration_ratio'
+            'rpm_vibration_ratio',
+            'thermal_excess',
+            'overstrain_index',
+            'mechanical_power'
         ]
         self.load_model()
 
@@ -61,6 +64,9 @@ class MaintenancePredictor:
         df['temp_pressure_index'] = (df['temperature'] * df['pressure']) / 100.0
         df['vibration_wear_index'] = df['vibration'] * (df['operating_hours'] / 1000.0)
         df['rpm_vibration_ratio'] = (df['rpm'] * df['vibration']) / 1000.0
+        df['thermal_excess'] = np.maximum(0.0, df['temperature'] - 86.0)
+        df['overstrain_index'] = (df['pressure'] / 25.0) * np.maximum(0.0, df['vibration'] - 0.35)
+        df['mechanical_power'] = (df['rpm'] * df['pressure']) / 1000.0
         return pd.DataFrame(df[self.feature_names])
 
     def predict(self, input_dict: dict, threshold: Optional[float] = None) -> dict:
@@ -91,11 +97,32 @@ class MaintenancePredictor:
         # Aggregate interaction features back to primary factors for clean UI explanation
         # User requested factors: Vibration, Temperature, Pressure, RPM, Operating Hours
         factor_scores = {
-            "Vibration": shap_dict.get("vibration", 0.0) + 0.6 * shap_dict.get("vibration_wear_index", 0.0) + 0.5 * shap_dict.get("rpm_vibration_ratio", 0.0),
-            "Temperature": shap_dict.get("temperature", 0.0) + 0.5 * shap_dict.get("temp_pressure_index", 0.0),
-            "Pressure": shap_dict.get("pressure", 0.0) + 0.5 * shap_dict.get("temp_pressure_index", 0.0),
-            "RPM": shap_dict.get("rpm", 0.0) + 0.5 * shap_dict.get("rpm_vibration_ratio", 0.0),
-            "Operating Hours": shap_dict.get("operating_hours", 0.0) + 0.4 * shap_dict.get("vibration_wear_index", 0.0)
+            "Vibration": (
+                shap_dict.get("vibration", 0.0) +
+                0.6 * shap_dict.get("vibration_wear_index", 0.0) +
+                0.5 * shap_dict.get("rpm_vibration_ratio", 0.0) +
+                0.5 * shap_dict.get("overstrain_index", 0.0)
+            ),
+            "Temperature": (
+                shap_dict.get("temperature", 0.0) +
+                0.5 * shap_dict.get("temp_pressure_index", 0.0) +
+                1.0 * shap_dict.get("thermal_excess", 0.0)
+            ),
+            "Pressure": (
+                shap_dict.get("pressure", 0.0) +
+                0.5 * shap_dict.get("temp_pressure_index", 0.0) +
+                0.5 * shap_dict.get("overstrain_index", 0.0) +
+                0.5 * shap_dict.get("mechanical_power", 0.0)
+            ),
+            "RPM": (
+                shap_dict.get("rpm", 0.0) +
+                0.5 * shap_dict.get("rpm_vibration_ratio", 0.0) +
+                0.5 * shap_dict.get("mechanical_power", 0.0)
+            ),
+            "Operating Hours": (
+                shap_dict.get("operating_hours", 0.0) +
+                0.4 * shap_dict.get("vibration_wear_index", 0.0)
+            )
         }
 
         # Human friendly descriptions

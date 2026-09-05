@@ -54,15 +54,21 @@ DATA_PATH = os.path.join(os.path.dirname(ML_DIR), "data", "equipment_maintenance
 
 def feature_engineering(df):
     """
-    Computes domain-specific interaction features for equipment failure prediction.
+    Computes domain-specific interaction features for equipment failure prediction:
+    1. temp_pressure_index: Thermal-mechanical load index
+    2. vibration_wear_index: Cumulative vibration fatigue wear
+    3. rpm_vibration_ratio: Dynamic harmonic vibration factor
+    4. thermal_excess: Non-linear acute thermal overload severity above nominal 86°C
+    5. overstrain_index: High pressure combined with elevated ISO vibration
+    6. mechanical_power: Mechanical work / shaft power output
     """
     df = df.copy()
-    # Thermal-mechanical stress
     df['temp_pressure_index'] = (df['temperature'] * df['pressure']) / 100.0
-    # Cumulative fatigue index
     df['vibration_wear_index'] = df['vibration'] * (df['operating_hours'] / 1000.0)
-    # Dynamic harmonic load
     df['rpm_vibration_ratio'] = (df['rpm'] * df['vibration']) / 1000.0
+    df['thermal_excess'] = np.maximum(0.0, df['temperature'] - 86.0)
+    df['overstrain_index'] = (df['pressure'] / 25.0) * np.maximum(0.0, df['vibration'] - 0.35)
+    df['mechanical_power'] = (df['rpm'] * df['pressure']) / 1000.0
     return df
 
 def run_pipeline():
@@ -120,7 +126,10 @@ def run_pipeline():
         'operating_hours',
         'temp_pressure_index',
         'vibration_wear_index',
-        'rpm_vibration_ratio'
+        'rpm_vibration_ratio',
+        'thermal_excess',
+        'overstrain_index',
+        'mechanical_power'
     ]
     
     X = df_fe[feature_cols]
@@ -135,12 +144,11 @@ def run_pipeline():
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
     
-    # Calculate scale_pos_weight for XGBoost to address severe class imbalance
+    # Calculate scale_pos_weight for XGBoost to address class imbalance
     neg_count = int((y_train == 0).sum())
     pos_count = int((y_train == 1).sum())
     scale_pos_weight = float(neg_count / max(pos_count, 1))
     print(f"\n[Class Imbalance Analysis] Normal={neg_count}, Failures={pos_count} (Ratio={scale_pos_weight:.4f})")
-    print(f"Applying scale_pos_weight = {scale_pos_weight:.4f} to XGBoost")
     
     # 4. Model Training Sequence
     # Baseline: Logistic Regression
@@ -177,7 +185,7 @@ def run_pipeline():
     lgb_model = LGBMClassifier(
         n_estimators=150,
         learning_rate=0.05,
-        scale_pos_weight=scale_pos_weight,
+        scale_pos_weight=scale_pos_weight * 0.7,
         random_state=42,
         verbose=-1
     )
@@ -189,17 +197,21 @@ def run_pipeline():
     lgb_brier = brier_score_loss(y_test, y_prob_lgb)
     print(f"LightGBM -> ROC-AUC: {lgb_roc:.4f}, F1: {lgb_f1:.4f}, Brier Loss: {lgb_brier:.4f}")
     
-    # Model 4: XGBoost with Hyperparameter Tuning
-    print("\n--- Training Model 4: XGBoost with GridSearchCV ---")
+    # Model 4: XGBoost with Hyperparameter Tuning and Regularization
+    print("\n--- Training Model 4: XGBoost with Regularization & GridSearchCV ---")
     param_grid = {
-        'n_estimators': [100, 150, 200],
-        'max_depth': [3, 4, 5],
-        'learning_rate': [0.03, 0.06, 0.1]
+        'n_estimators': [150, 180, 200],
+        'max_depth': [3, 4],
+        'learning_rate': [0.03, 0.04, 0.06]
     }
     base_xgb = XGBClassifier(
-        scale_pos_weight=scale_pos_weight,
+        scale_pos_weight=scale_pos_weight * 0.7,
         subsample=0.85,
         colsample_bytree=0.85,
+        min_child_weight=3,
+        gamma=0.2,
+        reg_alpha=0.1,
+        reg_lambda=1.0,
         random_state=42,
         eval_metric='logloss'
     )
@@ -222,7 +234,7 @@ def run_pipeline():
     xgb_brier_uncalibrated = brier_score_loss(y_test, y_prob_xgb)
     print(f"XGBoost (Uncalibrated) -> ROC-AUC: {xgb_roc_raw:.4f}, Brier Score Loss: {xgb_brier_uncalibrated:.4f}")
 
-    # Model Calibration: Platt Scaling via CalibratedClassifierCV
+    # Model Calibration: Platt Sigmoid Calibration via CalibratedClassifierCV
     print("\n--- Applying Platt Sigmoid Calibration (CalibratedClassifierCV) ---")
     calibrated_xgb = CalibratedClassifierCV(estimator=xgb, method='sigmoid', cv=3)
     calibrated_xgb.fit(X_train, y_train)
@@ -239,7 +251,7 @@ def run_pipeline():
     def_rec = recall_score(y_test, y_pred_calibrated_default)
     print(f"Calibrated XGBoost (Default 0.50 cutoff) -> F1: {def_f1:.4f}, Precision: {def_prec:.4f}, Recall: {def_rec:.4f}")
     
-    # Precision-Recall Curve & Threshold Tuning
+    # Precision-Recall Curve & Decision Threshold Tuning
     print("\n--- Tuning Decision Threshold via Precision-Recall Curve ---")
     precisions, recalls, pr_thresholds = precision_recall_curve(y_test, y_prob_calibrated)
     f1_scores = 2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1] + 1e-10)
@@ -253,9 +265,6 @@ def run_pipeline():
     
     print(f"Optimal PR-Tuned Decision Threshold: {optimal_threshold:.4f}")
     print(f"Tuned Calibrated XGBoost (PR Threshold {optimal_threshold:.4f}) -> ROC-AUC: {calibrated_roc:.4f}, F1: {opt_f1:.4f}, Precision: {opt_prec:.4f}, Recall: {opt_rec:.4f}")
-    print("\nExplanation:")
-    print("  'AUC 0.94+ with CalibratedClassifierCV ensures predicted probabilities are statistically trustworthy,'")
-    print(f"  'and PR threshold tuning to {optimal_threshold:.4f} optimizes Precision ({opt_prec:.4f}) and F1 ({opt_f1:.4f}) under class imbalance.'")
     print("\nCalibrated XGBoost Detailed Classification Report (Tuned PR Threshold):")
     print(classification_report(y_test, y_pred_optimal, target_names=['Normal', 'Failure Risk']))
     
@@ -279,7 +288,7 @@ def run_pipeline():
     plt.close()
     print(f"Saved Precision-Recall curve plot to {pr_plot_path}")
     
-    # 5. SHAP Explainer (Extract base tree estimator from grid search / calibrated wrapper)
+    # 5. SHAP Explainer
     print("\n--- Initializing SHAP TreeExplainer ---")
     explainer = shap.TreeExplainer(xgb)
     shap_values = explainer.shap_values(X_test)
@@ -291,6 +300,73 @@ def run_pipeline():
     plt.savefig(shap_plot_path, dpi=150)
     plt.close()
     print(f"Saved SHAP summary plot to {shap_plot_path}")
+    
+    # 6. Multi-Scenario Slice Validation Across All Operational Profiles
+    print("\n" + "=" * 70)
+    print("MULTI-SCENARIO SLICE VALIDATION (9 OPERATIONAL PROFILES)")
+    print("=" * 70)
+    validation_scenarios = {
+        'Target Sample [High-Risk]': {
+            'inputs': {'temperature': 92.4, 'rpm': 2800, 'pressure': 31.5, 'vibration': 0.64, 'operating_hours': 4820},
+            'expected': 'HIGH'
+        },
+        'Nominal Baseline': {
+            'inputs': {'temperature': 68.0, 'rpm': 1500, 'pressure': 21.0, 'vibration': 0.22, 'operating_hours': 950},
+            'expected': 'LOW'
+        },
+        'Thermal Overheat': {
+            'inputs': {'temperature': 97.2, 'rpm': 2300, 'pressure': 27.8, 'vibration': 0.42, 'operating_hours': 3100},
+            'expected': 'HIGH'
+        },
+        'Vibration & Fatigue': {
+            'inputs': {'temperature': 79.5, 'rpm': 3100, 'pressure': 33.0, 'vibration': 0.72, 'operating_hours': 5300},
+            'expected': 'HIGH'
+        },
+        'Cold Idle Normal': {
+            'inputs': {'temperature': 65.0, 'rpm': 1200, 'pressure': 20.0, 'vibration': 0.18, 'operating_hours': 500},
+            'expected': 'LOW'
+        },
+        'Overstrain Pressure Surge': {
+            'inputs': {'temperature': 85.0, 'rpm': 2900, 'pressure': 38.0, 'vibration': 0.58, 'operating_hours': 4200},
+            'expected': 'HIGH'
+        },
+        'Extreme Breakdown (All High)': {
+            'inputs': {'temperature': 105.0, 'rpm': 3300, 'pressure': 42.0, 'vibration': 0.95, 'operating_hours': 5800},
+            'expected': 'HIGH'
+        },
+        'Low RPM Heavy Strain': {
+            'inputs': {'temperature': 88.0, 'rpm': 1100, 'pressure': 39.0, 'vibration': 0.70, 'operating_hours': 4900},
+            'expected': 'HIGH'
+        },
+        'High Speed Light Load (Normal)': {
+            'inputs': {'temperature': 72.0, 'rpm': 3200, 'pressure': 19.5, 'vibration': 0.28, 'operating_hours': 1100},
+            'expected': 'LOW'
+        }
+    }
+    
+    print(f"{'Scenario Name':32s} | {'Exp':4s} | {'Pred':4s} | {'Prob':7s} | {'Status':6s}")
+    print("-" * 65)
+    scenario_results = {}
+    all_scenarios_passed = True
+    for sname, sinfo in validation_scenarios.items():
+        s_input = pd.DataFrame([sinfo['inputs']])
+        s_fe = feature_engineering(s_input)[feature_cols]
+        s_prob = float(calibrated_xgb.predict_proba(s_fe)[0, 1])
+        s_pred = "HIGH" if s_prob >= optimal_threshold else "LOW"
+        is_correct = (s_pred == sinfo['expected'])
+        status_str = "PASS" if is_correct else "FAIL"
+        if not is_correct:
+            all_scenarios_passed = False
+        print(f"{sname:32s} | {sinfo['expected']:4s} | {s_pred:4s} | {s_prob*100:5.1f}% | {status_str:6s}")
+        scenario_results[sname] = {
+            "inputs": sinfo['inputs'],
+            "expected_risk": sinfo['expected'],
+            "predicted_risk": s_pred,
+            "probability": round(s_prob, 4),
+            "passed": is_correct
+        }
+    print("-" * 65)
+    print(f"Scenario Slices Check: {'ALL 9 PASSED' if all_scenarios_passed else 'SOME FAILED'}\n")
     
     # 6. Test sample prediction verification
     sample_input = pd.DataFrame([{
@@ -505,7 +581,8 @@ def run_pipeline():
         },
         "best_params": best_params,
         "feature_names": feature_cols,
-        "base_features": base_features
+        "base_features": base_features,
+        "scenario_validation": scenario_results
     }
     
     with open(metadata_file, "w") as f:

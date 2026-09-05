@@ -30,6 +30,8 @@ export default function TelemetryForm({ formData, onChange, onSubmit, loading, o
   const tempPressureIndex = ((formData.temperature * formData.pressure) / 100.0).toFixed(2);
   const vibrationWearIndex = (formData.vibration * (formData.operating_hours / 1000.0)).toFixed(2);
   const rpmVibRatio = ((formData.rpm * formData.vibration) / 1000.0).toFixed(2);
+  const thermalExcess = Math.max(0, formData.temperature - 86.0).toFixed(1);
+  const overstrainIndex = ((formData.pressure / 25.0) * Math.max(0, formData.vibration - 0.35)).toFixed(2);
 
   return (
     <div className="glass-panel">
@@ -251,18 +253,22 @@ export default function TelemetryForm({ formData, onChange, onSubmit, loading, o
               </span>
               <span className="field-unit">REAL-TIME</span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #18181b', paddingBottom: '3px' }}>
-                <span style={{ color: '#71717a' }}>temp_pressure:</span>
-                <span style={{ color: '#ffffff', fontWeight: 600 }}>{tempPressureIndex}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '2px', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #18181b', paddingBottom: '2px' }}>
+                <span style={{ color: '#71717a' }}>thermal_excess:</span>
+                <span style={{ color: parseFloat(thermalExcess) > 0 ? '#f43f5e' : '#ffffff', fontWeight: 600 }}>{thermalExcess}°C</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #18181b', paddingBottom: '3px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #18181b', paddingBottom: '2px' }}>
+                <span style={{ color: '#71717a' }}>overstrain_idx:</span>
+                <span style={{ color: parseFloat(overstrainIndex) > 0 ? '#f59e0b' : '#ffffff', fontWeight: 600 }}>{overstrainIndex}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #18181b', paddingBottom: '2px' }}>
                 <span style={{ color: '#71717a' }}>vibration_wear:</span>
                 <span style={{ color: '#ffffff', fontWeight: 600 }}>{vibrationWearIndex}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#71717a' }}>rpm_vib_ratio:</span>
-                <span style={{ color: '#ffffff', fontWeight: 600 }}>{rpmVibRatio}</span>
+                <span style={{ color: '#71717a' }}>temp_pressure:</span>
+                <span style={{ color: '#ffffff', fontWeight: 600 }}>{tempPressureIndex}</span>
               </div>
             </div>
           </div>
