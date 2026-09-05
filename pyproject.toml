@@ -18,5 +18,6 @@ testpaths = ["backend/tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
 ]
 
