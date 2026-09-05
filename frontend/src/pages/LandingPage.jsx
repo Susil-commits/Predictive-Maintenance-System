@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Terminal, Cpu, Activity, Shield, Zap, BarChart3, ArrowRight, Radio } from 'lucide-react';
+import TelemetryPipelineFlow from '../components/TelemetryPipelineFlow';
 
 const TYPEWRITER_LINES = [
   '> initializing predictive_maintenance_system...',
@@ -182,6 +183,16 @@ export default function LandingPage({ onNavigateLogin }) {
         <div className="land-hero-console">
           <TypewriterConsole />
         </div>
+      </section>
+
+      {/* Live Telemetry Pipeline Flow Architecture */}
+      <section className="land-pipeline-section" id="pipeline-architecture">
+        <div className="land-section-label">LIVE DATA ARCHITECTURE</div>
+        <h2 className="land-section-title">End-to-End Predictive Maintenance Pipeline</h2>
+        <p className="land-pipeline-sub">
+          Continuous physical sensor streams ingest raw metrics, extract multi-axial failure signatures, execute sub-millisecond calibrated XGBoost inference, and route automated SCADA safety trip orders.
+        </p>
+        <TelemetryPipelineFlow />
       </section>
 
       {/* Features */}
