@@ -15,4 +15,8 @@ extraPaths = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["backend/tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
 

@@ -146,12 +146,12 @@ def require_admin_auth(
 # ---------------------------------------------------------------------------
 
 def seed_initial_admin(db: Session):
-    """Ensure at least one admin user exists in the database on startup."""
+    """Ensure at least one admin user exists in the database on startup and credentials match config."""
     try:
+        admin_username = os.getenv("ADMIN_USERNAME", "admin")
+        admin_password = os.getenv("ADMIN_PASSWORD", "PmsAdmin#Secure2026!")
         admin = db.query(User).filter(User.role == "admin").first()
         if not admin:
-            admin_username = os.getenv("ADMIN_USERNAME", "admin")
-            admin_password = os.getenv("ADMIN_PASSWORD", "pms-admin-secure-pass-2026")
             new_admin = User(
                 username=admin_username,
                 password_hash=hash_password(admin_password),
@@ -160,6 +160,13 @@ def seed_initial_admin(db: Session):
             db.add(new_admin)
             db.commit()
             logger.info(f"Initialized default admin user: {admin_username}")
+        else:
+            # Sync password if changed in environment
+            if not verify_password(admin_password, admin.password_hash):
+                admin.password_hash = hash_password(admin_password)
+                admin.username = admin_username
+                db.commit()
+                logger.info("Updated admin password to match current environment configuration")
     except Exception as exc:
         db.rollback()
         logger.warning(f"Note on seeding admin user: {exc}")

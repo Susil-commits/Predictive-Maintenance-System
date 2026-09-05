@@ -1,3 +1,4 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
 from backend.main import app
@@ -220,9 +221,11 @@ def test_rate_limiter_allows_requests():
 
 def test_auth_login_seeded_admin_and_jwt():
     # Login with seeded admin account
+    admin_user = os.getenv("ADMIN_USERNAME", "admin")
+    admin_pass = os.getenv("ADMIN_PASSWORD", "PmsAdmin#Secure2026!")
     res = client.post("/auth/login", json={
-        "username": "admin",
-        "password": "PmsAdmin#Secure2026!"
+        "username": admin_user,
+        "password": admin_pass
     })
     assert res.status_code == 200
     data = res.json()
