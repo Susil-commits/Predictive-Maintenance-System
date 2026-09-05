@@ -15,14 +15,14 @@ if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 # Default to local SQLite fallback if PostgreSQL is not specified or unavailable
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL") or None
 
 if not DATABASE_URL:
-    POSTGRES_USER = os.getenv("POSTGRES_USER", "pms_user")
-    POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "pms_secret")
-    POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
-    POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
-    POSTGRES_DB = os.getenv("POSTGRES_DB", "pms_db")
+    POSTGRES_USER = os.getenv("POSTGRES_USER") or "pms_user"
+    POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD") or "pms_secret"
+    POSTGRES_HOST = os.getenv("POSTGRES_HOST") or "localhost"
+    POSTGRES_PORT = os.getenv("POSTGRES_PORT") or "5432"
+    POSTGRES_DB = os.getenv("POSTGRES_DB") or "pms_db"
     DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
 # Attempt to create engine with retry and exponential backoff, fallback gracefully to SQLite

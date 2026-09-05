@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from backend.main import app
 
 client = TestClient(app)
-ADMIN_API_KEY = os.getenv("PMS_API_KEY") or "pms-admin-secret-key"
+ADMIN_API_KEY = (os.getenv("PMS_API_KEY") or "pms-admin-secret-key").strip()
 
 def test_health_endpoint():
     response = client.get("/health")
@@ -251,8 +251,9 @@ def test_auth_login_invalid_credentials():
     assert "User not registered" in res_unknown.json()["detail"]
 
     # Wrong password for existing admin
+    admin_user = (os.getenv("ADMIN_USERNAME") or "admin").strip()
     res_wrong = client.post("/auth/login", json={
-        "username": "admin",
+        "username": admin_user,
         "password": "wrong_password_xyz"
     })
     assert res_wrong.status_code == 401

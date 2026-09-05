@@ -13,7 +13,7 @@ import os
 import secrets
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+from typing import Optional, List, Any
 
 import jwt
 import bcrypt
@@ -28,14 +28,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-JWT_SECRET = os.getenv("JWT_SECRET")
-if not JWT_SECRET:
+_raw_jwt = os.getenv("JWT_SECRET")
+if not _raw_jwt:
     if os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production":
         logger.critical(
             "CRITICAL SECURITY WARNING: JWT_SECRET environment variable is not set in production! "
             "Configure JWT_SECRET in your Render/deployment dashboard environment variables."
         )
-    JWT_SECRET = "pms-super-secret-jwt-signing-key-2026"
+    _raw_jwt = "pms-super-secret-jwt-signing-key-2026"
+JWT_SECRET: str = _raw_jwt
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
@@ -126,8 +127,8 @@ def require_admin_auth(
     Hybrid admin dependency: accepts either a valid admin API key ('X-API-Key')
     or a valid admin JWT ('Authorization: Bearer <jwt>').
     """
-    expected_key = os.getenv("PMS_API_KEY", "pms-admin-secret-key")
-    if x_api_key and secrets.compare_digest(x_api_key.strip(), expected_key.strip()):
+    expected_key = (os.getenv("PMS_API_KEY") or "pms-admin-secret-key").strip()
+    if x_api_key and secrets.compare_digest(x_api_key.strip(), expected_key):
         return {"auth_type": "api_key", "role": "admin"}
 
     if authorization and authorization.startswith("Bearer "):
@@ -156,8 +157,8 @@ def require_admin_auth(
 def seed_initial_admin(db: Session):
     """Ensure at least one admin user exists in the database on startup and credentials match config."""
     try:
-        admin_username = os.getenv("ADMIN_USERNAME", "admin")
-        admin_password = os.getenv("ADMIN_PASSWORD")
+        admin_username = (os.getenv("ADMIN_USERNAME") or "admin").strip()
+        admin_password = (os.getenv("ADMIN_PASSWORD") or "").strip()
         if not admin_password:
             if os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production":
                 logger.critical(
@@ -176,12 +177,18 @@ def seed_initial_admin(db: Session):
             db.commit()
             logger.info(f"Initialized default admin user: {admin_username}")
         else:
-            # Sync password if changed in environment
-            if not verify_password(admin_password, admin.password_hash):
-                admin.password_hash = hash_password(admin_password)
-                admin.username = admin_username
+            # Sync username and password if changed in environment
+            admin_obj: Any = admin
+            needs_update = False
+            if admin_obj.username != admin_username:
+                admin_obj.username = admin_username
+                needs_update = True
+            if not verify_password(admin_password, str(admin_obj.password_hash)):
+                admin_obj.password_hash = hash_password(admin_password)
+                needs_update = True
+            if needs_update:
                 db.commit()
-                logger.info("Updated admin password to match current environment configuration")
+                logger.info("Updated admin credentials to match current environment configuration")
     except Exception as exc:
         db.rollback()
         logger.warning(f"Note on seeding admin user: {exc}")
@@ -225,7 +232,8 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             headers={"X-Auth-Reason": "user_not_found"}
         )
 
-    if not verify_password(req.password, user.password_hash):
+    user_obj: Any = user
+    if not verify_password(req.password, str(user_obj.password_hash)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect password.",
@@ -233,9 +241,9 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         )
 
     token = create_access_token({
-        "sub": user.username,
-        "user_id": user.id,
-        "role": user.role,
+        "sub": user_obj.username,
+        "user_id": user_obj.id,
+        "role": user_obj.role,
     })
 
     return {
@@ -291,9 +299,10 @@ def delete_user(
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found.")
-    if target.role == "admin":
+    target_obj: Any = target
+    if target_obj.role == "admin":
         raise HTTPException(status_code=400, detail="Cannot delete administrator account.")
 
     db.delete(target)
     db.commit()
-    return {"message": f"User '{target.username}' deleted successfully."}
+    return {"message": f"User '{target_obj.username}' deleted successfully."}
