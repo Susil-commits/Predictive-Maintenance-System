@@ -85,51 +85,66 @@ def download_and_prepare_dataset():
     np.random.seed(42)
     n = len(df)
 
-    # Detect specific failure modes from AI4I columns or physical criteria
-    hdf = df_raw['HDF'].values if 'HDF' in df_raw.columns else (
-        (df['failure'] == 1) & (df['process_temp'] - df['air_temp'] < 8.6) & (df['rotational_speed'] < 1380)
-    ).astype(int)
-    
-    pwf = df_raw['PWF'].values if 'PWF' in df_raw.columns else (
-        (df['failure'] == 1) & (
-            (df['torque'] * df['rotational_speed'] * (2 * np.pi / 60) < 3500) |
-            (df['torque'] * df['rotational_speed'] * (2 * np.pi / 60) > 9000)
-        )
-    ).astype(int)
-    
-    osf = df_raw['OSF'].values if 'OSF' in df_raw.columns else (
-        (df['failure'] == 1) & (df['tool_wear'] * df['torque'] > 11000)
-    ).astype(int)
-    
-    twf = df_raw['TWF'].values if 'TWF' in df_raw.columns else (
-        (df['failure'] == 1) & (df['tool_wear'] >= 200)
-    ).astype(int)
-    
+    # Convert to typed float64 numpy arrays to ensure type safety and avoid pandas Series/Categorical conflicts
+    air_temp_arr = np.asarray(df['air_temp'], dtype=np.float64)
+    proc_temp_arr = np.asarray(df['process_temp'], dtype=np.float64)
+    rpm_raw_arr = np.asarray(df['rotational_speed'], dtype=np.float64)
+    torque_raw_arr = np.asarray(df['torque'], dtype=np.float64)
+    wear_raw_arr = np.asarray(df['tool_wear'], dtype=np.float64)
+    failure_arr = np.asarray(df['failure'], dtype=np.int32)
+
+    # Detect specific failure modes as clean numpy float64 arrays
+    if 'HDF' in df_raw.columns:
+        hdf_arr = np.asarray(df_raw['HDF'], dtype=np.float64)
+    else:
+        hdf_arr = ((failure_arr == 1) & (proc_temp_arr - air_temp_arr < 8.6) & (rpm_raw_arr < 1380)).astype(np.float64)
+
+    if 'PWF' in df_raw.columns:
+        pwf_arr = np.asarray(df_raw['PWF'], dtype=np.float64)
+    else:
+        power_calc = torque_raw_arr * rpm_raw_arr * (2.0 * np.pi / 60.0)
+        pwf_arr = ((failure_arr == 1) & ((power_calc < 3500) | (power_calc > 9000))).astype(np.float64)
+
+    if 'OSF' in df_raw.columns:
+        osf_arr = np.asarray(df_raw['OSF'], dtype=np.float64)
+    else:
+        osf_arr = ((failure_arr == 1) & (wear_raw_arr * torque_raw_arr > 11000)).astype(np.float64)
+
+    if 'TWF' in df_raw.columns:
+        twf_arr = np.asarray(df_raw['TWF'], dtype=np.float64)
+    else:
+        twf_arr = ((failure_arr == 1) & (wear_raw_arr >= 200)).astype(np.float64)
+
     # Feature mapping to equipment telemetry:
     # 1. Temperature (°C): 65°C - 85°C nominal; acute thermal spikes (89°C - 105°C) during HDF
-    proc_temp_norm = (df['process_temp'] - df['process_temp'].min()) / (df['process_temp'].max() - df['process_temp'].min() + 1e-5)
+    proc_min, proc_max = proc_temp_arr.min(), proc_temp_arr.max()
+    proc_temp_norm = (proc_temp_arr - proc_min) / (proc_max - proc_min + 1e-5)
     temp_base = 68.0 + proc_temp_norm * 14.0
-    temp_thermal_spike = hdf * np.random.uniform(14.0, 22.0, n)
-    temp_wear_friction = (df['tool_wear'] / 250.0) * 3.5
-    temperature = (temp_base + temp_wear_friction + temp_thermal_spike + np.random.normal(0, 0.8, n)).clip(55.0, 115.0)
-    
+    temp_thermal_spike = hdf_arr * np.random.uniform(14.0, 22.0, n)
+    temp_wear_friction = (wear_raw_arr / 250.0) * 3.5
+    temperature = np.clip(temp_base + temp_wear_friction + temp_thermal_spike + np.random.normal(0, 0.8, n), 55.0, 115.0)
+
     # 2. RPM: 1000 - 3200 RPM
-    rpm = df['rotational_speed'].clip(1000, 3200).round()
-    
+    rpm = np.clip(rpm_raw_arr, 1000.0, 3200.0).round()
+
     # 3. Pressure (bar): 18 - 42 bar (derived from torque / hydraulic load)
-    torque_norm = (df['torque'] - df['torque'].min()) / (df['torque'].max() - df['torque'].min() + 1e-5)
+    torq_min, torq_max = torque_raw_arr.min(), torque_raw_arr.max()
+    torque_norm = (torque_raw_arr - torq_min) / (torq_max - torq_min + 1e-5)
     pressure_base = 20.0 + torque_norm * 14.0
-    pressure_surge = (osf | pwf) * np.random.uniform(3.0, 8.0, n)
-    pressure = (pressure_base + pressure_surge + np.random.normal(0, 0.6, n)).clip(16.0, 48.0)
-    
+    surge_mask = np.logical_or(osf_arr > 0, pwf_arr > 0).astype(np.float64)
+    pressure_surge = surge_mask * np.random.uniform(3.0, 8.0, n)
+    pressure = np.clip(pressure_base + pressure_surge + np.random.normal(0, 0.6, n), 16.0, 48.0)
+
     # 4. Vibration (g): 0.15 - 0.95 g (tool wear + harmonic instability + overstrain)
-    wear_norm = (df['tool_wear'] - df['tool_wear'].min()) / (df['tool_wear'].max() - df['tool_wear'].min() + 1e-5)
+    wear_min, wear_max = wear_raw_arr.min(), wear_raw_arr.max()
+    wear_norm = (wear_raw_arr - wear_min) / (wear_max - wear_min + 1e-5)
     vib_base = 0.20 + wear_norm * 0.28 + torque_norm * 0.12
-    vib_spike = (twf | osf) * np.random.uniform(0.18, 0.35, n)
-    vibration = (vib_base + vib_spike + np.random.normal(0, 0.03, n)).clip(0.12, 1.25)
-    
+    vib_spike_mask = np.logical_or(twf_arr > 0, osf_arr > 0).astype(np.float64)
+    vib_spike = vib_spike_mask * np.random.uniform(0.18, 0.35, n)
+    vibration = np.clip(vib_base + vib_spike + np.random.normal(0, 0.03, n), 0.12, 1.25)
+
     # 5. Operating Hours: 200 - 6000 hrs (derived from tool wear accumulation)
-    operating_hours = (200 + wear_norm * 4800 + np.random.normal(0, 50, n)).clip(100, 6500).round()
+    operating_hours = np.clip(200.0 + wear_norm * 4800.0 + np.random.normal(0, 50, n), 100.0, 6500.0).round()
     
     clean_df = pd.DataFrame({
         "temperature": temperature.round(1),

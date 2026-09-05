@@ -64,8 +64,8 @@ class MaintenancePredictor:
         df['temp_pressure_index'] = (df['temperature'] * df['pressure']) / 100.0
         df['vibration_wear_index'] = df['vibration'] * (df['operating_hours'] / 1000.0)
         df['rpm_vibration_ratio'] = (df['rpm'] * df['vibration']) / 1000.0
-        df['thermal_excess'] = np.maximum(0.0, df['temperature'] - 86.0)
-        df['overstrain_index'] = (df['pressure'] / 25.0) * np.maximum(0.0, df['vibration'] - 0.35)
+        df['thermal_excess'] = (df['temperature'] - 86.0).clip(lower=0.0)
+        df['overstrain_index'] = (df['pressure'] / 25.0) * (df['vibration'] - 0.35).clip(lower=0.0)
         df['mechanical_power'] = (df['rpm'] * df['pressure']) / 1000.0
         return pd.DataFrame(df[self.feature_names])
 
@@ -75,7 +75,7 @@ class MaintenancePredictor:
         if self.model is None or self.explainer is None:
             raise RuntimeError("Model or SHAP explainer failed to load")
 
-        active_threshold = self.threshold if threshold is None else float(threshold)
+        active_threshold = self.threshold if threshold is None else threshold
 
         X = self.engineer_features(input_dict)
         probabilities = self.model.predict_proba(X)[0]
@@ -139,8 +139,8 @@ class MaintenancePredictor:
         for factor_name, score in sorted(factor_scores.items(), key=lambda x: abs(x[1]), reverse=True):
             contributing_factors.append({
                 "factor": factor_name,
-                "impact": round(float(score), 4),
-                "importance": round(abs(float(score)), 4),
+                "impact": round(score, 4),
+                "importance": round(abs(score), 4),
                 "description": factor_descriptions.get(factor_name, "")
             })
 
