@@ -390,7 +390,7 @@ export default function TelemetryPipelineFlow() {
             {/* 3. ANIMATED GLIDING PACKET BADGES                                 */}
             {/* ================================================================= */}
             {!isPaused && (
-              <>
+              <g style={{ pointerEvents: 'none' }}>
                 {/* Event Badge 1 on Source 1 (Temp) */}
                 <g>
                   <animateMotion
@@ -498,7 +498,7 @@ export default function TelemetryPipelineFlow() {
                     EVENT
                   </text>
                 </g>
-              </>
+              </g>
             )}
 
             {/* ================================================================= */}

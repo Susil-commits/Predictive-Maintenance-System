@@ -2381,11 +2381,21 @@ body {
 }
 
 .flow-node-group {
-  transition: transform 0.18s ease;
+  cursor: pointer;
 }
 
-.flow-node-group:hover {
-  transform: scale(1.02);
+.flow-node-group rect {
+  transition: fill 0.2s ease, stroke 0.2s ease, filter 0.2s ease;
+}
+
+.flow-node-group:hover rect {
+  fill: rgba(255, 255, 255, 0.12);
+  stroke: rgba(255, 255, 255, 0.45);
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.35));
+}
+
+.flow-node-group:hover text {
+  fill: #ffffff;
 }
 
 .flow-diamond-petal {
