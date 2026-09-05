@@ -25,6 +25,7 @@ from .schemas import (
 )
 from .predictor import predictor
 from .drift_detector import drift_detector
+from .batch import router as batch_router
 
 # Create database tables if they do not exist
 try:
@@ -46,6 +47,9 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+# Register batch predict & export routes
+app.include_router(batch_router)
 
 def require_admin_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
     """

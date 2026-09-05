@@ -15,3 +15,5 @@ mlflow>=2.14.0
 alembic>=1.13.0
 slowapi>=0.1.9
 lightgbm>=4.0.0
+python-multipart>=0.0.9
+openpyxl>=3.1.0

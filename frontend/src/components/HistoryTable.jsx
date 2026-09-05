@@ -1,33 +1,33 @@
 import React, { useState } from 'react';
 import { Database, Trash2, ArrowUpRight, Download, Check } from 'lucide-react';
 
-export default function HistoryTable({ history, onSelectRow, onClearHistory }) {
+export default function HistoryTable({ history, onSelectRow, onClearHistory, onExport }) {
   const [copiedCsv, setCopiedCsv] = useState(false);
 
-  const handleExportCsv = () => {
+  const handleExport = () => {
+    if (onExport) {
+      onExport();
+      setCopiedCsv(true);
+      setTimeout(() => setCopiedCsv(false), 2000);
+      return;
+    }
+    // fallback: client-side CSV from current history prop
     if (!history || history.length === 0) return;
     const headers = ['timestamp', 'temperature', 'rpm', 'pressure', 'vibration', 'operating_hours', 'failure_risk', 'probability'];
     const rows = history.map(r => {
       const input = r.input_features || r;
       return [
         r.timestamp || '',
-        input.temperature,
-        input.rpm,
-        input.pressure,
-        input.vibration,
-        input.operating_hours,
-        r.failure_risk,
-        r.probability
+        input.temperature, input.rpm, input.pressure,
+        input.vibration, input.operating_hours,
+        r.failure_risk, r.probability
       ].join(',');
     });
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `pms_telemetry_audit_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const csv = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
+    const a = document.createElement('a');
+    a.href = encodeURI(csv);
+    a.download = `pms_audit_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setCopiedCsv(true);
     setTimeout(() => setCopiedCsv(false), 2000);
   };
@@ -62,9 +62,9 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             type="button"
-            onClick={handleExportCsv}
+            onClick={handleExport}
             className="preset-btn"
-            title="Download audit log as CSV"
+            title="Download full audit log as CSV"
             style={{ padding: '4px 8px', fontSize: '0.7rem' }}
           >
             {copiedCsv ? <Check size={12} color="#10b981" /> : <Download size={12} />}

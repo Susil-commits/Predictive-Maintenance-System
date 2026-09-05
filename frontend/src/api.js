@@ -63,5 +63,25 @@ export const triggerRetrain = async () => {
   return response.data;
 };
 
+export const batchPredict = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await api.post('/batch-predict', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000,
+  });
+  return response.data;
+};
+
+export const exportHistory = () => {
+  const url = `${API_BASE_URL}/export`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'pms_history.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
 export default api;
 

@@ -5,8 +5,9 @@ import TelemetryForm from './components/TelemetryForm';
 import PredictionResult from './components/PredictionResult';
 import HistoryTable from './components/HistoryTable';
 import DriftMonitor from './components/DriftMonitor';
-import { getHealth, getModelInfo, predictMaintenance, getHistory, clearHistory, getDriftStatus } from './api';
-import { Sliders, Layers, LayoutGrid } from 'lucide-react';
+import BatchPredict from './components/BatchPredict';
+import { getHealth, getModelInfo, predictMaintenance, getHistory, clearHistory, getDriftStatus, exportHistory } from './api';
+import { Sliders, Layers, LayoutGrid, Upload, Download } from 'lucide-react';
 
 const DEFAULT_FORM_DATA = {
   temperature: 92.4,
@@ -156,6 +157,14 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={`nav-tab-btn ${activeTab === 'batch' ? 'active' : ''}`}
+            onClick={() => setActiveTab('batch')}
+          >
+            <Upload size={13} />
+            <span>BATCH PREDICT</span>
+          </button>
+          <button
+            type="button"
             className={`nav-tab-btn ${activeTab === 'mlops' ? 'active' : ''}`}
             onClick={() => setActiveTab('mlops')}
           >
@@ -196,6 +205,11 @@ export default function App() {
         </div>
       )}
 
+      {/* Batch Predict */}
+      {(activeTab === 'all' || activeTab === 'batch') && (
+        <BatchPredict />
+      )}
+
       {/* MLOps Radar & Database Audit Log */}
       {(activeTab === 'all' || activeTab === 'mlops') && (
         <>
@@ -209,10 +223,10 @@ export default function App() {
             history={history}
             onSelectRow={handleSelectHistoryRow}
             onClearHistory={handleClearHistory}
+            onExport={exportHistory}
           />
         </>
       )}
     </div>
   );
 }
-
