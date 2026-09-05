@@ -13,6 +13,7 @@ import {
 } from '../auth';
 import { uploadAvatar, isCloudinaryConfigured } from '../cloudinary';
 import ReportDetailModal from '../components/ReportDetailModal';
+import { API_BASE_URL } from '../api';
 
 // ── Avatar Component ──────────────────────────────────────────────────────────
 
@@ -475,6 +476,16 @@ export default function AdminPage({ onLogout }) {
             <span className="status-dot" style={{ background: '#10b981', color: '#10b981' }} />
             <span>ADMIN</span>
           </div>
+          <a
+            href={`${API_BASE_URL}/docs`}
+            target="_blank"
+            rel="noreferrer"
+            className="preset-btn"
+            style={{ padding: '6px 12px', gap: 6, textDecoration: 'none', color: 'inherit' }}
+            title="Open Interactive Swagger OpenAPI Documentation"
+          >
+            <ExternalLink size={13} /> API Docs
+          </a>
           <button type="button" className="preset-btn" onClick={handleLogout} style={{ padding: '6px 12px', gap: 6 }}>
             <LogOut size={13} /> Sign Out
           </button>

@@ -13,7 +13,8 @@ import DriftMonitor from '../components/DriftMonitor';
 import BatchPredict from '../components/BatchPredict';
 import {
   getHealth, getModelInfo, predictMaintenance,
-  getHistory, clearHistory, getDriftStatus, exportHistory
+  getHistory, clearHistory, getDriftStatus, exportHistory,
+  API_BASE_URL
 } from '../api';
 import { Sliders, Layers, LayoutGrid, Upload } from 'lucide-react';
 
@@ -195,6 +196,16 @@ export default function DashboardPage({ onLogout }) {
             <Radio size={12} style={{ opacity: 0.8 }} />
             <span>{isHealthy ? 'LIVE' : 'CONNECTING'}</span>
           </div>
+          <a
+            href={`${API_BASE_URL}/docs`}
+            target="_blank"
+            rel="noreferrer"
+            className="preset-btn"
+            style={{ padding: '6px 12px', gap: 6, textDecoration: 'none', color: 'inherit' }}
+            title="Open Interactive Swagger OpenAPI Documentation"
+          >
+            <ExternalLink size={13} /> API Docs
+          </a>
           <button type="button" className="preset-btn" onClick={handleLogout} style={{ padding: '6px 12px', gap: 6 }}>
             <LogOut size={13} /> Sign Out
           </button>

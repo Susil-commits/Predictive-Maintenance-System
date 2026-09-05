@@ -8,7 +8,11 @@ from sqlalchemy.orm import sessionmaker
 # Load .env variables
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+import time
+
+logger = logging.getLogger("pms.database")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 # Default to local SQLite fallback if PostgreSQL is not specified or unavailable
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -21,30 +25,41 @@ if not DATABASE_URL:
     POSTGRES_DB = os.getenv("POSTGRES_DB", "pms_db")
     DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
-# Attempt to create engine, fallback gracefully to SQLite if PostgreSQL connection fails
-try:
-    if DATABASE_URL.startswith("postgresql"):
-        # Configure robust connection pooling for high-concurrency production workloads
-        test_engine = create_engine(
-            DATABASE_URL,
-            connect_args={'connect_timeout': 5},
-            pool_size=10,
-            max_overflow=20,
-            pool_timeout=30,
-            pool_recycle=300,
-            pool_pre_ping=True
-        )
-        with test_engine.connect() as conn:
-            pass
-        engine = test_engine
-        print(f"Connected to PostgreSQL database: {DATABASE_URL.split('@')[-1]}")
-    else:
-        engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
-except Exception as e:
-    fallback_url = "sqlite:///./pms.db"
-    print(f"PostgreSQL connection failed ({e}). Falling back to local SQLite database: {fallback_url}")
-    DATABASE_URL = fallback_url
+# Attempt to create engine with retry and exponential backoff, fallback gracefully to SQLite
+engine = None
+
+if DATABASE_URL.startswith("postgresql"):
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Configure robust connection pooling for high-concurrency production workloads
+            test_engine = create_engine(
+                DATABASE_URL,
+                connect_args={'connect_timeout': 5},
+                pool_size=10,
+                max_overflow=20,
+                pool_timeout=30,
+                pool_recycle=300,
+                pool_pre_ping=True
+            )
+            with test_engine.connect() as conn:
+                pass
+            engine = test_engine
+            db_identifier = DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else "postgresql"
+            logger.info(f"Connected to PostgreSQL database: {db_identifier}")
+            break
+        except Exception as err:
+            logger.warning(f"PostgreSQL connection attempt {attempt}/{max_retries} failed: {err}")
+            if attempt < max_retries:
+                time.sleep(attempt * 1.0)
+            else:
+                fallback_url = "sqlite:///./pms.db"
+                logger.error(f"All PostgreSQL connection attempts failed. Falling back to local SQLite database: {fallback_url}")
+                DATABASE_URL = fallback_url
+                engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
+else:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
+    logger.info(f"Using database: {DATABASE_URL}")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

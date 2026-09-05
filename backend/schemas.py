@@ -2,11 +2,11 @@ from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
 
 class PredictionInput(BaseModel):
-    temperature: float = Field(..., description="Operating temperature in Celsius (°C)", json_schema_extra={"example": 92.4})
-    rpm: float = Field(..., description="Rotational speed in RPM", json_schema_extra={"example": 2800})
-    pressure: float = Field(..., description="Hydraulic / operating pressure in bar", json_schema_extra={"example": 31.5})
-    vibration: float = Field(..., description="Vibration amplitude in g / mm/s", json_schema_extra={"example": 0.64})
-    operating_hours: float = Field(..., description="Cumulative equipment operating hours", json_schema_extra={"example": 4820})
+    temperature: float = Field(..., ge=-20.0, le=250.0, description="Operating temperature in Celsius (°C)", json_schema_extra={"example": 92.4})
+    rpm: float = Field(..., ge=100.0, le=6000.0, description="Rotational speed in RPM", json_schema_extra={"example": 2800})
+    pressure: float = Field(..., ge=1.0, le=100.0, description="Hydraulic / operating pressure in bar", json_schema_extra={"example": 31.5})
+    vibration: float = Field(..., ge=0.01, le=5.0, description="Vibration amplitude in g / mm/s", json_schema_extra={"example": 0.64})
+    operating_hours: float = Field(..., ge=0.0, le=50000.0, description="Cumulative equipment operating hours", json_schema_extra={"example": 4820})
 
 class ContributingFactor(BaseModel):
     factor: str

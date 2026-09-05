@@ -1,10 +1,13 @@
 import os
 import json
+import logging
 from typing import Optional, Dict, Any, List
 import joblib
 import numpy as np
 import pandas as pd
 import shap
+
+logger = logging.getLogger("pms.predictor")
 
 ML_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml")
 MODEL_PATH = os.path.join(ML_DIR, "model.pkl")
@@ -37,7 +40,7 @@ class MaintenancePredictor:
         if not os.path.exists(MODEL_PATH):
             raise FileNotFoundError(f"Model file not found at {MODEL_PATH}. Please run ml/train.py first.")
         
-        print(f"Loading model from {MODEL_PATH}...")
+        logger.info(f"Loading model from {MODEL_PATH}...")
         self.model = joblib.load(MODEL_PATH)
         
         if os.path.exists(INFO_PATH):
@@ -57,7 +60,7 @@ class MaintenancePredictor:
             tree_model = self.model.estimator
 
         self.explainer = shap.TreeExplainer(tree_model)
-        print(f"Model ({self.version}) and SHAP explainer successfully loaded (Decision Threshold: {self.threshold:.4f}).")
+        logger.info(f"Model ({self.version}) and SHAP explainer successfully loaded (Decision Threshold: {self.threshold:.4f}).")
 
     def engineer_features(self, input_dict: dict) -> pd.DataFrame:
         df = pd.DataFrame([input_dict])

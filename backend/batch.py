@@ -49,10 +49,12 @@ COLUMN_ALIASES: dict[str, list[str]] = {
 def _fuzzy_match_columns(df: pd.DataFrame) -> dict[str, str]:
     """
     Returns a mapping: {canonical_name: actual_df_column}
-    Raises ValueError if any required field cannot be matched.
+    Raises ValueError if any required field cannot be matched, explicitly detailing
+    all missing fields, detected columns, and expected aliases.
     """
     df_cols_lower = {c.lower().strip().replace(" ", "_"): c for c in df.columns}
     mapping: dict[str, str] = {}
+    missing_fields: list[dict] = []
 
     for canonical, aliases in COLUMN_ALIASES.items():
         matched = None
@@ -62,11 +64,23 @@ def _fuzzy_match_columns(df: pd.DataFrame) -> dict[str, str]:
                 matched = df_cols_lower[norm]
                 break
         if matched is None:
-            raise ValueError(
-                f"Required field '{canonical}' could not be matched in uploaded file. "
-                f"Tried: {aliases}. Actual columns: {list(df.columns)}"
-            )
-        mapping[canonical] = matched
+            missing_fields.append({
+                "canonical": canonical,
+                "aliases": aliases
+            })
+        else:
+            mapping[canonical] = matched
+
+    if missing_fields:
+        missing_names = [m["canonical"] for m in missing_fields]
+        found_cols = list(df.columns)
+        err_msg = (
+            f"Missing {len(missing_fields)} required column(s): {', '.join(missing_names)}. "
+            f"Found columns in file: {found_cols}. "
+            f"Expected acceptable column names for missing fields: "
+            + "; ".join([f"{m['canonical']} -> {', '.join(m['aliases'])}" for m in missing_fields])
+        )
+        raise ValueError(err_msg)
 
     return mapping
 
@@ -108,11 +122,11 @@ def _parse_file(content: bytes, filename: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 FIELD_RANGES = {
-    "temperature":     (20.0,  200.0),
-    "rpm":             (0.0,   10000.0),
-    "pressure":        (0.0,   200.0),
-    "vibration":       (0.0,   10.0),
-    "operating_hours": (0.0,   100_000.0),
+    "temperature":     (-20.0, 250.0),
+    "rpm":             (100.0, 6000.0),
+    "pressure":        (1.0,   100.0),
+    "vibration":       (0.01,  5.0),
+    "operating_hours": (0.0,   50000.0),
 }
 
 
@@ -258,19 +272,48 @@ async def batch_predict(
 @router.get("/export", summary="Export prediction history as CSV")
 def export_history(
     limit: int = Query(500, ge=1, le=5000, description="Max rows to export"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD or ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD or ISO format)"),
     db: Session = Depends(get_db),
     api_key: str = Depends(require_admin_api_key),
 ):
     """
-    Streams the most recent N prediction records as a downloadable CSV file.
+    Streams prediction records as a downloadable CSV file, with optional date range filtering.
     """
-    try:
-        records = (
-            db.query(PredictionRecord)
-            .order_by(desc(PredictionRecord.timestamp))
-            .limit(limit)
-            .all()
+    from datetime import datetime
+
+    query = db.query(PredictionRecord)
+
+    start_dt = None
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid start_date format: '{start_date}'. Use YYYY-MM-DD or ISO 8601 format."
+            )
+        query = query.filter(PredictionRecord.timestamp >= start_dt)
+
+    end_dt = None
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid end_date format: '{end_date}'. Use YYYY-MM-DD or ISO 8601 format."
+            )
+        query = query.filter(PredictionRecord.timestamp <= end_dt)
+
+    if start_dt and end_dt and start_dt > end_dt:
+        raise HTTPException(
+            status_code=422,
+            detail="start_date cannot be greater than end_date."
         )
+
+    try:
+        records = query.order_by(desc(PredictionRecord.timestamp)).limit(limit).all()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Database error: {exc}")
 
@@ -286,8 +329,18 @@ def export_history(
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
     for rec in records:
-        d = rec.to_dict()
-        writer.writerow({f: d.get(f, "") for f in fieldnames})
+        writer.writerow({
+            "prediction_id": rec.prediction_id,
+            "timestamp": rec.timestamp.isoformat() if rec.timestamp else "",
+            "temperature": rec.temperature,
+            "rpm": rec.rpm,
+            "pressure": rec.pressure,
+            "vibration": rec.vibration,
+            "operating_hours": rec.operating_hours,
+            "failure_risk": rec.failure_risk,
+            "probability": rec.probability,
+            "maintenance_required": rec.maintenance_required,
+        })
 
     output.seek(0)
 

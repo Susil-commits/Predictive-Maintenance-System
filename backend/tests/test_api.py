@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from backend.main import app
 
 client = TestClient(app)
-ADMIN_API_KEY = os.getenv("PMS_API_KEY", "pms-admin-secret-key")
+ADMIN_API_KEY = os.getenv("PMS_API_KEY") or "pms-admin-secret-key"
 
 def test_health_endpoint():
     response = client.get("/health")
@@ -222,8 +222,8 @@ def test_rate_limiter_allows_requests():
 
 def test_auth_login_seeded_admin_and_jwt():
     # Login with seeded admin account
-    admin_user = os.getenv("ADMIN_USERNAME", "admin")
-    admin_pass = os.getenv("ADMIN_PASSWORD", "PmsAdmin#Secure2026!")
+    admin_user = os.getenv("ADMIN_USERNAME") or "admin"
+    admin_pass = os.getenv("ADMIN_PASSWORD") or "PmsAdmin#Secure2026!"
     res = client.post("/auth/login", json={
         "username": admin_user,
         "password": admin_pass
@@ -322,5 +322,104 @@ def test_retrain_mutex_lock_collision():
         assert "already in progress" in response.json()["detail"]
     finally:
         backend.main._retraining_active = False
+
+
+def test_prediction_input_boundaries_validation():
+    # Negative impossible temperature (-500°C) must be rejected with 422
+    res_neg_temp = client.post("/predict", json={
+        "temperature": -500.0,
+        "rpm": 2000.0,
+        "pressure": 30.0,
+        "vibration": 0.5,
+        "operating_hours": 1000.0
+    })
+    assert res_neg_temp.status_code == 422
+
+    # Impossible RPM (e.g. 50 RPM or 10000 RPM)
+    res_low_rpm = client.post("/predict", json={
+        "temperature": 75.0,
+        "rpm": 20.0,
+        "pressure": 30.0,
+        "vibration": 0.5,
+        "operating_hours": 1000.0
+    })
+    assert res_low_rpm.status_code == 422
+
+    # Negative operating hours
+    res_neg_hours = client.post("/predict", json={
+        "temperature": 75.0,
+        "rpm": 2000.0,
+        "pressure": 30.0,
+        "vibration": 0.5,
+        "operating_hours": -50.0
+    })
+    assert res_neg_hours.status_code == 422
+
+    # Upper bound breach (e.g. 100,000 operating hours)
+    res_high_hours = client.post("/predict", json={
+        "temperature": 75.0,
+        "rpm": 2000.0,
+        "pressure": 30.0,
+        "vibration": 0.5,
+        "operating_hours": 99999.0
+    })
+    assert res_high_hours.status_code == 422
+
+
+def test_batch_predict_column_matching_failure_detailed_message():
+    # CSV with missing columns (only temperature and rpm provided)
+    partial_csv = b"temperature,rpm\n85.0,1800\n"
+    res = client.post(
+        "/batch-predict",
+        files={"file": ("partial.csv", partial_csv, "text/csv")},
+        headers={"X-API-Key": ADMIN_API_KEY}
+    )
+    assert res.status_code == 422
+    err_detail = res.json()["detail"]
+    assert "Missing" in err_detail
+    assert "pressure" in err_detail
+    assert "vibration" in err_detail
+    assert "operating_hours" in err_detail
+    assert "Found columns in file" in err_detail
+    assert "Expected acceptable column names" in err_detail
+
+
+def test_export_date_range_filters_and_validation():
+    # Invalid date format returns 422
+    res_bad_format = client.get(
+        "/export?start_date=not-a-date",
+        headers={"X-API-Key": ADMIN_API_KEY}
+    )
+    assert res_bad_format.status_code == 422
+    assert "Invalid start_date format" in res_bad_format.json()["detail"]
+
+    # start_date > end_date returns 422
+    res_bad_range = client.get(
+        "/export?start_date=2026-12-31&end_date=2026-01-01",
+        headers={"X-API-Key": ADMIN_API_KEY}
+    )
+    assert res_bad_range.status_code == 422
+    assert "start_date cannot be greater than end_date" in res_bad_range.json()["detail"]
+
+    # Valid range returns 200 or 404 (if no records match range)
+    res_valid = client.get(
+        "/export?start_date=2020-01-01&end_date=2030-12-31",
+        headers={"X-API-Key": ADMIN_API_KEY}
+    )
+    assert res_valid.status_code in [200, 404]
+
+
+def test_history_pruning_endpoint():
+    # Unauthenticated returns 401
+    res_unauth = client.post("/history/prune?days=30")
+    assert res_unauth.status_code == 401
+
+    # Authenticated call succeeds
+    res_auth = client.post("/history/prune?days=30", headers={"X-API-Key": ADMIN_API_KEY})
+    assert res_auth.status_code == 200
+    data = res_auth.json()
+    assert data["status"] == "success"
+    assert "pruned_count" in data
+    assert data["retention_days"] == 30
 
 

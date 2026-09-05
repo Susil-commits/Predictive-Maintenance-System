@@ -10,7 +10,7 @@ if (rawBaseUrl && !rawBaseUrl.includes('localhost') && !rawBaseUrl.includes('127
     rawBaseUrl = `https://${rawBaseUrl}`;
   }
 }
-const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
+export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -32,6 +32,29 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Response interceptor to catch 401 unauthorized / expired tokens
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      const isLoginEndpoint = error.config?.url?.includes('/auth/login');
+      if (!isLoginEndpoint) {
+        try {
+          localStorage.removeItem('pms_token');
+          localStorage.removeItem('pms_session');
+        } catch {
+          // Ignore storage errors
+        }
+        if (window.location.hash !== '#login') {
+          window.location.hash = '#login';
+          window.dispatchEvent(new Event('hashchange'));
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const loginApi = async (username, password) => {
   const response = await api.post('/auth/login', { username, password });

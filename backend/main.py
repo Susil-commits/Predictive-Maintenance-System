@@ -3,6 +3,7 @@ import uuid
 import subprocess
 import sys
 import time
+import logging
 import threading
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -31,13 +32,17 @@ from .batch import router as batch_router
 from .limiter import limiter
 from .auth import router as auth_router, seed_initial_admin, require_admin_auth, require_admin_jwt
 
+logger = logging.getLogger("pms.api")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
 # Create database tables and seed admin user if needed
 try:
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as _db:
         seed_initial_admin(_db)
 except Exception as e:
-    print(f"Table creation/admin seed note: {e}")
+    logger.info(f"Table creation/admin seed note: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,6 +52,9 @@ app = FastAPI(
     title="Predictive Maintenance System API",
     description="Real-time vehicle and industrial equipment failure prediction with MLflow tracking, model versioning, and drift detection",
     version="1.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
     lifespan=lifespan
 )
 app.state.limiter = limiter
@@ -120,7 +128,8 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-def health_check(db: Session = Depends(get_db)):
+@limiter.limit("120/minute")
+def health_check(request: Request, db: Session = Depends(get_db)):
     """
     Health check endpoint returning system, model, version, and database status.
     """
@@ -209,7 +218,7 @@ def predict_maintenance(
         db.commit()
     except Exception as db_err:
         db.rollback()
-        print(f"Warning: Failed to log prediction to database: {db_err}")
+        logger.warning(f"Failed to log prediction to database: {db_err}")
 
     pred_result["prediction_id"] = pred_id
     pred_result["timestamp"] = now.isoformat()
@@ -255,6 +264,35 @@ def clear_prediction_history(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database clear error: {str(e)}"
+        )
+
+@app.post("/history/prune", tags=["History"])
+def prune_prediction_history(
+    days: int = Query(30, ge=1, le=365, description="Prune records older than this many days"),
+    db: Session = Depends(get_db),
+    api_key: str = Depends(require_admin_api_key)
+):
+    """
+    Prunes prediction records older than specified retention days (default: 30 days).
+    Requires administrative authorization ('X-API-Key' or admin JWT).
+    """
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        num_deleted = db.query(PredictionRecord).filter(PredictionRecord.timestamp < cutoff).delete()
+        db.commit()
+        logger.info(f"Pruned {num_deleted} prediction records older than {days} days ({cutoff.isoformat()})")
+        return {
+            "status": "success",
+            "pruned_count": num_deleted,
+            "cutoff_timestamp": cutoff.isoformat(),
+            "retention_days": days
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database prune error: {str(e)}"
         )
 
 # ==================== MLOps: Drift Detection & Retraining ====================
@@ -333,17 +371,16 @@ def execute_retraining():
     global _retraining_active
     train_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml", "train.py")
     try:
-        print("[Retraining] Triggering ml/train.py...")
+        logger.info("[Retraining] Triggering ml/train.py...")
         result = subprocess.run([sys.executable, train_script], capture_output=True, text=True, check=True)
-        print("[Retraining] Training completed successfully:")
-        print(result.stdout[-400:])
+        logger.info(f"[Retraining] Training completed successfully. Tail: {result.stdout[-300:].strip()}")
         predictor.load_model()
         drift_detector.load_reference_stats()
         # Invalidate drift cache on new model reload
         _drift_cache["report"] = None
-        print(f"[Retraining] Predictor successfully reloaded with version {predictor.version}")
+        logger.info(f"[Retraining] Predictor successfully reloaded with version {predictor.version}")
     except Exception as e:
-        print(f"[Retraining] Pipeline error: {e}")
+        logger.error(f"[Retraining] Pipeline error: {e}")
     finally:
         with _retrain_lock:
             _retraining_active = False
