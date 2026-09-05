@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Thermometer, Activity, Gauge, RotateCw, Clock,
   FileSpreadsheet, Database, Cpu, Radio, Shield,
   BarChart3, Zap, AlertTriangle, CheckCircle2, Play,
-  Pause, RefreshCw, Eye
+  Pause, RefreshCw, Eye, Layers
 } from 'lucide-react';
 
 const SOURCES = [
@@ -28,7 +28,19 @@ export default function TelemetryPipelineFlow() {
   const [selectedNode, setSelectedNode] = useState(null);
   const [anomalyMode, setAnomalyMode] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [viewMode, setViewMode] = useState('auto'); // 'auto' | 'map' | 'stream'
+  const [isMobile, setIsMobile] = useState(false);
 
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const effectiveView = viewMode === 'auto' ? (isMobile ? 'stream' : 'map') : viewMode;
   const activeColor = anomalyMode ? '#f43f5e' : '#10b981';
 
   return (
@@ -50,6 +62,28 @@ export default function TelemetryPipelineFlow() {
         </div>
 
         <div className="flow-actions-group">
+          {/* Responsive View Switcher for mobile & tab devices */}
+          <div className="flow-view-switcher">
+            <button
+              type="button"
+              className={`flow-view-btn ${effectiveView === 'map' ? 'active' : ''}`}
+              onClick={() => setViewMode('map')}
+              title="Full Vector Architecture Map (Shrinks to fit any device)"
+            >
+              <Layers size={11} />
+              <span>Map View</span>
+            </button>
+            <button
+              type="button"
+              className={`flow-view-btn ${effectiveView === 'stream' ? 'active' : ''}`}
+              onClick={() => setViewMode('stream')}
+              title="Mobile Vertical Live Pipeline Stream"
+            >
+              <Activity size={11} />
+              <span>Stream View</span>
+            </button>
+          </div>
+
           <button
             type="button"
             className={`flow-toggle-btn ${anomalyMode ? 'anomaly-active' : ''}`}
@@ -57,7 +91,7 @@ export default function TelemetryPipelineFlow() {
             title="Toggle normal telemetry vs high-risk equipment anomaly injection"
           >
             <AlertTriangle size={13} />
-            <span>{anomalyMode ? 'Clear Anomaly' : 'Inject High-Risk Anomaly'}</span>
+            <span>{anomalyMode ? 'Clear Anomaly' : 'Inject Anomaly'}</span>
           </button>
 
           <button
@@ -67,440 +101,606 @@ export default function TelemetryPipelineFlow() {
             title="Pause/resume packet animation"
           >
             {isPaused ? <Play size={13} /> : <Pause size={13} />}
-            <span>{isPaused ? 'Resume Flow' : 'Pause Flow'}</span>
+            <span>{isPaused ? 'Resume' : 'Pause'}</span>
           </button>
         </div>
       </div>
 
-      {/* Main SVG Flow Diagram Canvas */}
-      <div className="flow-canvas-wrapper">
-        <svg
-          viewBox="0 0 1200 590"
-          className="flow-svg-canvas"
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        >
-          <defs>
-            {/* Soft Central Aura Radial Glow */}
-            <radialGradient id="centerAura" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor={anomalyMode ? '#f43f5e' : '#10b981'} stopOpacity="0.28" />
-              <stop offset="50%" stopColor={anomalyMode ? '#f59e0b' : '#06b6d4'} stopOpacity="0.12" />
-              <stop offset="100%" stopColor="#000000" stopOpacity="0" />
-            </radialGradient>
+      {effectiveView === 'stream' ? (
+        /* Dedicated Mobile & Tablet Live Vertical Pipeline Stream */
+        <div className="flow-mobile-stream">
+          {/* Stage 1: Physical Sensor Ingestion Bus */}
+          <div>
+            <div className="flow-mobile-stage-title">
+              <span>Stage 1 // Physical Ingestion Bus</span>
+              <span style={{ color: activeColor }}>500 Hz Active</span>
+            </div>
+            <div className="flow-mobile-grid">
+              {SOURCES.map((s) => {
+                const isSelected = selectedNode?.id === s.id;
+                const IconComp = s.icon;
+                const val = anomalyMode && s.id === 'temp'
+                  ? '118.6 °C [OVERHEAT]'
+                  : (anomalyMode && s.id === 'vib' ? '0.58 g [HIGH WEAR]' : s.val);
 
-            {/* Glow filter */}
-            <filter id="nodeGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="6" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-          </defs>
-
-          {/* Central Radial Aura Light */}
-          <circle cx="600" cy="295" r="190" fill="url(#centerAura)" />
-
-          {/* ================================================================= */}
-          {/* 1. LEFT CONVERGING CURVES (Sources -> Central Ingest)             */}
-          {/* ================================================================= */}
-          {SOURCES.map((s) => {
-            const isSelected = selectedNode?.id === s.id;
-            const startX = 205;
-            const startY = s.y + 20;
-            const endX = 512;
-            const endY = 295;
-            const c1x = startX + 160;
-            const c1y = startY;
-            const c2x = endX - 80;
-            const c2y = endY;
-            const pathD = `M ${startX} ${startY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}`;
-
-            return (
-              <g key={`curve-in-${s.id}`}>
-                {/* Background track curve */}
-                <path
-                  d={pathD}
-                  fill="none"
-                  stroke={isSelected ? (anomalyMode ? '#f43f5e' : '#10b981') : 'rgba(255,255,255,0.08)'}
-                  strokeWidth={isSelected ? 2.5 : 1.5}
-                  strokeLinecap="round"
-                />
-
-                {/* Animated flowing stream line */}
-                {!isPaused && (
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke={anomalyMode ? '#f59e0b' : '#10b981'}
-                    strokeWidth={isSelected ? 2.5 : 1.8}
-                    strokeDasharray="6, 12"
-                    strokeOpacity={isSelected ? 0.95 : 0.55}
-                    className="flowing-dash"
-                  />
-                )}
-              </g>
-            );
-          })}
-
-          {/* ================================================================= */}
-          {/* 2. RIGHT DIVERGING CURVES (Central Route -> Destinations)         */}
-          {/* ================================================================= */}
-          {DESTINATIONS.map((d) => {
-            const isSelected = selectedNode?.id === d.id;
-            const startX = 688;
-            const startY = 295;
-            const midX = 770;
-            const midY = 295;
-            const endX = 995;
-            const endY = d.y + 20;
-            const c1x = midX + 60;
-            const c1y = midY;
-            const c2x = endX - 110;
-            const c2y = endY;
-            const pathD = `M ${startX} ${startY} L ${midX} ${midY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}`;
-
-            return (
-              <g key={`curve-out-${d.id}`}>
-                {/* Track curve */}
-                <path
-                  d={pathD}
-                  fill="none"
-                  stroke={isSelected ? (anomalyMode ? '#f43f5e' : '#10b981') : 'rgba(255,255,255,0.08)'}
-                  strokeWidth={isSelected ? 2.5 : 1.5}
-                  strokeLinecap="round"
-                />
-
-                {/* Animated dash line */}
-                {!isPaused && (
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke={anomalyMode ? '#f43f5e' : '#34d399'}
-                    strokeWidth={isSelected ? 2.5 : 1.8}
-                    strokeDasharray="6, 12"
-                    strokeOpacity={isSelected ? 0.95 : 0.55}
-                    className="flowing-dash-reverse"
-                  />
-                )}
-              </g>
-            );
-          })}
-
-          {/* ================================================================= */}
-          {/* 3. ANIMATED GLIDING PACKET BADGES (Matching reference image)      */}
-          {/* ================================================================= */}
-          {!isPaused && (
-            <>
-              {/* Event Badge 1 on Source 1 (Temp) */}
-              <g>
-                <animateMotion
-                  path="M 205 70 C 365 70, 432 295, 512 295"
-                  dur={anomalyMode ? '2.2s' : '3.6s'}
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
-                <rect x="-26" y="-10" width="52" height="20" rx="10" fill="#18181b" stroke={anomalyMode ? '#f43f5e' : '#f59e0b'} strokeWidth="1.2" />
-                <polygon points="-18,2 -13,-6 -8,2" fill={anomalyMode ? '#f43f5e' : '#f59e0b'} />
-                <text x="3" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="700">
-                  {anomalyMode ? '98.4°C' : 'EVENT'}
-                </text>
-              </g>
-
-              {/* Event Badge 2 on Source 2 (Vibration) */}
-              <g>
-                <animateMotion
-                  path="M 205 145 C 365 145, 432 295, 512 295"
-                  dur={anomalyMode ? '1.9s' : '3.2s'}
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
-                <rect x="-28" y="-10" width="56" height="20" rx="10" fill="#18181b" stroke={anomalyMode ? '#f43f5e' : '#f59e0b'} strokeWidth="1.2" />
-                <polygon points="-20,2 -15,-6 -10,2" fill="#f59e0b" />
-                <text x="3" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="700">
-                  {anomalyMode ? 'ALERTS' : 'EVENTS'}
-                </text>
-              </g>
-
-              {/* Event Badge 3 on Source 3 (Pressure) */}
-              <g>
-                <animateMotion
-                  path="M 205 220 C 365 220, 432 295, 512 295"
-                  dur={anomalyMode ? '2.4s' : '3.8s'}
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
-                <rect x="-25" y="-9" width="50" height="18" rx="9" fill="#18181b" stroke="#10b981" strokeWidth="1.2" />
-                <circle cx="-14" cy="0" r="3.5" fill="#10b981" />
-                <text x="4" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8" fontFamily="var(--font-mono)" fontWeight="700">
-                  STREAM
-                </text>
-              </g>
-
-              {/* Event Badge 4 on Source 4 (RPM) */}
-              <g>
-                <animateMotion
-                  path="M 205 295 C 365 295, 432 295, 512 295"
-                  dur={anomalyMode ? '1.8s' : '3.0s'}
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
-                <rect x="-26" y="-10" width="52" height="20" rx="10" fill="#18181b" stroke={anomalyMode ? '#f43f5e' : '#06b6d4'} strokeWidth="1.2" />
-                <text x="0" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="700">
-                  {anomalyMode ? '0.42g' : 'EVENT'}
-                </text>
-              </g>
-
-              {/* Event Badge 5 on Source 6 (Operating Hours) */}
-              <g>
-                <animateMotion
-                  path="M 205 445 C 365 445, 432 295, 512 295"
-                  dur="4.0s"
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
-                <rect x="-25" y="-9" width="50" height="18" rx="9" fill="#18181b" stroke="#a1a1aa" strokeWidth="1.2" />
-                <text x="0" y="3" textAnchor="middle" fill="#ffffff" fontSize="8" fontFamily="var(--font-mono)" fontWeight="700">
-                  EVENT
-                </text>
-              </g>
-
-              {/* Exit Trunk Badge: "ALERT" with Checkmark / Warning icon */}
-              <g>
-                <animateMotion
-                  path="M 688 295 L 770 295 C 830 295, 880 190, 995 190"
-                  dur={anomalyMode ? '2.1s' : '3.3s'}
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
-                <rect
-                  x="-28" y="-11" width="56" height="22" rx="11"
-                  fill="#0a0a0c"
-                  stroke={anomalyMode ? '#f43f5e' : '#10b981'}
-                  strokeWidth="1.4"
-                />
-                <circle cx="-16" cy="0" r="4.5" fill={anomalyMode ? '#f43f5e' : '#10b981'} />
-                <path d="M -18 -0.5 L -16 1.5 L -13 -2" fill="none" stroke="#000000" strokeWidth="1.2" strokeLinecap="round" />
-                <text x="5" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="9" fontFamily="var(--font-mono)" fontWeight="700">
-                  {anomalyMode ? 'TRIP' : 'ALERT'}
-                </text>
-              </g>
-
-              {/* Output Branch Badge: "EVENT" to Cloud Storage / DB */}
-              <g>
-                <animateMotion
-                  path="M 770 295 C 830 295, 880 380, 995 380"
-                  dur="3.4s"
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
-                <rect x="-26" y="-10" width="52" height="20" rx="10" fill="#0a0a0c" stroke="#38bdf8" strokeWidth="1.2" />
-                <text x="0" y="3.5" textAnchor="middle" fill="#38bdf8" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="700">
-                  EVENT
-                </text>
-              </g>
-            </>
-          )}
-
-          {/* ================================================================= */}
-          {/* 4. CENTRAL PROCESSING DIAMOND (The Core Hub)                      */}
-          {/* ================================================================= */}
-          <g transform="translate(600, 295)">
-            {/* Top Lobe: REDUCE / FEATURE ENG */}
-            <g
-              className="flow-diamond-petal"
-              onClick={() => setSelectedNode({
-                id: 'reduce',
-                label: 'FEATURE ENGINEERING (REDUCE)',
-                sub: 'Interaction Feature Generation',
-                val: 'Computes Thermal Excess, Overstrain Index, Vibration Wear Index, and RPM-Pressure mechanical load.'
-              })}
-            >
-              <rect
-                x="-46" y="-100" width="92" height="42" rx="10"
-                fill="#0f1715"
-                stroke={anomalyMode ? '#f43f5e' : 'rgba(16, 185, 129, 0.45)'}
-                strokeWidth="1.5"
-              />
-              <text x="0" y="-76" textAnchor="middle" fill={anomalyMode ? '#fda4af' : '#6ee7b7'} fontSize="10.5" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
-                REDUCE
-              </text>
-              <text x="0" y="-65" textAnchor="middle" fill="var(--text-dim)" fontSize="7.5" fontFamily="var(--font-mono)">
-                FEATURE ENG
-              </text>
-            </g>
-
-            {/* Left Lobe: INGEST */}
-            <g
-              className="flow-diamond-petal"
-              onClick={() => setSelectedNode({
-                id: 'ingest',
-                label: 'INGESTION ENGINE',
-                sub: '500Hz Sensory Input Validator',
-                val: 'Fuzzy column mapping, bounds checking (e.g. Temp 20-200°C, Vib 0-10g), and NaN/Inf rejection.'
-              })}
-            >
-              <rect
-                x="-106" y="-21" width="52" height="42" rx="10"
-                fill="#0f1715"
-                stroke={anomalyMode ? '#f43f5e' : 'rgba(16, 185, 129, 0.45)'}
-                strokeWidth="1.5"
-              />
-              <text x="-80" y="4" textAnchor="middle" fill={anomalyMode ? '#fda4af' : '#6ee7b7'} fontSize="10.5" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
-                INGEST
-              </text>
-            </g>
-
-            {/* Bottom Lobe: NORMALIZE */}
-            <g
-              className="flow-diamond-petal"
-              onClick={() => setSelectedNode({
-                id: 'normalize',
-                label: 'CALIBRATION & NORMALIZATION',
-                sub: 'Platt Scaling & Robust Scaler',
-                val: 'CalibratedClassifierCV ensures sigmoid output maps to mathematically true posterior probabilities.'
-              })}
-            >
-              <rect
-                x="-52" y="58" width="104" height="42" rx="10"
-                fill="#0f1715"
-                stroke={anomalyMode ? '#f43f5e' : 'rgba(16, 185, 129, 0.45)'}
-                strokeWidth="1.5"
-              />
-              <text x="0" y="82" textAnchor="middle" fill={anomalyMode ? '#fda4af' : '#6ee7b7'} fontSize="10.5" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
-                NORMALIZE
-              </text>
-              <text x="0" y="93" textAnchor="middle" fill="var(--text-dim)" fontSize="7.5" fontFamily="var(--font-mono)">
-                PLATT SCALING
-              </text>
-            </g>
-
-            {/* Right Lobe: ROUTE / INFERENCE */}
-            <g
-              className="flow-diamond-petal"
-              onClick={() => setSelectedNode({
-                id: 'route',
-                label: 'INFERENCE & ROUTING CORE',
-                sub: 'PR-Tuned Decision Threshold Engine',
-                val: 'Evaluates XGBoost decision boundary (Threshold: 0.6444) and routes outputs to SHAP and live webhooks.'
-              })}
-            >
-              <rect
-                x="54" y="-21" width="52" height="42" rx="10"
-                fill="#0f1715"
-                stroke={anomalyMode ? '#f43f5e' : 'rgba(16, 185, 129, 0.45)'}
-                strokeWidth="1.5"
-              />
-              <text x="80" y="4" textAnchor="middle" fill={anomalyMode ? '#fda4af' : '#6ee7b7'} fontSize="10.5" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
-                ROUTE
-              </text>
-            </g>
-
-            {/* Central Circle with Rotating Ring of 12 Dots (Exact Reference Match) */}
-            <circle cx="0" cy="0" r="42" fill="#ffffff" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-            <circle cx="0" cy="0" r="38" fill="#f8fafc" />
-
-            {/* Rotating 12-Dot Radial Array */}
-            <g className="rotating-dots-group">
-              {[...Array(12)].map((_, i) => {
-                const angle = (i * 30 * Math.PI) / 180;
-                const r = 24;
-                const dx = r * Math.cos(angle);
-                const dy = r * Math.sin(angle);
                 return (
-                  <circle
-                    key={i}
-                    cx={dx}
-                    cy={dy}
-                    r={i % 3 === 0 ? 3.5 : 2.5}
-                    fill={anomalyMode ? (i % 2 === 0 ? '#f43f5e' : '#09090b') : (i % 2 === 0 ? '#09090b' : '#10b981')}
-                  />
+                  <div
+                    key={s.id}
+                    className={`flow-mobile-node-card ${isSelected ? (anomalyMode ? 'anomaly-selected' : 'selected') : ''}`}
+                    onClick={() => setSelectedNode(s)}
+                  >
+                    <div className="flow-mobile-node-top">
+                      <div className="flow-mobile-node-icon" style={{ color: s.color }}>
+                        <IconComp size={12} />
+                      </div>
+                      <span className="flow-mobile-node-name">{s.label}</span>
+                    </div>
+                    <span className="flow-mobile-node-sub">{s.sub}</span>
+                    <span className="flow-mobile-node-val" style={{ color: anomalyMode && (s.id === 'temp' || s.id === 'vib') ? '#f43f5e' : s.color }}>
+                      {val}
+                    </span>
+                  </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Animated Flow Conduit 1 */}
+          <div className="flow-mobile-conduit">
+            <div className={`flow-mobile-conduit-line ${anomalyMode ? 'anomaly' : ''}`}>
+              {!isPaused && <div className={`flow-mobile-conduit-pulse ${anomalyMode ? 'anomaly' : ''}`} />}
+            </div>
+            <div className="flow-mobile-conduit-badge">
+              <span className="status-dot" style={{ background: activeColor, color: activeColor }} />
+              <span>NOMINAL STREAM // 500 Hz BUS</span>
+            </div>
+            <div className={`flow-mobile-conduit-line ${anomalyMode ? 'anomaly' : ''}`}>
+              {!isPaused && <div className={`flow-mobile-conduit-pulse ${anomalyMode ? 'anomaly' : ''}`} />}
+            </div>
+          </div>
+
+          {/* Stage 2: Central Ingestion & Inference Core */}
+          <div className={`flow-mobile-core ${anomalyMode ? 'anomaly' : ''}`}>
+            <div className="flow-mobile-core-header">
+              <div className={`flow-mobile-core-rotator ${anomalyMode ? 'anomaly' : ''}`}>
+                <Cpu size={14} color={activeColor} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#ffffff' }}>
+                  CALIBRATED XGBOOST CORE
+                </span>
+                <span style={{ fontSize: '0.62rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                  v13 Engine · Platt Scaling · Latency 0.02ms
+                </span>
+              </div>
+            </div>
+
+            <div className="flow-mobile-core-modules">
+              <div
+                className="flow-mobile-core-mod"
+                onClick={() => setSelectedNode({
+                  id: 'ingest',
+                  label: 'INGESTION ENGINE',
+                  sub: '500Hz Sensory Input Validator',
+                  val: 'Fuzzy column mapping, bounds checking, NaN/Inf rejection.'
+                })}
+              >
+                INGEST (500Hz)
+              </div>
+              <div
+                className="flow-mobile-core-mod"
+                onClick={() => setSelectedNode({
+                  id: 'reduce',
+                  label: 'FEATURE ENGINEERING (REDUCE)',
+                  sub: 'Interaction Feature Generation',
+                  val: 'Computes Thermal Excess, Overstrain Index, Vibration Wear Index.'
+                })}
+              >
+                REDUCE (Features)
+              </div>
+              <div
+                className="flow-mobile-core-mod"
+                onClick={() => setSelectedNode({
+                  id: 'normalize',
+                  label: 'CALIBRATION & NORMALIZATION',
+                  sub: 'Platt Scaling & Robust Scaler',
+                  val: 'Maps model output to true calibrated posterior probabilities.'
+                })}
+              >
+                NORMALIZE (Platt)
+              </div>
+              <div
+                className="flow-mobile-core-mod"
+                onClick={() => setSelectedNode({
+                  id: 'route',
+                  label: 'INFERENCE & ROUTING CORE',
+                  sub: 'PR-Tuned Decision Threshold Engine',
+                  val: 'Evaluates XGBoost decision boundary (Threshold: 0.6444).'
+                })}
+              >
+                ROUTE (Threshold)
+              </div>
+            </div>
+          </div>
+
+          {/* Animated Flow Conduit 2 */}
+          <div className="flow-mobile-conduit">
+            <div className={`flow-mobile-conduit-line ${anomalyMode ? 'anomaly' : ''}`}>
+              {!isPaused && <div className={`flow-mobile-conduit-pulse ${anomalyMode ? 'anomaly' : ''}`} />}
+            </div>
+            <div className="flow-mobile-conduit-badge">
+              <Zap size={10} color={activeColor} />
+              <span>{anomalyMode ? 'SAFETY TRIP DISPATCH' : 'DIAGNOSTIC DISPATCH'}</span>
+            </div>
+            <div className={`flow-mobile-conduit-line ${anomalyMode ? 'anomaly' : ''}`}>
+              {!isPaused && <div className={`flow-mobile-conduit-pulse ${anomalyMode ? 'anomaly' : ''}`} />}
+            </div>
+          </div>
+
+          {/* Stage 3: Output Destinations */}
+          <div>
+            <div className="flow-mobile-stage-title">
+              <span>Stage 3 // Inference &amp; Actions</span>
+              <span style={{ color: activeColor }}>Active Output</span>
+            </div>
+            <div className="flow-mobile-grid">
+              {DESTINATIONS.map((d) => {
+                const isSelected = selectedNode?.id === d.id;
+                const IconComp = d.icon;
+                const outVal = anomalyMode && d.id === 'studio'
+                  ? 'Prob: 0.94 (HIGH RISK)'
+                  : (anomalyMode && d.id === 'trip' ? 'Status: TRIPPED (SAFETY SHUTDOWN)' : d.out);
+
+                return (
+                  <div
+                    key={d.id}
+                    className={`flow-mobile-node-card ${isSelected ? (anomalyMode ? 'anomaly-selected' : 'selected') : ''}`}
+                    onClick={() => setSelectedNode(d)}
+                  >
+                    <div className="flow-mobile-node-top">
+                      <div className="flow-mobile-node-icon" style={{ color: anomalyMode && d.id === 'trip' ? '#f43f5e' : d.color }}>
+                        <IconComp size={12} />
+                      </div>
+                      <span className="flow-mobile-node-name">{d.label}</span>
+                    </div>
+                    <span className="flow-mobile-node-sub">{d.sub}</span>
+                    <span className="flow-mobile-node-val" style={{ color: anomalyMode && (d.id === 'trip' || d.id === 'studio') ? '#f43f5e' : d.color }}>
+                      {outVal}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Main SVG Flow Diagram Canvas (Shrinks to fit any screen with zero horizontal scrollbar / loader) */
+        <div className="flow-canvas-wrapper">
+          <svg
+            viewBox="0 0 1200 590"
+            preserveAspectRatio="xMidYMid meet"
+            className="flow-svg-canvas"
+            style={{ width: '100%', height: 'auto', display: 'block' }}
+          >
+            <defs>
+              {/* Soft Central Aura Radial Glow */}
+              <radialGradient id="centerAura" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor={anomalyMode ? '#f43f5e' : '#10b981'} stopOpacity="0.28" />
+                <stop offset="50%" stopColor={anomalyMode ? '#f59e0b' : '#06b6d4'} stopOpacity="0.12" />
+                <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+              </radialGradient>
+
+              {/* Glow filter */}
+              <filter id="nodeGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="6" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+
+            {/* Central Radial Aura Light */}
+            <circle cx="600" cy="295" r="190" fill="url(#centerAura)" />
+
+            {/* ================================================================= */}
+            {/* 1. LEFT CONVERGING CURVES (Sources -> Central Ingest)             */}
+            {/* ================================================================= */}
+            {SOURCES.map((s) => {
+              const isSelected = selectedNode?.id === s.id;
+              const startX = 205;
+              const startY = s.y + 20;
+              const endX = 512;
+              const endY = 295;
+              const c1x = startX + 160;
+              const c1y = startY;
+              const c2x = endX - 80;
+              const c2y = endY;
+              const pathD = `M ${startX} ${startY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}`;
+
+              return (
+                <g key={`curve-in-${s.id}`}>
+                  {/* Background track curve */}
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={isSelected ? (anomalyMode ? '#f43f5e' : '#10b981') : 'rgba(255,255,255,0.08)'}
+                    strokeWidth={isSelected ? 2.5 : 1.5}
+                    strokeLinecap="round"
+                  />
+
+                  {/* Animated flowing stream line */}
+                  {!isPaused && (
+                    <path
+                      d={pathD}
+                      fill="none"
+                      stroke={anomalyMode ? '#f59e0b' : '#10b981'}
+                      strokeWidth={isSelected ? 2.5 : 1.8}
+                      strokeDasharray="6, 12"
+                      strokeOpacity={isSelected ? 0.95 : 0.55}
+                      className="flowing-dash"
+                    />
+                  )}
+                </g>
+              );
+            })}
+
+            {/* ================================================================= */}
+            {/* 2. RIGHT DIVERGING CURVES (Central Route -> Destinations)         */}
+            {/* ================================================================= */}
+            {DESTINATIONS.map((d) => {
+              const isSelected = selectedNode?.id === d.id;
+              const startX = 688;
+              const startY = 295;
+              const midX = 770;
+              const midY = 295;
+              const endX = 995;
+              const endY = d.y + 20;
+              const c1x = midX + 60;
+              const c1y = midY;
+              const c2x = endX - 110;
+              const c2y = endY;
+              const pathD = `M ${startX} ${startY} L ${midX} ${midY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}`;
+
+              return (
+                <g key={`curve-out-${d.id}`}>
+                  {/* Track curve */}
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={isSelected ? (anomalyMode ? '#f43f5e' : '#10b981') : 'rgba(255,255,255,0.08)'}
+                    strokeWidth={isSelected ? 2.5 : 1.5}
+                    strokeLinecap="round"
+                  />
+
+                  {/* Animated dash line */}
+                  {!isPaused && (
+                    <path
+                      d={pathD}
+                      fill="none"
+                      stroke={anomalyMode ? '#f43f5e' : '#34d399'}
+                      strokeWidth={isSelected ? 2.5 : 1.8}
+                      strokeDasharray="6, 12"
+                      strokeOpacity={isSelected ? 0.95 : 0.55}
+                      className="flowing-dash-reverse"
+                    />
+                  )}
+                </g>
+              );
+            })}
+
+            {/* ================================================================= */}
+            {/* 3. ANIMATED GLIDING PACKET BADGES                                 */}
+            {/* ================================================================= */}
+            {!isPaused && (
+              <>
+                {/* Event Badge 1 on Source 1 (Temp) */}
+                <g>
+                  <animateMotion
+                    path="M 205 70 C 365 70, 432 295, 512 295"
+                    dur={anomalyMode ? '2.2s' : '3.6s'}
+                    repeatCount="indefinite"
+                    rotate="auto"
+                  />
+                  <rect x="-26" y="-10" width="52" height="20" rx="10" fill="#18181b" stroke={anomalyMode ? '#f43f5e' : '#f59e0b'} strokeWidth="1.2" />
+                  <polygon points="-18,2 -13,-6 -8,2" fill={anomalyMode ? '#f43f5e' : '#f59e0b'} />
+                  <text x="3" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="700">
+                    {anomalyMode ? '98.4°C' : 'EVENT'}
+                  </text>
+                </g>
+
+                {/* Event Badge 2 on Source 2 (Vibration) */}
+                <g>
+                  <animateMotion
+                    path="M 205 145 C 365 145, 432 295, 512 295"
+                    dur={anomalyMode ? '1.9s' : '3.2s'}
+                    repeatCount="indefinite"
+                    rotate="auto"
+                  />
+                  <rect x="-28" y="-10" width="56" height="20" rx="10" fill="#18181b" stroke={anomalyMode ? '#f43f5e' : '#f59e0b'} strokeWidth="1.2" />
+                  <polygon points="-20,2 -15,-6 -10,2" fill="#f59e0b" />
+                  <text x="3" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="700">
+                    {anomalyMode ? 'ALERTS' : 'EVENTS'}
+                  </text>
+                </g>
+
+                {/* Event Badge 3 on Source 3 (Pressure) */}
+                <g>
+                  <animateMotion
+                    path="M 205 220 C 365 220, 432 295, 512 295"
+                    dur={anomalyMode ? '2.4s' : '3.8s'}
+                    repeatCount="indefinite"
+                    rotate="auto"
+                  />
+                  <rect x="-25" y="-9" width="50" height="18" rx="9" fill="#18181b" stroke="#10b981" strokeWidth="1.2" />
+                  <circle cx="-14" cy="0" r="3.5" fill="#10b981" />
+                  <text x="4" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8" fontFamily="var(--font-mono)" fontWeight="700">
+                    STREAM
+                  </text>
+                </g>
+
+                {/* Event Badge 4 on Source 4 (RPM) */}
+                <g>
+                  <animateMotion
+                    path="M 205 295 C 365 295, 432 295, 512 295"
+                    dur={anomalyMode ? '1.8s' : '3.0s'}
+                    repeatCount="indefinite"
+                    rotate="auto"
+                  />
+                  <rect x="-26" y="-10" width="52" height="20" rx="10" fill="#18181b" stroke={anomalyMode ? '#f43f5e' : '#06b6d4'} strokeWidth="1.2" />
+                  <text x="0" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="700">
+                    {anomalyMode ? '0.42g' : 'EVENT'}
+                  </text>
+                </g>
+
+                {/* Event Badge 5 on Source 6 (Operating Hours) */}
+                <g>
+                  <animateMotion
+                    path="M 205 445 C 365 445, 432 295, 512 295"
+                    dur="4.0s"
+                    repeatCount="indefinite"
+                    rotate="auto"
+                  />
+                  <rect x="-25" y="-9" width="50" height="18" rx="9" fill="#18181b" stroke="#a1a1aa" strokeWidth="1.2" />
+                  <text x="0" y="3" textAnchor="middle" fill="#ffffff" fontSize="8" fontFamily="var(--font-mono)" fontWeight="700">
+                    EVENT
+                  </text>
+                </g>
+
+                {/* Exit Trunk Badge: "ALERT" with Warning / Check icon */}
+                <g>
+                  <animateMotion
+                    path="M 688 295 L 770 295 C 830 295, 880 190, 995 190"
+                    dur={anomalyMode ? '2.1s' : '3.3s'}
+                    repeatCount="indefinite"
+                    rotate="auto"
+                  />
+                  <rect
+                    x="-28" y="-11" width="56" height="22" rx="11"
+                    fill="#0a0a0c"
+                    stroke={anomalyMode ? '#f43f5e' : '#10b981'}
+                    strokeWidth="1.4"
+                  />
+                  <circle cx="-16" cy="0" r="4.5" fill={anomalyMode ? '#f43f5e' : '#10b981'} />
+                  <path d="M -18 -0.5 L -16 1.5 L -13 -2" fill="none" stroke="#000000" strokeWidth="1.2" strokeLinecap="round" />
+                  <text x="5" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="9" fontFamily="var(--font-mono)" fontWeight="700">
+                    {anomalyMode ? 'TRIP' : 'ALERT'}
+                  </text>
+                </g>
+
+                {/* Output Branch Badge: "EVENT" to Cloud Storage / DB */}
+                <g>
+                  <animateMotion
+                    path="M 770 295 C 830 295, 880 380, 995 380"
+                    dur="3.4s"
+                    repeatCount="indefinite"
+                    rotate="auto"
+                  />
+                  <rect x="-26" y="-10" width="52" height="20" rx="10" fill="#0a0a0c" stroke="#38bdf8" strokeWidth="1.2" />
+                  <text x="0" y="3.5" textAnchor="middle" fill="#38bdf8" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="700">
+                    EVENT
+                  </text>
+                </g>
+              </>
+            )}
+
+            {/* ================================================================= */}
+            {/* 4. CENTRAL PROCESSING DIAMOND (The Core Hub)                      */}
+            {/* ================================================================= */}
+            <g transform="translate(600, 295)">
+              {/* Top Lobe: REDUCE / FEATURE ENG */}
+              <g
+                className="flow-diamond-petal"
+                onClick={() => setSelectedNode({
+                  id: 'reduce',
+                  label: 'FEATURE ENGINEERING (REDUCE)',
+                  sub: 'Interaction Feature Generation',
+                  val: 'Computes Thermal Excess, Overstrain Index, Vibration Wear Index, and RPM-Pressure mechanical load.'
+                })}
+              >
+                <rect
+                  x="-46" y="-100" width="92" height="42" rx="10"
+                  fill="#0f1715"
+                  stroke={anomalyMode ? '#f43f5e' : 'rgba(16, 185, 129, 0.45)'}
+                  strokeWidth="1.5"
+                />
+                <text x="0" y="-76" textAnchor="middle" fill={anomalyMode ? '#fda4af' : '#6ee7b7'} fontSize="10.5" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
+                  REDUCE
+                </text>
+                <text x="0" y="-65" textAnchor="middle" fill="var(--text-dim)" fontSize="7.5" fontFamily="var(--font-mono)">
+                  FEATURE ENG
+                </text>
+              </g>
+
+              {/* Left Lobe: INGEST */}
+              <g
+                className="flow-diamond-petal"
+                onClick={() => setSelectedNode({
+                  id: 'ingest',
+                  label: 'INGESTION ENGINE',
+                  sub: '500Hz Sensory Input Validator',
+                  val: 'Fuzzy column mapping, bounds checking (e.g. Temp 20-200°C, Vib 0-10g), and NaN/Inf rejection.'
+                })}
+              >
+                <rect
+                  x="-106" y="-21" width="52" height="42" rx="10"
+                  fill="#0f1715"
+                  stroke={anomalyMode ? '#f43f5e' : 'rgba(16, 185, 129, 0.45)'}
+                  strokeWidth="1.5"
+                />
+                <text x="-80" y="4" textAnchor="middle" fill={anomalyMode ? '#fda4af' : '#6ee7b7'} fontSize="10.5" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
+                  INGEST
+                </text>
+              </g>
+
+              {/* Bottom Lobe: NORMALIZE */}
+              <g
+                className="flow-diamond-petal"
+                onClick={() => setSelectedNode({
+                  id: 'normalize',
+                  label: 'CALIBRATION & NORMALIZATION',
+                  sub: 'Platt Scaling & Robust Scaler',
+                  val: 'CalibratedClassifierCV ensures sigmoid output maps to mathematically true posterior probabilities.'
+                })}
+              >
+                <rect
+                  x="-52" y="58" width="104" height="42" rx="10"
+                  fill="#0f1715"
+                  stroke={anomalyMode ? '#f43f5e' : 'rgba(16, 185, 129, 0.45)'}
+                  strokeWidth="1.5"
+                />
+                <text x="0" y="82" textAnchor="middle" fill={anomalyMode ? '#fda4af' : '#6ee7b7'} fontSize="10.5" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
+                  NORMALIZE
+                </text>
+                <text x="0" y="93" textAnchor="middle" fill="var(--text-dim)" fontSize="7.5" fontFamily="var(--font-mono)">
+                  PLATT SCALING
+                </text>
+              </g>
+
+              {/* Right Lobe: ROUTE / INFERENCE */}
+              <g
+                className="flow-diamond-petal"
+                onClick={() => setSelectedNode({
+                  id: 'route',
+                  label: 'INFERENCE & ROUTING CORE',
+                  sub: 'PR-Tuned Decision Threshold Engine',
+                  val: 'Evaluates XGBoost decision boundary (Threshold: 0.6444) and routes outputs to SHAP and live webhooks.'
+                })}
+              >
+                <rect
+                  x="54" y="-21" width="52" height="42" rx="10"
+                  fill="#0f1715"
+                  stroke={anomalyMode ? '#f43f5e' : 'rgba(16, 185, 129, 0.45)'}
+                  strokeWidth="1.5"
+                />
+                <text x="80" y="4" textAnchor="middle" fill={anomalyMode ? '#fda4af' : '#6ee7b7'} fontSize="10.5" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
+                  ROUTE
+                </text>
+              </g>
+
+              {/* Central Circle with Rotating Ring of 12 Dots */}
+              <circle cx="0" cy="0" r="42" fill="#ffffff" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
+              <circle cx="0" cy="0" r="38" fill="#f8fafc" />
+
+              {/* Rotating 12-Dot Radial Array */}
+              <g className="rotating-dots-group">
+                {[...Array(12)].map((_, i) => {
+                  const angle = (i * 30 * Math.PI) / 180;
+                  const r = 24;
+                  const dx = r * Math.cos(angle);
+                  const dy = r * Math.sin(angle);
+                  return (
+                    <circle
+                      key={i}
+                      cx={dx}
+                      cy={dy}
+                      r={i % 3 === 0 ? 3.5 : 2.5}
+                      fill={anomalyMode ? (i % 2 === 0 ? '#f43f5e' : '#09090b') : (i % 2 === 0 ? '#09090b' : '#10b981')}
+                    />
+                  );
+                })}
+              </g>
+
+              {/* Pulsing Core Center Dot */}
+              <circle cx="0" cy="0" r="7" fill={anomalyMode ? '#f43f5e' : '#09090b'} />
+              <circle cx="0" cy="0" r="3.5" fill="#ffffff" />
             </g>
 
-            {/* Pulsing Core Center Dot */}
-            <circle cx="0" cy="0" r="7" fill={anomalyMode ? '#f43f5e' : '#09090b'} />
-            <circle cx="0" cy="0" r="3.5" fill="#ffffff" />
-          </g>
+            {/* ================================================================= */}
+            {/* 5. LEFT SOURCE NODES (Interactive Pill Cards)                     */}
+            {/* ================================================================= */}
+            {SOURCES.map((s) => {
+              const isSelected = selectedNode?.id === s.id;
+              const IconComp = s.icon;
+              return (
+                <g
+                  key={`source-pill-${s.id}`}
+                  className="flow-node-group"
+                  transform={`translate(30, ${s.y})`}
+                  onClick={() => setSelectedNode(s)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {/* Rounded Pill Box */}
+                  <rect
+                    x="0" y="0" width="175" height="40" rx="20"
+                    fill={isSelected ? 'rgba(255,255,255,0.07)' : '#0d0d12'}
+                    stroke={isSelected ? s.color : 'rgba(255,255,255,0.12)'}
+                    strokeWidth={isSelected ? 1.8 : 1}
+                    filter={isSelected ? 'url(#nodeGlow)' : undefined}
+                  />
+                  {/* Node Icon */}
+                  <circle cx="20" cy="20" r="11" fill="rgba(255,255,255,0.05)" />
+                  <g transform="translate(13.5, 13.5)">
+                    <IconComp size={13} color={isSelected ? s.color : '#a1a1aa'} />
+                  </g>
+                  {/* Label & Subtitle */}
+                  <text x="38" y="19" fill="#f4f4f5" fontSize="9" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
+                    {s.label}
+                  </text>
+                  <text x="38" y="29" fill="var(--text-dim)" fontSize="7.2" fontFamily="var(--font-mono)">
+                    {s.sub}
+                  </text>
+                </g>
+              );
+            })}
 
-          {/* ================================================================= */}
-          {/* 5. LEFT SOURCE NODES (Interactive Pill Cards)                     */}
-          {/* ================================================================= */}
-          {SOURCES.map((s) => {
-            const isSelected = selectedNode?.id === s.id;
-            const IconComp = s.icon;
-            return (
-              <g
-                key={`source-pill-${s.id}`}
-                className="flow-node-group"
-                transform={`translate(30, ${s.y})`}
-                onClick={() => setSelectedNode(s)}
-                style={{ cursor: 'pointer' }}
-              >
-                {/* Rounded Pill Box */}
-                <rect
-                  x="0" y="0" width="175" height="40" rx="20"
-                  fill={isSelected ? 'rgba(255,255,255,0.07)' : '#0d0d12'}
-                  stroke={isSelected ? s.color : 'rgba(255,255,255,0.12)'}
-                  strokeWidth={isSelected ? 1.8 : 1}
-                  filter={isSelected ? 'url(#nodeGlow)' : undefined}
-                />
-                {/* Node Icon */}
-                <circle cx="20" cy="20" r="11" fill="rgba(255,255,255,0.05)" />
-                <foreignObject x="11" y="11" width="18" height="18">
-                  <div style={{ color: isSelected ? s.color : 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <IconComp size={13} />
-                  </div>
-                </foreignObject>
-                {/* Label & Subtitle */}
-                <text x="38" y="19" fill="#f4f4f5" fontSize="9" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
-                  {s.label}
-                </text>
-                <text x="38" y="29" fill="var(--text-dim)" fontSize="7.2" fontFamily="var(--font-mono)">
-                  {s.sub}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* ================================================================= */}
-          {/* 6. RIGHT DESTINATION NODES (Interactive Output Cards)              */}
-          {/* ================================================================= */}
-          {DESTINATIONS.map((d) => {
-            const isSelected = selectedNode?.id === d.id;
-            const IconComp = d.icon;
-            return (
-              <g
-                key={`dest-pill-${d.id}`}
-                className="flow-node-group"
-                transform={`translate(995, ${d.y})`}
-                onClick={() => setSelectedNode(d)}
-                style={{ cursor: 'pointer' }}
-              >
-                {/* Rounded Pill Box */}
-                <rect
-                  x="0" y="0" width="180" height="40" rx="20"
-                  fill={isSelected ? 'rgba(255,255,255,0.07)' : '#0d0d12'}
-                  stroke={isSelected ? d.color : (anomalyMode && d.id === 'trip' ? '#f43f5e' : 'rgba(255,255,255,0.12)')}
-                  strokeWidth={isSelected ? 1.8 : 1}
-                  filter={isSelected ? 'url(#nodeGlow)' : undefined}
-                />
-                {/* Node Icon */}
-                <circle cx="20" cy="20" r="11" fill="rgba(255,255,255,0.05)" />
-                <foreignObject x="11" y="11" width="18" height="18">
-                  <div style={{ color: isSelected ? d.color : (anomalyMode && d.id === 'trip' ? '#f43f5e' : 'var(--text-secondary)'), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <IconComp size={13} />
-                  </div>
-                </foreignObject>
-                {/* Label & Subtitle */}
-                <text x="38" y="19" fill="#f4f4f5" fontSize="9" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
-                  {d.label}
-                </text>
-                <text x="38" y="29" fill="var(--text-dim)" fontSize="7.2" fontFamily="var(--font-mono)">
-                  {d.sub}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
+            {/* ================================================================= */}
+            {/* 6. RIGHT DESTINATION NODES (Interactive Output Cards)              */}
+            {/* ================================================================= */}
+            {DESTINATIONS.map((d) => {
+              const isSelected = selectedNode?.id === d.id;
+              const IconComp = d.icon;
+              return (
+                <g
+                  key={`dest-pill-${d.id}`}
+                  className="flow-node-group"
+                  transform={`translate(995, ${d.y})`}
+                  onClick={() => setSelectedNode(d)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {/* Rounded Pill Box */}
+                  <rect
+                    x="0" y="0" width="180" height="40" rx="20"
+                    fill={isSelected ? 'rgba(255,255,255,0.07)' : '#0d0d12'}
+                    stroke={isSelected ? d.color : (anomalyMode && d.id === 'trip' ? '#f43f5e' : 'rgba(255,255,255,0.12)')}
+                    strokeWidth={isSelected ? 1.8 : 1}
+                    filter={isSelected ? 'url(#nodeGlow)' : undefined}
+                  />
+                  {/* Node Icon */}
+                  <circle cx="20" cy="20" r="11" fill="rgba(255,255,255,0.05)" />
+                  <g transform="translate(13.5, 13.5)">
+                    <IconComp size={13} color={isSelected ? d.color : (anomalyMode && d.id === 'trip' ? '#f43f5e' : '#a1a1aa')} />
+                  </g>
+                  {/* Label & Subtitle */}
+                  <text x="38" y="19" fill="#f4f4f5" fontSize="9" fontFamily="var(--font-mono)" fontWeight="700" letterSpacing="0.04em">
+                    {d.label}
+                  </text>
+                  <text x="38" y="29" fill="var(--text-dim)" fontSize="7.2" fontFamily="var(--font-mono)">
+                    {d.sub}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      )}
 
       {/* Interactive Node Telemetry Inspector Drawer */}
       <div className="flow-inspect-panel">
