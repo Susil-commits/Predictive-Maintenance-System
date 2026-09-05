@@ -43,14 +43,15 @@ if not logger.handlers:
 def init_db():
     """Ensure tables are created and default admin is seeded."""
     try:
-        Base.metadata.create_all(bind=engine)
-        # Ensure designation column exists on existing user tables
-        try:
-            with engine.connect() as conn:
-                conn.execute(text("ALTER TABLE pms_users ADD COLUMN IF NOT EXISTS designation VARCHAR(128) DEFAULT 'Maintenance Specialist';"))
-                conn.commit()
-        except Exception:
-            pass
+        if engine is not None:
+            Base.metadata.create_all(bind=engine)
+            # Ensure designation column exists on existing user tables
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE pms_users ADD COLUMN IF NOT EXISTS designation VARCHAR(128) DEFAULT 'Maintenance Specialist';"))
+                    conn.commit()
+            except Exception:
+                pass
         with SessionLocal() as _db:
             seed_initial_admin(_db)
     except Exception as e:
