@@ -27,7 +27,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-JWT_SECRET = os.getenv("JWT_SECRET", "pms-super-secret-jwt-signing-key-2026")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    if os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production":
+        logger.critical(
+            "CRITICAL SECURITY WARNING: JWT_SECRET environment variable is not set in production! "
+            "Configure JWT_SECRET in your Render/deployment dashboard environment variables."
+        )
+    JWT_SECRET = "pms-super-secret-jwt-signing-key-2026"
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
@@ -149,7 +156,14 @@ def seed_initial_admin(db: Session):
     """Ensure at least one admin user exists in the database on startup and credentials match config."""
     try:
         admin_username = os.getenv("ADMIN_USERNAME", "admin")
-        admin_password = os.getenv("ADMIN_PASSWORD", "PmsAdmin#Secure2026!")
+        admin_password = os.getenv("ADMIN_PASSWORD")
+        if not admin_password:
+            if os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production":
+                logger.critical(
+                    "CRITICAL SECURITY WARNING: ADMIN_PASSWORD environment variable is not set in production! "
+                    "Configure ADMIN_PASSWORD in your Render/deployment dashboard environment variables."
+                )
+            admin_password = "PmsAdmin#Secure2026!"
         admin = db.query(User).filter(User.role == "admin").first()
         if not admin:
             new_admin = User(
