@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Terminal, Cpu, Activity, Shield, Zap, BarChart3, ArrowRight, Radio } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Terminal, Cpu, Activity, Shield, Zap, BarChart3, ArrowRight, Radio, Loader2 } from 'lucide-react';
 import TelemetryPipelineFlow from '../components/TelemetryPipelineFlow';
+import { getHealth } from '../api';
 
 const TYPEWRITER_LINES = [
   '> initializing predictive_maintenance_system...',
@@ -111,6 +112,72 @@ const STATS = [
 
 export default function LandingPage({ onNavigateLogin }) {
   const [scrolled, setScrolled] = useState(false);
+  const [serverStatus, setServerStatus] = useState('waking'); // 'waking' | 'online'
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [latency, setLatency] = useState(null);
+  const [isPinging, setIsPinging] = useState(false);
+  const pingInProgressRef = useRef(false);
+  const pollTimerRef = useRef(null);
+  const elapsedTimerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  const checkServer = useCallback(async (isManual = false) => {
+    if (pingInProgressRef.current) return;
+    pingInProgressRef.current = true;
+    setIsPinging(true);
+    const startPing = Date.now();
+
+    try {
+      const res = await getHealth();
+      if (!isMountedRef.current) return;
+
+      if (res && (res.status === 'healthy' || res.model_loaded !== undefined || res.status)) {
+        setServerStatus('online');
+        setLatency(Date.now() - startPing);
+        if (elapsedTimerRef.current) {
+          clearInterval(elapsedTimerRef.current);
+          elapsedTimerRef.current = null;
+        }
+        clearTimeout(pollTimerRef.current);
+        // Light heartbeat every 60s while on landing page
+        pollTimerRef.current = setTimeout(() => checkServer(false), 60000);
+        return;
+      }
+      throw new Error('Non-healthy response');
+    } catch {
+      if (!isMountedRef.current) return;
+      setServerStatus('waking');
+      clearTimeout(pollTimerRef.current);
+      // Cold start takes ~30s on Render; retry every 3.5s
+      pollTimerRef.current = setTimeout(() => checkServer(false), 3500);
+    } finally {
+      pingInProgressRef.current = false;
+      if (isMountedRef.current) {
+        setIsPinging(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    const startTime = Date.now();
+
+    // Elapsed timer for cold start duration
+    elapsedTimerRef.current = setInterval(() => {
+      if (isMountedRef.current) {
+        setElapsedSec(Math.floor((Date.now() - startTime) / 1000));
+      }
+    }, 1000);
+
+    // Immediate ping on landing page load to wake up Render backend
+    checkServer(false);
+
+    return () => {
+      isMountedRef.current = false;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    };
+  }, [checkServer]);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 30);
@@ -132,9 +199,24 @@ export default function LandingPage({ onNavigateLogin }) {
               <span className="brand-tagline">Predictive Maintenance System</span>
             </div>
           </div>
-          <button className="land-signin-btn" onClick={onNavigateLogin}>
-            Sign In <ArrowRight size={14} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              className={`land-nav-server-status ${serverStatus}`}
+              title={
+                serverStatus === 'online'
+                  ? 'Server is online · Backend operational'
+                  : 'Server is awaking from Render inactivity · please wait'
+              }
+            >
+              <span className={`land-server-dot ${serverStatus}`} />
+              <span className="land-nav-status-text">
+                {serverStatus === 'online' ? 'Server online' : 'Server is awaking...'}
+              </span>
+            </div>
+            <button className="land-signin-btn" onClick={onNavigateLogin}>
+              Sign In <ArrowRight size={14} />
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -144,6 +226,35 @@ export default function LandingPage({ onNavigateLogin }) {
         <div className="land-hero-glow" />
 
         <div className="land-hero-content">
+          {/* Server Status Caption */}
+          <div
+            className={`land-server-pill ${serverStatus}`}
+            onClick={() => checkServer(true)}
+            role="status"
+            aria-live="polite"
+            title={
+              serverStatus === 'online'
+                ? 'Server is online and responding to telemetry calls · Click to re-ping'
+                : 'Server is waking up from Render inactivity (~30s) · Click to check now'
+            }
+          >
+            <span className={`land-server-dot ${serverStatus}`} />
+            <span className="land-server-title">
+              {serverStatus === 'online' ? 'Server online' : 'Server is awaking, please wait...'}
+            </span>
+            {serverStatus === 'waking' && (
+              <span className="land-server-sub waking">
+                Render cold start (~30s){elapsedSec > 0 ? ` · ${elapsedSec}s` : ''}
+              </span>
+            )}
+            {serverStatus === 'online' && (
+              <span className="land-server-sub online">
+                Operational {latency ? `· ${latency}ms` : ''}
+              </span>
+            )}
+            {isPinging && <Loader2 size={12} className="land-server-spin" />}
+          </div>
+
           <h1 className="land-headline">
             Predict Equipment Failure<br />
             <span className="land-headline-accent">Before It Happens</span>

@@ -1302,6 +1302,166 @@ body {
   margin-bottom: 28px;
 }
 
+/* Server Status Indicator (Hero Pill & Nav) */
+.land-server-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  border-radius: 99px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  margin-bottom: 22px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  user-select: none;
+  width: fit-content;
+}
+
+.land-server-pill.waking {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.land-server-pill.waking:hover {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: 0 0 28px rgba(245, 158, 11, 0.2);
+  transform: translateY(-1px);
+}
+
+.land-server-pill.online {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.land-server-pill.online:hover {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.55);
+  box-shadow: 0 0 28px rgba(16, 185, 129, 0.22);
+  transform: translateY(-1px);
+}
+
+.land-server-title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.land-server-sub {
+  font-size: 0.70rem;
+  padding-left: 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+  opacity: 0.85;
+}
+
+.land-server-sub.waking {
+  color: #fde68a;
+}
+
+.land-server-sub.online {
+  color: #a7f3d0;
+}
+
+/* Pulsing animated dot */
+.land-server-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.land-server-dot.waking {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+  animation: serverDotPulseAmber 1.6s infinite ease-in-out;
+}
+
+.land-server-dot.online {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: serverDotPulseGreen 2.2s infinite ease-in-out;
+}
+
+@keyframes serverDotPulseAmber {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 6px #f59e0b;
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    box-shadow: 0 0 16px rgba(245, 158, 11, 0.8);
+    opacity: 0.65;
+  }
+}
+
+@keyframes serverDotPulseGreen {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 6px #10b981;
+  }
+  50% {
+    transform: scale(1.3);
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.7);
+  }
+}
+
+/* Spinner icon */
+.land-server-spin {
+  animation: spin 1s linear infinite;
+  opacity: 0.8;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Nav Server Status */
+.land-nav-server-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.land-nav-server-status.waking {
+  background: rgba(245, 158, 11, 0.09);
+  border-color: rgba(245, 158, 11, 0.28);
+  color: #fbbf24;
+}
+
+.land-nav-server-status.online {
+  background: rgba(16, 185, 129, 0.09);
+  border-color: rgba(16, 185, 129, 0.28);
+  color: #34d399;
+}
+
+@media (max-width: 640px) {
+  .land-nav-server-status {
+    display: none;
+  }
+  .land-server-pill {
+    flex-wrap: wrap;
+    font-size: 0.74rem;
+  }
+}
+
+
 .land-headline {
   font-size: clamp(2.2rem, 5vw, 3.4rem);
   font-weight: 800;
