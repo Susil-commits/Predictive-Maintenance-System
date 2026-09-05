@@ -18,7 +18,7 @@ from typing import Optional, List
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -26,6 +26,8 @@ from sqlalchemy import desc
 from .database import get_db
 from .models import PredictionRecord
 from .predictor import predictor
+from .limiter import limiter
+from .auth import require_admin_auth as require_admin_api_key
 
 router = APIRouter(tags=["Batch"])
 
@@ -143,8 +145,11 @@ def _coerce_and_validate_row(row: dict) -> tuple[dict | None, str | None]:
 # ---------------------------------------------------------------------------
 
 @router.post("/batch-predict", summary="Batch telemetry prediction from uploaded file")
+@limiter.limit("10/minute")
 async def batch_predict(
+    request: Request,
     file: UploadFile = File(..., description="CSV, JSON, Excel (.xlsx), or Parquet telemetry file"),
+    api_key: str = Depends(require_admin_api_key),
 ):
     """
     Accepts a multi-row telemetry file, fuzzy-matches column names to expected
@@ -161,6 +166,8 @@ async def batch_predict(
     content = await file.read()
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large, max 5MB")
 
     # --- Parse ---
     try:
@@ -170,6 +177,8 @@ async def batch_predict(
 
     if df.empty:
         raise HTTPException(status_code=422, detail="Parsed file contains no rows.")
+    if len(df) > 5000:
+        raise HTTPException(status_code=422, detail="Too many rows, max 5000 per batch")
 
     # --- Fuzzy column mapping ---
     try:
@@ -240,6 +249,7 @@ async def batch_predict(
 def export_history(
     limit: int = Query(500, ge=1, le=5000, description="Max rows to export"),
     db: Session = Depends(get_db),
+    api_key: str = Depends(require_admin_api_key),
 ):
     """
     Streams the most recent N prediction records as a downloadable CSV file.

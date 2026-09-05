@@ -218,3 +218,93 @@ def test_rate_limiter_allows_requests():
     response = client.post("/predict", json=payload)
     assert response.status_code == 200
 
+def test_auth_login_seeded_admin_and_jwt():
+    # Login with seeded admin account
+    res = client.post("/auth/login", json={
+        "username": "admin",
+        "password": "PmsAdmin#Secure2026!"
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+    assert data["user"]["role"] == "admin"
+
+    token = data["access_token"]
+
+    # Use JWT to access admin-only users list
+    users_res = client.get("/auth/users", headers={"Authorization": f"Bearer {token}"})
+    assert users_res.status_code == 200
+    assert isinstance(users_res.json(), list)
+
+def test_auth_login_invalid_credentials():
+    # Unknown user
+    res_unknown = client.post("/auth/login", json={
+        "username": "non_existent_user_999",
+        "password": "some_password"
+    })
+    assert res_unknown.status_code == 401
+    assert "User not registered" in res_unknown.json()["detail"]
+
+    # Wrong password for existing admin
+    res_wrong = client.post("/auth/login", json={
+        "username": "admin",
+        "password": "wrong_password_xyz"
+    })
+    assert res_wrong.status_code == 401
+    assert "Incorrect password" in res_wrong.json()["detail"]
+
+def test_batch_predict_requires_auth():
+    sample_csv = b"temperature,rpm,pressure,vibration,operating_hours\n85.0,1800,24.0,0.35,2100\n"
+    # Unauthenticated request returns 401
+    unauth = client.post(
+        "/batch-predict",
+        files={"file": ("test.csv", sample_csv, "text/csv")}
+    )
+    assert unauth.status_code == 401
+
+    # Authenticated with X-API-Key succeeds
+    auth_res = client.post(
+        "/batch-predict",
+        files={"file": ("test.csv", sample_csv, "text/csv")},
+        headers={"X-API-Key": "pms-admin-secret-key"}
+    )
+    assert auth_res.status_code == 200
+    data = auth_res.json()
+    assert data["total_rows"] == 1
+    assert data["processed_rows"] == 1
+
+def test_batch_predict_size_limit_5mb():
+    # File larger than 5MB
+    large_bytes = b"0" * (5 * 1024 * 1024 + 1)
+    res = client.post(
+        "/batch-predict",
+        files={"file": ("huge.csv", large_bytes, "text/csv")},
+        headers={"X-API-Key": "pms-admin-secret-key"}
+    )
+    assert res.status_code == 413
+    assert "File too large, max 5MB" in res.json()["detail"]
+
+def test_batch_predict_row_limit_5000():
+    # Create CSV with 5001 rows
+    header = "temperature,rpm,pressure,vibration,operating_hours\n"
+    row = "80.0,1500,22.0,0.25,1200\n"
+    csv_content = (header + row * 5001).encode("utf-8")
+
+    res = client.post(
+        "/batch-predict",
+        files={"file": ("many_rows.csv", csv_content, "text/csv")},
+        headers={"X-API-Key": "pms-admin-secret-key"}
+    )
+    assert res.status_code == 422
+    assert "Too many rows, max 5000 per batch" in res.json()["detail"]
+
+def test_export_history_requires_auth():
+    # Calling /export without auth returns 401
+    unauth = client.get("/export")
+    assert unauth.status_code == 401
+
+    # Calling with valid admin API key succeeds (or 404 if history empty)
+    res = client.get("/export", headers={"X-API-Key": "pms-admin-secret-key"})
+    assert res.status_code in [200, 404]
+

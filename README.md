@@ -72,11 +72,14 @@ An end-to-end machine learning platform for industrial equipment predictive main
 | Method | Path | Auth / Limits | Description |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/predict` | Rate-limited (`60/min`) | Ingests telemetry, returns calibrated failure risk, probability, and SHAP factors |
+| `POST` | `/batch-predict` | **Admin Auth** (`X-API-Key` / JWT), Rate-limited (`10/min`), Max 5MB, Max 5,000 rows | Multi-row batch inference for CSV, JSON, XLSX, or Parquet with fuzzy column mapping |
+| `GET` | `/export` | **Admin Auth** (`X-API-Key` / JWT) | Streams prediction history as downloadable CSV file |
+| `POST` | `/auth/login` | Public | Authenticates credentials with bcrypt, returns signed JWT access token |
 | `GET` | `/drift-status` | Public | Evaluates Population Stability Index (PSI) drift against baseline reference |
 | `POST` | `/drift-status/reset` | Public | Reloads baseline reference statistics from model training |
 | `GET` | `/history` | Public | Returns recent inference records and predictions |
-| `DELETE` | `/history` | **Admin API Key** (`X-API-Key`) | Clears prediction audit history (for development & demo reset) |
-| `POST` | `/retrain` | **Admin API Key** (`X-API-Key`) | Triggers background model retraining and hot-reload upon drift |
+| `DELETE` | `/history` | **Admin Auth** (`X-API-Key` / JWT) | Clears prediction audit history (for development & demo reset) |
+| `POST` | `/retrain` | **Admin Auth** (`X-API-Key` / JWT) | Triggers background model retraining and hot-reload upon drift |
 | `GET` | `/model-info` | Public | Returns active model metadata, parameters, calibration metrics, and benchmarks |
 | `GET` | `/metrics` | Public | Exposes Prometheus application and drift metrics |
 | `GET` | `/health` | Public | Health check endpoint returning system, model, and DB status |

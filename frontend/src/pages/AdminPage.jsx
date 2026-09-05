@@ -9,7 +9,7 @@ import {
   getUsers, addUser, deleteUser, getSession, logout,
   getAccessLog, updateUserAvatar, getAdminAvatar,
   getAllReportsGrouped, deleteReport, clearAllReports,
-  clearAccessLog, deleteAvatar
+  clearAccessLog, deleteAvatar, syncUsersFromBackend
 } from '../auth';
 import { uploadAvatar, isCloudinaryConfigured } from '../cloudinary';
 import ReportDetailModal from '../components/ReportDetailModal';
@@ -412,26 +412,31 @@ export default function AdminPage({ onLogout }) {
 
   const refreshUsers = () => setUsers(getUsers());
 
-  const handleAddUser = (e) => {
+  React.useEffect(() => {
+    syncUsersFromBackend().then(u => setUsers(u));
+  }, []);
+
+  const handleAddUser = async (e) => {
     e.preventDefault();
     setAddError(''); setAddSuccess('');
     if (!name.trim() || !username.trim() || !password) {
       setAddError('All fields are required.'); return;
     }
     try {
-      addUser({ name, username, password });
+      await addUser({ name, username, password });
       setAddSuccess(`User "${name}" added successfully.`);
       setName(''); setUsername(''); setPassword('');
       refreshUsers();
       setTimeout(() => { setAddSuccess(''); setShowAddForm(false); }, 2000);
     } catch (err) {
-      setAddError(err.message);
+      const msg = err?.response?.data?.detail || err.message;
+      setAddError(msg);
     }
   };
 
-  const handleDelete = (userId) => {
+  const handleDelete = async (userId) => {
     if (deleteConfirm === userId) {
-      deleteUser(userId); refreshUsers(); setDeleteConfirm(null);
+      await deleteUser(userId); refreshUsers(); setDeleteConfirm(null);
     } else {
       setDeleteConfirm(userId);
       setTimeout(() => setDeleteConfirm(null), 3000);
@@ -500,7 +505,7 @@ export default function AdminPage({ onLogout }) {
           <div>
             <div style={{ fontWeight: 700, fontSize: '0.96rem', marginBottom: 4 }}>Administrator</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-              {import.meta.env.VITE_ADMIN_USERNAME || '—'}
+              {session?.username || 'admin'}
             </div>
             {adminAvatar && (
               <a href={adminAvatar} target="_blank" rel="noreferrer" className="cloud-link" style={{ marginTop: 4 }}>
@@ -603,7 +608,7 @@ export default function AdminPage({ onLogout }) {
                   <td><UserAvatar url={adminAvatar} name="Administrator" size={30} /></td>
                   <td style={{ color: '#ffffff', fontWeight: 600 }}>Administrator</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
-                    {import.meta.env.VITE_ADMIN_USERNAME || '(env not set)'}
+                    {session?.username || 'admin'}
                   </td>
                   <td><span className="badge-risk" style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}>ADMIN</span></td>
                   <td style={{ color: 'var(--text-dim)' }}>System default</td>

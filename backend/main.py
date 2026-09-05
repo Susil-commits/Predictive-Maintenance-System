@@ -14,8 +14,8 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from .database import engine, Base, get_db
-from .models import PredictionRecord
+from .database import engine, Base, get_db, SessionLocal
+from .models import PredictionRecord, User
 from .schemas import (
     PredictionInput,
     PredictionOutput,
@@ -26,14 +26,16 @@ from .schemas import (
 from .predictor import predictor
 from .drift_detector import drift_detector
 from .batch import router as batch_router
+from .limiter import limiter
+from .auth import router as auth_router, seed_initial_admin, require_admin_auth, require_admin_jwt
 
-# Create database tables if they do not exist
+# Create database tables and seed admin user if needed
 try:
     Base.metadata.create_all(bind=engine)
+    with SessionLocal() as _db:
+        seed_initial_admin(_db)
 except Exception as e:
-    print(f"Table creation note: {e}")
-
-limiter = Limiter(key_func=get_remote_address)
+    print(f"Table creation/admin seed note: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,21 +50,19 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
-# Register batch predict & export routes
+# Register authentication & batch routes
+app.include_router(auth_router)
 app.include_router(batch_router)
 
-def require_admin_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
+def require_admin_api_key(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
     """
-    Lightweight administrative API key check for destructive or resource-intensive operations
-    (DELETE /history and POST /retrain). Converts documented known limitation into an active control.
+    Administrative check supporting both 'X-API-Key' header and 'Authorization: Bearer <jwt>'
+    with role == 'admin'.
     """
-    expected_key = os.getenv("PMS_API_KEY", "pms-admin-secret-key")
-    if not x_api_key or x_api_key != expected_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key. Provide a valid 'X-API-Key' header."
-        )
-    return x_api_key
+    return require_admin_auth(authorization=authorization, x_api_key=x_api_key)
 
 # Operational & Drift metrics
 METRICS = {

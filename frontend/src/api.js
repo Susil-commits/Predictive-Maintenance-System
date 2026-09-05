@@ -23,6 +23,39 @@ const api = axios.create({
   timeout: 60000,
 });
 
+// Automatically inject JWT Bearer token into all requests when logged in
+api.interceptors.request.use((config) => {
+  try {
+    const token = localStorage.getItem('pms_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  } catch {
+    // Ignore localStorage access restrictions in restricted environments
+  }
+  return config;
+});
+
+export const loginApi = async (username, password) => {
+  const response = await api.post('/auth/login', { username, password });
+  return response.data;
+};
+
+export const getUsersApi = async () => {
+  const response = await api.get('/auth/users');
+  return response.data;
+};
+
+export const createUserApi = async (userData) => {
+  const response = await api.post('/auth/users', userData);
+  return response.data;
+};
+
+export const deleteUserApi = async (userId) => {
+  const response = await api.delete(`/auth/users/${userId}`);
+  return response.data;
+};
+
 export const getHealth = async () => {
   const response = await api.get('/health');
   return response.data;
@@ -73,14 +106,17 @@ export const batchPredict = async (file) => {
   return response.data;
 };
 
-export const exportHistory = () => {
-  const url = `${API_BASE_URL}/export`;
+export const exportHistory = async () => {
+  const response = await api.get('/export', { responseType: 'blob' });
+  const blob = new Blob([response.data], { type: 'text/csv' });
+  const downloadUrl = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
+  a.href = downloadUrl;
   a.download = 'pms_history.csv';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+  window.URL.revokeObjectURL(downloadUrl);
 };
 
 export default api;

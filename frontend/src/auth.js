@@ -1,113 +1,44 @@
 /**
  * auth.js  –  PMS Frontend Authentication Utilities
  * ===================================================
- * All state is stored in localStorage. No backend required for auth.
+ * Secured via PostgreSQL DB, bcrypt password hashing, and JWT tokens.
  *
- * Admin credentials are injected at build-time from VITE_ADMIN_USERNAME /
- * VITE_ADMIN_PASSWORD in the .env file. They are NEVER hardcoded in source.
+ * Plaintext passwords and admin credentials are NEVER stored in localStorage
+ * or bundled into Vite source.
  *
  * Storage layout:
- *   pms_users       → JSON array of { id, name, username, password, role, createdAt, createdBy, avatarUrl }
+ *   pms_token       → signed JWT access token string
  *   pms_session     → JSON { userId, username, name, role, loginAt, avatarUrl }
+ *   pms_users_cache → JSON array of { id, name, username, role, createdAt, avatarUrl } (no passwords)
  *   pms_access_log  → JSON array of { username, name, role, loginAt, page } (access tracking)
  */
 
-// ── Admin credentials (sourced exclusively from .env — never hardcoded) ──────
+import { loginApi, getUsersApi, createUserApi, deleteUserApi } from './api';
 
-function _getAdminCredentials() {
-  const username = import.meta.env.VITE_ADMIN_USERNAME;
-  const password = import.meta.env.VITE_ADMIN_PASSWORD;
-
-  if (!username || !password) {
-    console.error(
-      '[PMS Auth] VITE_ADMIN_USERNAME or VITE_ADMIN_PASSWORD is not set in .env. ' +
-      'Admin login will not work until these environment variables are configured.'
-    );
-  }
-
-  return {
-    username: username || '__env_missing__',
-    password: password || '__env_missing__',
-    role: 'admin',
-    name: 'Administrator',
-    id: 'admin-root',
-  };
-}
-
-// Export a lazily-evaluated getter so tests / hot-reload pick up changes
-export const getAdminCredentials = _getAdminCredentials;
-
-const USERS_KEY   = 'pms_users';
+const TOKEN_KEY   = 'pms_token';
 const SESSION_KEY = 'pms_session';
 const LOG_KEY     = 'pms_access_log';
+const USERS_KEY   = 'pms_users_cache';
+const REPORTS_KEY = 'pms_reports';
 
-// ── User Store ──────────────────────────────────────────────────────────────
+// ── Token Management ────────────────────────────────────────────────────────
 
-export function getUsers() {
+export function getToken() {
   try {
-    return JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+    return localStorage.getItem(TOKEN_KEY) || null;
   } catch {
-    return [];
+    return null;
   }
 }
 
-export function saveUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-export function addUser({ name, username, password }) {
-  const users = getUsers();
-  if (users.find(u => u.username === username)) {
-    throw new Error(`Username "${username}" already exists.`);
-  }
-  const newUser = {
-    id: `user-${Date.now()}`,
-    name: name.trim(),
-    username: username.trim(),
-    password,
-    role: 'employee',
-    createdAt: new Date().toISOString(),
-    createdBy: 'admin',
-    avatarUrl: null,   // set via updateUserAvatar()
-  };
-  users.push(newUser);
-  saveUsers(users);
-  return newUser;
-}
-
-export function deleteUser(userId) {
-  const users = getUsers().filter(u => u.id !== userId);
-  saveUsers(users);
-}
-
-/**
- * Update the Cloudinary avatar URL for a user (or the admin).
- * For admin: stored separately under pms_admin_avatar.
- * For employees: stored on the user record in pms_users.
- */
-export function updateUserAvatar(userId, avatarUrl) {
-  if (userId === 'admin-root') {
-    localStorage.setItem('pms_admin_avatar', avatarUrl);
-    // Also update current session if admin is logged in
-    const session = getSession();
-    if (session?.userId === 'admin-root') {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl }));
+export function setToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
     }
-    return;
-  }
-  const users = getUsers().map(u =>
-    u.id === userId ? { ...u, avatarUrl } : u
-  );
-  saveUsers(users);
-  // Update live session if this is the current user
-  const session = getSession();
-  if (session?.userId === userId) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl }));
-  }
-}
-
-export function getAdminAvatar() {
-  return localStorage.getItem('pms_admin_avatar') || null;
+  } catch { /* ignore storage errors */ }
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────
@@ -121,7 +52,7 @@ export function getSession() {
 }
 
 export function isLoggedIn() {
-  return getSession() !== null;
+  return getToken() !== null && getSession() !== null;
 }
 
 export function isAdmin() {
@@ -129,63 +60,172 @@ export function isAdmin() {
 }
 
 /**
- * Attempt login. Returns { ok, session, error, intruder }.
- *   intruder: true  → username not recognised at all
- *   intruder: false → username known but password wrong
+ * Authenticate against the backend POST /auth/login.
+ * Returns { ok, session, error, intruder }.
  */
-export function login(username, password) {
-  const ADMIN = getAdminCredentials();
+export async function login(username, password) {
+  try {
+    const data = await loginApi(username.trim(), password);
+    const { access_token, user } = data;
 
-  // Check admin first
-  if (username === ADMIN.username) {
-    if (password === ADMIN.password) {
-      const session = {
-        userId: ADMIN.id,
-        username: ADMIN.username,
-        name: ADMIN.name,
-        role: 'admin',
-        loginAt: new Date().toISOString(),
-        avatarUrl: getAdminAvatar(),
-      };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-      _logAccess(session);
-      return { ok: true, session };
-    }
-    return { ok: false, intruder: false, error: 'Incorrect password.' };
-  }
+    setToken(access_token);
 
-  // Check employee users
-  const users = getUsers();
-  const user = users.find(u => u.username === username);
+    const session = {
+      userId: user.id,
+      username: user.username,
+      name: user.role === 'admin' ? 'Administrator' : user.username,
+      role: user.role,
+      loginAt: new Date().toISOString(),
+      avatarUrl: user.role === 'admin' ? getAdminAvatar() : null,
+    };
 
-  if (!user) {
-    // Username not in system at all → intruder
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    _logAccess(session);
+
+    return { ok: true, session };
+  } catch (err) {
+    const detail = err?.response?.data?.detail || err.message || 'Login failed';
+    const isUserNotFound =
+      err?.response?.headers?.['x-auth-reason'] === 'user_not_found' ||
+      detail.toLowerCase().includes('not registered');
+
     return {
       ok: false,
-      intruder: true,
-      error: 'Access denied. You are not registered in this system. Contact the Administrator.',
+      intruder: isUserNotFound,
+      error: detail,
     };
   }
-
-  if (user.password !== password) {
-    return { ok: false, intruder: false, error: 'Incorrect password.' };
-  }
-
-  const session = {
-    userId: user.id,
-    username: user.username,
-    name: user.name,
-    role: 'employee',
-    loginAt: new Date().toISOString(),
-    avatarUrl: user.avatarUrl || null,
-  };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  _logAccess(session);
-  return { ok: true, session };
 }
 
 export function logout() {
-  localStorage.removeItem(SESSION_KEY);
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(SESSION_KEY);
+  } catch { /* ignore */ }
+}
+
+// ── User Management (Backend Synchronized, NO stored passwords) ─────────────
+
+export function getUsers() {
+  try {
+    return JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+export function saveUsers(users) {
+  try {
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  } catch { /* ignore */ }
+}
+
+/**
+ * Refresh users from backend PostgreSQL DB.
+ */
+export async function syncUsersFromBackend() {
+  try {
+    const dbUsers = await getUsersApi();
+    const local = getUsers();
+    const avatarMap = Object.fromEntries(local.map(u => [u.id, u.avatarUrl]));
+    const nameMap   = Object.fromEntries(local.map(u => [u.id, u.name]));
+
+    const merged = dbUsers
+      .filter(u => u.role !== 'admin')
+      .map(u => ({
+        id: u.id,
+        username: u.username,
+        name: nameMap[u.id] || u.username,
+        role: u.role,
+        createdAt: u.created_at || new Date().toISOString(),
+        avatarUrl: avatarMap[u.id] || null,
+      }));
+
+    saveUsers(merged);
+    return merged;
+  } catch (err) {
+    console.warn('[PMS Auth] Could not sync users from backend:', err.message);
+    return getUsers();
+  }
+}
+
+export async function addUser({ name, username, password }) {
+  const created = await createUserApi({
+    username: username.trim(),
+    password,
+    role: 'employee',
+  });
+
+  const users = getUsers().filter(u => u.id !== created.id);
+  const newUser = {
+    id: created.id,
+    name: name.trim() || created.username,
+    username: created.username,
+    role: created.role,
+    createdAt: created.created_at || new Date().toISOString(),
+    avatarUrl: null,
+  };
+  users.push(newUser);
+  saveUsers(users);
+  return newUser;
+}
+
+export async function deleteUser(userId) {
+  try {
+    await deleteUserApi(userId);
+  } catch (err) {
+    console.warn('[PMS Auth] Backend user deletion note:', err.message);
+  }
+  const users = getUsers().filter(u => u.id !== userId);
+  saveUsers(users);
+}
+
+// ── Avatars (Cloudinary) ────────────────────────────────────────────────────
+
+export function updateUserAvatar(userId, avatarUrl) {
+  if (userId === 'admin-root' || getSession()?.userId === userId && isAdmin()) {
+    localStorage.setItem('pms_admin_avatar', avatarUrl);
+    const session = getSession();
+    if (session) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl }));
+    }
+    return;
+  }
+  const users = getUsers().map(u =>
+    u.id === userId ? { ...u, avatarUrl } : u
+  );
+  saveUsers(users);
+  const session = getSession();
+  if (session?.userId === userId) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl }));
+  }
+}
+
+export function getAdminAvatar() {
+  try {
+    return localStorage.getItem('pms_admin_avatar') || null;
+  } catch {
+    return null;
+  }
+}
+
+export function deleteAvatar(userId) {
+  if (userId === 'admin-root' || (getSession()?.userId === userId && isAdmin())) {
+    localStorage.removeItem('pms_admin_avatar');
+    const session = getSession();
+    if (session) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl: null }));
+    }
+    return;
+  }
+  const users = getUsers().map(u =>
+    u.id === userId ? { ...u, avatarUrl: null } : u
+  );
+  saveUsers(users);
+  const session = getSession();
+  if (session?.userId === userId) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl: null }));
+  }
 }
 
 // ── Access Log ───────────────────────────────────────────────────────────────
@@ -194,9 +234,8 @@ function _logAccess(session) {
   try {
     const log = getAccessLog();
     log.unshift({ ...session, page: 'login' });
-    // Keep last 200 entries
     localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(0, 200)));
-  } catch { /* ignore storage errors */ }
+  } catch { /* ignore */ }
 }
 
 export function getAccessLog() {
@@ -217,34 +256,26 @@ export function logPageAccess(page) {
   } catch { /* ignore */ }
 }
 
-// ── Report Store ─────────────────────────────────────────────────────────────
-//
-// Storage layout (localStorage):
-//   pms_reports  ->  { [userId]: Report[] }
-//
-// Report shape:
-//   {
-//     reportId:      string,
-//     predictionId:  string | null,
-//     risk:          'HIGH' | 'LOW',
-//     probability:   number,
-//     inputData:     object,
-//     shapFactors:   array,
-//     cloudinaryUrl: string | null,
-//     savedAt:       ISO string,
-//     userId:        string,
-//     userName:      string,
-//   }
+export function clearAccessLog() {
+  try {
+    localStorage.removeItem(LOG_KEY);
+  } catch { /* ignore */ }
+}
 
-const REPORTS_KEY = 'pms_reports';
+// ── Report Store ─────────────────────────────────────────────────────────────
 
 function _getAllReports() {
-  try { return JSON.parse(localStorage.getItem(REPORTS_KEY) || '{}'); }
-  catch { return {}; }
+  try {
+    return JSON.parse(localStorage.getItem(REPORTS_KEY) || '{}');
+  } catch {
+    return {};
+  }
 }
 
 function _saveAllReports(all) {
-  localStorage.setItem(REPORTS_KEY, JSON.stringify(all));
+  try {
+    localStorage.setItem(REPORTS_KEY, JSON.stringify(all));
+  } catch { /* ignore */ }
 }
 
 export function saveReport(report) {
@@ -291,30 +322,8 @@ export function getAllReportsGrouped() {
   ).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
 }
 
-export function clearAccessLog() {
-  localStorage.removeItem(LOG_KEY);
-}
-
 export function clearAllReports() {
-  localStorage.removeItem(REPORTS_KEY);
+  try {
+    localStorage.removeItem(REPORTS_KEY);
+  } catch { /* ignore */ }
 }
-
-export function deleteAvatar(userId) {
-  if (userId === 'admin-root') {
-    localStorage.removeItem('pms_admin_avatar');
-    const session = getSession();
-    if (session?.userId === 'admin-root') {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl: null }));
-    }
-    return;
-  }
-  const users = getUsers().map(u =>
-    u.id === userId ? { ...u, avatarUrl: null } : u
-  );
-  saveUsers(users);
-  const session = getSession();
-  if (session?.userId === userId) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl: null }));
-  }
-}
-

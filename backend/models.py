@@ -42,3 +42,21 @@ class PredictionRecord(Base):
             "contributing_factors": self.contributing_factors or [],
             "shap_values": self.shap_values or {}
         }
+
+
+class User(Base):
+    __tablename__ = "pms_users"
+
+    id = Column(String(64), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username = Column(String(64), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(32), default="employee", nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "role": self.role,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+        }
