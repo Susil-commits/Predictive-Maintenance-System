@@ -72,6 +72,16 @@ export default function ReportDetailModal({ report, onClose, onDelete }) {
           <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#ffffff' }}>
             <User size={12} style={{ color: 'var(--text-dim)' }} /> {report.userName || 'Anonymous'}
           </span>
+          <span style={{
+            fontSize: '0.68rem',
+            padding: '2px 8px',
+            borderRadius: 4,
+            background: 'rgba(56,189,248,0.1)',
+            color: '#38bdf8',
+            border: '1px solid rgba(56,189,248,0.25)'
+          }}>
+            {report.userDesignation || 'Maintenance Specialist'}
+          </span>
           <span style={{ color: 'var(--border-medium)' }}>|</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-secondary)' }}>
             <Clock size={12} style={{ color: 'var(--text-dim)' }} /> {new Date(report.savedAt).toLocaleString()}

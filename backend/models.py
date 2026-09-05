@@ -51,12 +51,19 @@ class User(Base):
     username = Column(String(64), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(32), default="employee", nullable=False)
+    designation = Column(String(128), default="Maintenance Specialist", nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     def to_dict(self):
+        role_val = str(getattr(self, "role", "employee"))
+        desig_val = getattr(self, "designation", None)
+        if not desig_val or (role_val == "admin" and desig_val == "Maintenance Specialist"):
+            desig_val = "System Administrator" if role_val == "admin" else "Maintenance Specialist"
+        created_val = getattr(self, "created_at", None)
         return {
-            "id": self.id,
-            "username": self.username,
-            "role": self.role,
-            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "id": getattr(self, "id", None),
+            "username": getattr(self, "username", None),
+            "role": role_val,
+            "designation": desig_val,
+            "created_at": created_val.isoformat() if created_val is not None else None,
         }

@@ -75,6 +75,7 @@ export async function login(username, password) {
       username: user.username,
       name: user.role === 'admin' ? 'Administrator' : user.username,
       role: user.role,
+      designation: user.designation || (user.role === 'admin' ? 'System Administrator' : 'Maintenance Specialist'),
       loginAt: new Date().toISOString(),
       avatarUrl: user.role === 'admin' ? getAdminAvatar() : null,
     };
@@ -127,8 +128,9 @@ export async function syncUsersFromBackend() {
   try {
     const dbUsers = await getUsersApi();
     const local = getUsers();
-    const avatarMap = Object.fromEntries(local.map(u => [u.id, u.avatarUrl]));
-    const nameMap   = Object.fromEntries(local.map(u => [u.id, u.name]));
+    const avatarMap      = Object.fromEntries(local.map(u => [u.id, u.avatarUrl]));
+    const nameMap        = Object.fromEntries(local.map(u => [u.id, u.name]));
+    const designationMap = Object.fromEntries(local.map(u => [u.id, u.designation]));
 
     const merged = dbUsers
       .filter(u => u.role !== 'admin')
@@ -136,6 +138,7 @@ export async function syncUsersFromBackend() {
         id: u.id,
         username: u.username,
         name: nameMap[u.id] || u.username,
+        designation: u.designation || designationMap[u.id] || 'Maintenance Specialist',
         role: u.role,
         createdAt: u.created_at || new Date().toISOString(),
         avatarUrl: avatarMap[u.id] || null,
@@ -149,11 +152,13 @@ export async function syncUsersFromBackend() {
   }
 }
 
-export async function addUser({ name, username, password }) {
+export async function addUser({ name, username, password, designation }) {
+  const cleanDesignation = (designation || '').trim() || 'Maintenance Specialist';
   const created = await createUserApi({
     username: username.trim(),
     password,
     role: 'employee',
+    designation: cleanDesignation,
   });
 
   const users = getUsers().filter(u => u.id !== created.id);
@@ -161,6 +166,7 @@ export async function addUser({ name, username, password }) {
     id: created.id,
     name: name.trim() || created.username,
     username: created.username,
+    designation: created.designation || cleanDesignation,
     role: created.role,
     createdAt: created.created_at || new Date().toISOString(),
     avatarUrl: null,
@@ -283,16 +289,17 @@ export function saveReport(report) {
   const { userId } = report;
   if (!userId) throw new Error('report.userId is required');
   const entry = {
-    reportId:      'report-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-    predictionId:  report.predictionId  || null,
-    risk:          report.risk          || 'UNKNOWN',
-    probability:   report.probability   ?? null,
-    inputData:     report.inputData     || {},
-    shapFactors:   report.shapFactors   || [],
-    cloudinaryUrl: report.cloudinaryUrl || null,
-    savedAt:       new Date().toISOString(),
+    reportId:        'report-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+    predictionId:    report.predictionId  || null,
+    risk:            report.risk          || 'UNKNOWN',
+    probability:     report.probability   ?? null,
+    inputData:       report.inputData     || {},
+    shapFactors:     report.shapFactors   || [],
+    cloudinaryUrl:   report.cloudinaryUrl || null,
+    savedAt:         new Date().toISOString(),
     userId,
-    userName:      report.userName || 'Unknown',
+    userName:        report.userName || 'Unknown',
+    userDesignation: report.userDesignation || 'Maintenance Specialist',
   };
   all[userId] = [entry, ...(all[userId] || [])].slice(0, 100);
   _saveAllReports(all);
@@ -316,9 +323,15 @@ export function getAllReportsGrouped() {
   const all = _getAllReports();
   const users = getUsers();
   const userMap = Object.fromEntries(users.map(u => [u.id, u.name]));
+  const desigMap = Object.fromEntries(users.map(u => [u.id, u.designation]));
   userMap['admin-root'] = 'Administrator';
+  desigMap['admin-root'] = 'System Administrator';
   return Object.entries(all).flatMap(([userId, reports]) =>
-    reports.map(r => ({ ...r, userName: userMap[userId] || r.userName || userId }))
+    reports.map(r => ({
+      ...r,
+      userName: userMap[userId] || r.userName || userId,
+      userDesignation: r.userDesignation || desigMap[userId] || 'Maintenance Specialist'
+    }))
   ).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
 }
 

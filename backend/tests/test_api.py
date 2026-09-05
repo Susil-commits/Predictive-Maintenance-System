@@ -1,4 +1,5 @@
 import os
+import uuid
 import pytest
 from fastapi.testclient import TestClient
 from backend.main import app
@@ -233,6 +234,7 @@ def test_auth_login_seeded_admin_and_jwt():
     assert "access_token" in data
     assert data["token_type"] == "bearer"
     assert data["user"]["role"] == "admin"
+    assert data["user"]["designation"] == "System Administrator"
 
     token = data["access_token"]
 
@@ -240,6 +242,37 @@ def test_auth_login_seeded_admin_and_jwt():
     users_res = client.get("/auth/users", headers={"Authorization": f"Bearer {token}"})
     assert users_res.status_code == 200
     assert isinstance(users_res.json(), list)
+
+def test_auth_create_user_with_designation():
+    admin_user = os.getenv("ADMIN_USERNAME") or "admin"
+    admin_pass = os.getenv("ADMIN_PASSWORD") or "PmsAdmin#Secure2026!"
+    login_res = client.post("/auth/login", json={"username": admin_user, "password": admin_pass})
+    assert login_res.status_code == 200
+    token = login_res.json()["access_token"]
+
+    # Create new assessor employee with custom designation
+    test_assessor = f"assessor_test_{uuid.uuid4().hex[:6]}"
+    test_desig = "Senior Reliability Assessor"
+    create_res = client.post(
+        "/auth/users",
+        json={"username": test_assessor, "password": "AssessorPass#123", "designation": test_desig},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert create_res.status_code == 201
+    created_data = create_res.json()
+    assert created_data["username"] == test_assessor
+    assert created_data["designation"] == test_desig
+    user_id = created_data["id"]
+
+    # Login as the new assessor and verify designation in JWT payload and user dict
+    emp_login = client.post("/auth/login", json={"username": test_assessor, "password": "AssessorPass#123"})
+    assert emp_login.status_code == 200
+    emp_data = emp_login.json()
+    assert emp_data["user"]["designation"] == test_desig
+
+    # Cleanup test user
+    del_res = client.delete(f"/auth/users/{user_id}", headers={"Authorization": f"Bearer {token}"})
+    assert del_res.status_code == 200
 
 def test_auth_login_invalid_credentials():
     # Unknown user

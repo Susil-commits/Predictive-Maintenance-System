@@ -172,16 +172,20 @@ def seed_initial_admin(db: Session):
                 username=admin_username,
                 password_hash=hash_password(admin_password),
                 role="admin",
+                designation="System Administrator",
             )
             db.add(new_admin)
             db.commit()
             logger.info(f"Initialized default admin user: {admin_username}")
         else:
-            # Sync username and password if changed in environment
+            # Sync username, designation, and password if changed in environment
             admin_obj: Any = admin
             needs_update = False
             if admin_obj.username != admin_username:
                 admin_obj.username = admin_username
+                needs_update = True
+            if not getattr(admin_obj, "designation", None) or getattr(admin_obj, "designation") == "Maintenance Specialist":
+                admin_obj.designation = "System Administrator"
                 needs_update = True
             if not verify_password(admin_password, str(admin_obj.password_hash)):
                 admin_obj.password_hash = hash_password(admin_password)
@@ -213,6 +217,7 @@ class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=4)
     role: Optional[str] = "employee"
+    designation: Optional[str] = Field(None, max_length=128)
 
 
 # ---------------------------------------------------------------------------
@@ -240,10 +245,13 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             headers={"X-Auth-Reason": "wrong_password"}
         )
 
+    user_designation = getattr(user_obj, "designation", None) or ("System Administrator" if user_obj.role == "admin" else "Maintenance Specialist")
+
     token = create_access_token({
         "sub": user_obj.username,
         "user_id": user_obj.id,
         "role": user_obj.role,
+        "designation": user_designation,
     })
 
     return {
@@ -282,6 +290,7 @@ def create_user(
         username=clean_username,
         password_hash=hash_password(req.password),
         role=req.role or "employee",
+        designation=(req.designation or "").strip() or "Maintenance Specialist",
     )
     db.add(new_user)
     db.commit()

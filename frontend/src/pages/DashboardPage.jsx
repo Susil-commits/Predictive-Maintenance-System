@@ -172,7 +172,12 @@ export default function DashboardPage({ onLogout }) {
           }
           <div className="model-badge">
             <User size={13} />
-            <span>{session?.name}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.2 }}>
+              <span>{session?.name}</span>
+              <span style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: 400 }}>
+                {session?.designation || (session?.role === 'admin' ? 'System Administrator' : 'Maintenance Specialist')}
+              </span>
+            </div>
           </div>
           {modelInfo?.metrics?.roc_auc && (
             <div className="model-badge">

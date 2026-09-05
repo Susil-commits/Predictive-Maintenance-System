@@ -3,7 +3,7 @@ import {
   Terminal, Users, Plus, Trash2, Shield, LogOut,
   Eye, EyeOff, Check, AlertCircle, Clock, User,
   Activity, Camera, Loader2, ExternalLink, FileText,
-  Filter, Layers, Cloud
+  Filter, Layers, Cloud, Briefcase
 } from 'lucide-react';
 import {
   getUsers, addUser, deleteUser, getSession, logout,
@@ -176,8 +176,9 @@ function AccessLogPanel() {
             <thead>
               <tr>
                 <th>Time</th>
-                <th>User</th>
-                <th>Username</th>
+                <th>Accessor</th>
+                <th>Accessor ID</th>
+                <th>Designation</th>
                 <th>Role</th>
                 <th>Event</th>
               </tr>
@@ -188,8 +189,11 @@ function AccessLogPanel() {
                   <td style={{ color: 'var(--text-dim)' }}>
                     {new Date(entry.loginAt || entry.accessedAt).toLocaleString()}
                   </td>
-                  <td style={{ color: '#ffffff' }}>{entry.name}</td>
+                  <td style={{ color: '#ffffff', fontWeight: 600 }}>{entry.name}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>{entry.username}</td>
+                  <td style={{ color: '#38bdf8', fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
+                    {entry.designation || (entry.role === 'admin' ? 'System Administrator' : 'Maintenance Specialist')}
+                  </td>
                   <td>
                     <span className="badge-risk" style={entry.role === 'admin'
                       ? { background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }
@@ -250,7 +254,7 @@ function AdminReportsPanel({ onSelectReport, reportsVersion, onReportDeleted }) 
   };
 
   const userOptions = Array.from(
-    new Map(reports.map(r => [r.userId, r.userName || r.userId])).entries()
+    new Map(reports.map(r => [r.userId, `${r.userName || r.userId} (${r.userDesignation || 'Assessor'})`])).entries()
   );
 
   const filtered = filterUser === 'ALL'
@@ -313,7 +317,7 @@ function AdminReportsPanel({ onSelectReport, reportsVersion, onReportDeleted }) 
           <table className="history-table">
             <thead>
               <tr>
-                <th>User</th>
+                <th>User / Assessor</th>
                 <th>Saved Time</th>
                 <th>Risk Verdict</th>
                 <th>Calibrated Prob</th>
@@ -326,9 +330,14 @@ function AdminReportsPanel({ onSelectReport, reportsVersion, onReportDeleted }) 
               {filtered.map(r => (
                 <tr key={r.reportId}>
                   <td style={{ color: '#ffffff', fontWeight: 600 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <User size={13} style={{ color: 'var(--text-dim)' }} />
-                      <span>{r.userName}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <User size={13} style={{ color: 'var(--text-dim)' }} />
+                        <span>{r.userName}</span>
+                      </div>
+                      <span style={{ fontSize: '0.68rem', color: '#38bdf8', fontFamily: 'var(--font-mono)', paddingLeft: 19 }}>
+                        {r.userDesignation || 'Maintenance Specialist'}
+                      </span>
                     </div>
                   </td>
                   <td style={{ color: 'var(--text-dim)' }}>
@@ -403,6 +412,7 @@ export default function AdminPage({ onLogout }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName]             = useState('');
   const [username, setUsername]     = useState('');
+  const [designation, setDesignation] = useState('');
   const [password, setPassword]     = useState('');
   const [showPwd, setShowPwd]       = useState(false);
   const [addError, setAddError]     = useState('');
@@ -424,9 +434,14 @@ export default function AdminPage({ onLogout }) {
       setAddError('All fields are required.'); return;
     }
     try {
-      await addUser({ name, username, password });
+      await addUser({
+        name,
+        username,
+        password,
+        designation: designation.trim() || undefined
+      });
       setAddSuccess(`User "${name}" added successfully.`);
-      setName(''); setUsername(''); setPassword('');
+      setName(''); setUsername(''); setDesignation(''); setPassword('');
       refreshUsers();
       setTimeout(() => { setAddSuccess(''); setShowAddForm(false); }, 2000);
     } catch (err) {
@@ -470,7 +485,12 @@ export default function AdminPage({ onLogout }) {
           <UserAvatar url={adminAvatar} name="Administrator" size={32} />
           <div className="model-badge">
             <Shield size={13} />
-            <span>{session?.name}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.2 }}>
+              <span>{session?.name}</span>
+              <span style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: 400 }}>
+                {session?.designation || 'System Administrator'}
+              </span>
+            </div>
           </div>
           <div className="status-chip" style={{ color: '#ffffff' }}>
             <span className="status-dot" style={{ background: '#10b981', color: '#10b981' }} />
@@ -572,10 +592,17 @@ export default function AdminPage({ onLogout }) {
                 </div>
               </div>
               <div className="login-field-group">
-                <label className="login-label">Username</label>
+                <label className="login-label">Username / Access ID</label>
                 <div className="login-input-wrap">
                   <span className="login-input-prefix"><Terminal size={13} /></span>
                   <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="e.g. emp001" className="login-input" required />
+                </div>
+              </div>
+              <div className="login-field-group">
+                <label className="login-label">Designation / Role Title</label>
+                <div className="login-input-wrap">
+                  <span className="login-input-prefix"><Briefcase size={13} /></span>
+                  <input type="text" value={designation} onChange={e => setDesignation(e.target.value)} placeholder="e.g. Senior Reliability Assessor" className="login-input" />
                 </div>
               </div>
               <div className="login-field-group">
@@ -607,7 +634,8 @@ export default function AdminPage({ onLogout }) {
                 <tr>
                   <th>Avatar</th>
                   <th>Name</th>
-                  <th>Username</th>
+                  <th>Username / ID</th>
+                  <th>Designation</th>
                   <th>Role</th>
                   <th>Created</th>
                   <th>Actions</th>
@@ -620,6 +648,9 @@ export default function AdminPage({ onLogout }) {
                   <td style={{ color: '#ffffff', fontWeight: 600 }}>Administrator</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
                     {session?.username || 'admin'}
+                  </td>
+                  <td style={{ color: '#38bdf8', fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
+                    {session?.designation || 'System Administrator'}
                   </td>
                   <td><span className="badge-risk" style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}>ADMIN</span></td>
                   <td style={{ color: 'var(--text-dim)' }}>System default</td>
@@ -642,6 +673,9 @@ export default function AdminPage({ onLogout }) {
                     </td>
                     <td style={{ color: '#ffffff' }}>{u.name}</td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>{u.username}</td>
+                    <td style={{ color: '#38bdf8', fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
+                      {u.designation || 'Maintenance Specialist'}
+                    </td>
                     <td><span className="badge-risk low">EMPLOYEE</span></td>
                     <td style={{ color: 'var(--text-dim)' }}>{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td>

@@ -98,6 +98,15 @@ function ReportViewer({ result, onClose, onSave, savedEntry }) {
               </div>
             </div>
 
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: 6, fontSize: '0.72rem' }}>
+              <span style={{ color: 'var(--text-dim)' }}>
+                Assessor: <strong style={{ color: '#ffffff' }}>{getSession()?.name || 'Assessor'}</strong>
+              </span>
+              <span style={{ color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>
+                {getSession()?.designation || (getSession()?.role === 'admin' ? 'System Administrator' : 'Maintenance Specialist')}
+              </span>
+            </div>
+
             <div>
               <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: 6 }}>Input Telemetry</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 6 }}>
@@ -162,6 +171,7 @@ function ReportPrompt({ result, onSaved, onView, onClose }) {
         cloudinaryUrl,
         userId:        session?.userId,
         userName:      session?.name,
+        userDesignation: session?.designation || (session?.role === 'admin' ? 'System Administrator' : 'Maintenance Specialist'),
       });
 
       setSaved(true);
@@ -282,6 +292,7 @@ export default function PredictionResult({ result }) {
       cloudinaryUrl,
       userId: session?.userId,
       userName: session?.name,
+      userDesignation: session?.designation || (session?.role === 'admin' ? 'System Administrator' : 'Maintenance Specialist'),
     });
     setSavedEntry(entry);
     setShowPrompt(false);
@@ -308,6 +319,11 @@ export default function PredictionResult({ result }) {
             <span>Diagnostic Evaluation</span>
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {getSession()?.name && (
+              <span className="field-unit" style={{ color: '#38bdf8', borderColor: 'rgba(56,189,248,0.25)', background: 'rgba(56,189,248,0.05)' }}>
+                {getSession().name} [{getSession().designation || (getSession().role === 'admin' ? 'System Administrator' : 'Maintenance Specialist')}]
+              </span>
+            )}
             <span className="field-unit">
               TREE-EXPLAINER {result.model_version ? `// ${result.model_version.toUpperCase()}` : ''}
             </span>
