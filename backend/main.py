@@ -6,7 +6,7 @@ import time
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, status, Request, Header
@@ -302,7 +302,7 @@ def prune_prediction_history(
 # ==================== MLOps: Drift Detection & Retraining ====================
 
 # In-memory TTL cache for drift evaluation to prevent database table scan storms
-_drift_cache = {
+_drift_cache: Dict[str, Any] = {
     "timestamp": 0.0,
     "window": 0,
     "report": None
