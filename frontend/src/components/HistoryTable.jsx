@@ -1,17 +1,50 @@
-import React from 'react';
-import { History, Trash2, ArrowUpRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { Database, Trash2, ArrowUpRight, Download, Check } from 'lucide-react';
 
 export default function HistoryTable({ history, onSelectRow, onClearHistory }) {
+  const [copiedCsv, setCopiedCsv] = useState(false);
+
+  const handleExportCsv = () => {
+    if (!history || history.length === 0) return;
+    const headers = ['timestamp', 'temperature', 'rpm', 'pressure', 'vibration', 'operating_hours', 'failure_risk', 'probability'];
+    const rows = history.map(r => {
+      const input = r.input_features || r;
+      return [
+        r.timestamp || '',
+        input.temperature,
+        input.rpm,
+        input.pressure,
+        input.vibration,
+        input.operating_hours,
+        r.failure_risk,
+        r.probability
+      ].join(',');
+    });
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `pms_telemetry_audit_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setCopiedCsv(true);
+    setTimeout(() => setCopiedCsv(false), 2000);
+  };
+
   if (!history || history.length === 0) {
     return (
       <div className="glass-panel history-panel">
         <div className="panel-header">
           <h2 className="panel-title">
-            <History size={18} className="panel-icon" />
-            Database Prediction Audit Log
+            <Database size={18} className="panel-icon" />
+            <span>Database Prediction Audit Log</span>
           </h2>
+          <span className="field-unit">0 RECORDS</span>
         </div>
-        <p className="empty-state">No predictions recorded yet. Run a prediction above to log to database.</p>
+        <div className="empty-state">
+          <p>No telemetry records stored in PostgreSQL yet. Run inference above to record predictions.</p>
+        </div>
       </div>
     );
   }
@@ -20,19 +53,34 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory }) {
     <div className="glass-panel history-panel">
       <div className="panel-header">
         <h2 className="panel-title">
-          <History size={18} className="panel-icon" />
-          Database Audit Log ({history.length} records)
+          <Database size={18} className="panel-icon" />
+          <span>Audit Log Database</span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 400, fontFamily: 'var(--font-mono)' }}>
+            [{history.length} events]
+          </span>
         </h2>
-        <button
-          type="button"
-          onClick={onClearHistory}
-          className="preset-btn"
-          style={{ fontSize: '0.76rem', padding: '5px 10px' }}
-          title="Clear database records"
-        >
-          <Trash2 size={13} />
-          Clear Log
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="preset-btn"
+            title="Download audit log as CSV"
+            style={{ padding: '4px 8px', fontSize: '0.7rem' }}
+          >
+            {copiedCsv ? <Check size={12} color="#10b981" /> : <Download size={12} />}
+            <span>Export CSV</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClearHistory}
+            className="preset-btn"
+            style={{ padding: '4px 8px', fontSize: '0.7rem', color: '#fda4af', borderColor: 'rgba(244, 63, 94, 0.3)' }}
+            title="Clear database records"
+          >
+            <Trash2 size={12} />
+            <span>Clear Log</span>
+          </button>
+        </div>
       </div>
 
       <div className="table-responsive">
@@ -42,11 +90,11 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory }) {
               <th>Timestamp</th>
               <th>Temp (°C)</th>
               <th>RPM</th>
-              <th>Pressure (bar)</th>
-              <th>Vibration (g)</th>
+              <th>Pressure</th>
+              <th>Vibration</th>
               <th>Hours</th>
-              <th>Risk</th>
-              <th>Probability</th>
+              <th>Verdict</th>
+              <th>Calibrated P</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -60,7 +108,7 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory }) {
 
               return (
                 <tr key={row.prediction_id} onClick={() => onSelectRow(input)}>
-                  <td style={{ color: '#94a3b8' }}>{dateStr}</td>
+                  <td style={{ color: 'var(--text-dim)' }}>{dateStr}</td>
                   <td>{input.temperature}</td>
                   <td>{input.rpm}</td>
                   <td>{input.pressure}</td>
@@ -73,11 +121,11 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory }) {
                   </td>
                   <td>
                     <span style={{ color: isHigh ? '#fb7185' : '#34d399', fontWeight: 700 }}>
-                      {Math.round(row.probability * 100)}%
+                      {(row.probability * 100).toFixed(1)}%
                     </span>
                   </td>
                   <td>
-                    <span style={{ color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.78rem' }}>
+                    <span style={{ color: '#ffffff', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.74rem' }}>
                       Load <ArrowUpRight size={12} />
                     </span>
                   </td>
@@ -90,3 +138,4 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory }) {
     </div>
   );
 }
+

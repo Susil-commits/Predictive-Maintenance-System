@@ -1,10 +1,11 @@
 import React from 'react';
-import { BookmarkCheck, AlertTriangle, CheckCircle, Flame, Gauge } from 'lucide-react';
+import { BookmarkCheck, AlertTriangle, ShieldCheck, Flame, Activity } from 'lucide-react';
 
 export default function PresetBar({ onSelectPreset }) {
   const presets = [
     {
-      label: 'Target Sample (High Risk)',
+      tag: '01',
+      label: 'Target Sample [High-Risk]',
       icon: AlertTriangle,
       highlight: true,
       data: {
@@ -16,8 +17,9 @@ export default function PresetBar({ onSelectPreset }) {
       }
     },
     {
-      label: 'Healthy Baseline',
-      icon: CheckCircle,
+      tag: '02',
+      label: 'Nominal Baseline',
+      icon: ShieldCheck,
       highlight: false,
       data: {
         temperature: 68.0,
@@ -28,6 +30,7 @@ export default function PresetBar({ onSelectPreset }) {
       }
     },
     {
+      tag: '03',
       label: 'Thermal Overheat',
       icon: Flame,
       highlight: false,
@@ -40,8 +43,9 @@ export default function PresetBar({ onSelectPreset }) {
       }
     },
     {
+      tag: '04',
       label: 'Vibration & Fatigue',
-      icon: Gauge,
+      icon: Activity,
       highlight: false,
       data: {
         temperature: 79.5,
@@ -56,8 +60,8 @@ export default function PresetBar({ onSelectPreset }) {
   return (
     <div className="presets-container">
       <span className="presets-label">
-        <BookmarkCheck size={14} />
-        Presets:
+        <BookmarkCheck size={13} />
+        Presets
       </span>
       {presets.map((p, idx) => {
         const Icon = p.icon;
@@ -67,12 +71,15 @@ export default function PresetBar({ onSelectPreset }) {
             type="button"
             className={`preset-btn ${p.highlight ? 'highlight' : ''}`}
             onClick={() => onSelectPreset(p.data)}
+            title={`Load ${p.label}`}
           >
-            <Icon size={14} />
-            {p.label}
+            <span style={{ color: 'var(--text-dim)', fontSize: '0.66rem' }}>{p.tag}</span>
+            <Icon size={12} />
+            <span>{p.label}</span>
           </button>
         );
       })}
     </div>
   );
 }
+

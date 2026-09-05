@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import PresetBar from './components/PresetBar';
 import TelemetryForm from './components/TelemetryForm';
@@ -6,17 +6,18 @@ import PredictionResult from './components/PredictionResult';
 import HistoryTable from './components/HistoryTable';
 import DriftMonitor from './components/DriftMonitor';
 import { getHealth, getModelInfo, predictMaintenance, getHistory, clearHistory, getDriftStatus } from './api';
+import { Sliders, Layers, LayoutGrid } from 'lucide-react';
+
+const DEFAULT_FORM_DATA = {
+  temperature: 92.4,
+  rpm: 2800,
+  pressure: 31.5,
+  vibration: 0.64,
+  operating_hours: 4820
+};
 
 export default function App() {
-  // Default initialized with user's exact specification
-  const [formData, setFormData] = useState({
-    temperature: 92.4,
-    rpm: 2800,
-    pressure: 31.5,
-    vibration: 0.64,
-    operating_hours: 4820
-  });
-
+  const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [health, setHealth] = useState(null);
@@ -24,6 +25,7 @@ export default function App() {
   const [driftStatus, setDriftStatus] = useState(null);
   const [history, setHistory] = useState([]);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'telemetry' | 'mlops'
 
   const fetchSystemStatus = async () => {
     try {
@@ -43,7 +45,7 @@ export default function App() {
     }
   };
 
-  // Initial data loading with retry if backend is waking up
+  // Initial data loading with periodic retry if backend is waking up
   useEffect(() => {
     fetchSystemStatus();
     const interval = setInterval(() => {
@@ -62,6 +64,10 @@ export default function App() {
     setFormData(presetData);
   };
 
+  const handleResetForm = () => {
+    setFormData(DEFAULT_FORM_DATA);
+  };
+
   const handleSelectHistoryRow = (rowData) => {
     setFormData({
       temperature: rowData.temperature,
@@ -73,8 +79,8 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSubmit = async (e) => {
-    if (e) e.preventDefault();
+  const handleSubmit = useCallback(async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     setLoading(true);
     setErrorMsg(null);
 
@@ -101,7 +107,19 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [formData]);
+
+  // Global Keyboard Shortcut: Cmd/Ctrl + Enter to trigger prediction
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSubmit]);
 
   const handleClearHistory = async () => {
     if (!window.confirm("Are you sure you want to clear the prediction history log?")) return;
@@ -117,44 +135,84 @@ export default function App() {
     <div className="app-container">
       <Header health={health} modelInfo={modelInfo} />
 
-      <PresetBar onSelectPreset={handleSelectPreset} />
+      {/* Top View Selector & Presets */}
+      <div className="view-nav-bar">
+        <div className="nav-pill-group">
+          <button
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+            onClick={() => setActiveTab('all')}
+          >
+            <LayoutGrid size={13} />
+            <span>ALL MODULES</span>
+          </button>
+          <button
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'telemetry' ? 'active' : ''}`}
+            onClick={() => setActiveTab('telemetry')}
+          >
+            <Sliders size={13} />
+            <span>TELEMETRY & INFERENCE</span>
+          </button>
+          <button
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'mlops' ? 'active' : ''}`}
+            onClick={() => setActiveTab('mlops')}
+          >
+            <Layers size={13} />
+            <span>MLOPS & AUDIT LOG</span>
+          </button>
+        </div>
+
+        <PresetBar onSelectPreset={handleSelectPreset} />
+      </div>
 
       {errorMsg && (
-        <div style={{
-          padding: '12px 18px',
-          background: 'rgba(244, 63, 94, 0.15)',
-          border: '1px solid rgba(244, 63, 94, 0.4)',
-          borderRadius: '12px',
-          color: '#fecdd3',
-          marginBottom: '20px',
-          fontSize: '0.88rem'
-        }}>
-          {errorMsg}
+        <div className="notification-banner">
+          <span>{errorMsg}</span>
+          <button
+            type="button"
+            onClick={() => setErrorMsg(null)}
+            className="preset-btn"
+            style={{ padding: '2px 8px', fontSize: '0.68rem' }}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
-      <div className="dashboard-grid">
-        <TelemetryForm
-          formData={formData}
-          onChange={handleFieldChange}
-          onSubmit={handleSubmit}
-          loading={loading}
-        />
+      {/* Primary Telemetry & Prediction Studio */}
+      {(activeTab === 'all' || activeTab === 'telemetry') && (
+        <div className="main-grid">
+          <TelemetryForm
+            formData={formData}
+            onChange={handleFieldChange}
+            onSubmit={handleSubmit}
+            loading={loading}
+            onReset={handleResetForm}
+          />
 
-        <PredictionResult result={result} />
-      </div>
+          <PredictionResult result={result} />
+        </div>
+      )}
 
-      <DriftMonitor
-        driftStatus={driftStatus}
-        modelInfo={modelInfo}
-        onRefresh={fetchSystemStatus}
-      />
+      {/* MLOps Radar & Database Audit Log */}
+      {(activeTab === 'all' || activeTab === 'mlops') && (
+        <>
+          <DriftMonitor
+            driftStatus={driftStatus}
+            modelInfo={modelInfo}
+            onRefresh={fetchSystemStatus}
+          />
 
-      <HistoryTable
-        history={history}
-        onSelectRow={handleSelectHistoryRow}
-        onClearHistory={handleClearHistory}
-      />
+          <HistoryTable
+            history={history}
+            onSelectRow={handleSelectHistoryRow}
+            onClearHistory={handleClearHistory}
+          />
+        </>
+      )}
     </div>
   );
 }
+

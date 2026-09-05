@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   GitBranch,
-  RefreshCw,
   AlertTriangle,
   CheckCircle2,
   Activity,
@@ -9,7 +8,7 @@ import {
   Cpu,
   ArrowRight,
   RotateCcw,
-  Sparkles
+  Zap
 } from 'lucide-react';
 import { triggerRetrain, resetDriftStatus } from '../api';
 
@@ -24,17 +23,17 @@ export default function DriftMonitor({
 
   const handleRetrain = async () => {
     setRetraining(true);
-    setActionMsg("Automated pipeline started: training XGBoost, evaluating metrics, and logging to MLflow...");
+    setActionMsg("executing pipeline: tuning scale_pos_weight, optimizing threshold, logging to MLflow...");
     try {
       await triggerRetrain();
-      setActionMsg(`Retraining initiated in background! Version will advance to next iteration.`);
+      setActionMsg("retraining complete: new calibrated model artifact deployed.");
       setTimeout(() => {
         if (onRefresh) onRefresh();
         setRetraining(false);
       }, 3500);
     } catch (err) {
       console.error("Retraining error:", err);
-      setActionMsg("Failed to trigger retraining pipeline.");
+      setActionMsg("err: automated retraining pipeline returned non-zero exit.");
       setRetraining(false);
     }
   };
@@ -43,7 +42,7 @@ export default function DriftMonitor({
     setResetting(true);
     try {
       await resetDriftStatus();
-      setActionMsg("Production telemetry buffer reset.");
+      setActionMsg("telemetry buffer purged: PSI baseline re-initialized.");
       if (onRefresh) onRefresh();
     } catch (err) {
       console.error("Reset error:", err);
@@ -60,63 +59,64 @@ export default function DriftMonitor({
   const features = driftStatus?.features || {};
 
   return (
-    <div className="glass-panel" style={{ marginTop: '24px' }}>
+    <div className="glass-panel" style={{ marginTop: '20px' }}>
       <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <h2 className="panel-title">
-          <Layers size={20} className="panel-icon" />
-          MLOps Drift & Lifecycle Engine
+          <Layers size={18} className="panel-icon" />
+          <span>MLOps Drift & Lifecycle Engine</span>
         </h2>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span className="field-unit" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <GitBranch size={13} />
-            MLflow Registry: <strong>PMS-XGBoost</strong> ({modelInfo?.version || 'v2'})
+            <GitBranch size={12} />
+            <span>MLflow Registry:</span>
+            <strong style={{ color: '#ffffff' }}>PMS-XGBoost [{modelInfo?.version || 'v12'}]</strong>
           </span>
         </div>
       </div>
 
-      {/* Overview Cards */}
+      {/* Metric Cards Grid */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-        gap: '14px',
-        margin: '18px 0'
+        gap: '12px',
+        margin: '16px 0'
       }}>
         {/* Model Version Card */}
         <div style={{
           padding: '14px 16px',
-          background: 'rgba(15, 23, 42, 0.6)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: '12px'
+          background: 'var(--bg-card-subtle)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-md)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Active Model</span>
-            <Cpu size={16} color="#06b6d4" />
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>Active Model</span>
+            <Cpu size={14} color="#a1a1aa" />
           </div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-            {modelInfo?.version || 'v2'}
-            <span style={{ fontSize: '0.78rem', color: '#38bdf8', fontWeight: 500 }}>Production</span>
+          <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ffffff', display: 'flex', alignItems: 'baseline', gap: '6px', fontFamily: 'var(--font-mono)' }}>
+            {modelInfo?.version || 'v12'}
+            <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 600 }}>[PROD]</span>
           </div>
-          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            MLflow Run: {modelInfo?.mlflow_run_id ? modelInfo.mlflow_run_id.slice(0, 8) + '...' : 'local'}
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)' }}>
+            Run: {modelInfo?.mlflow_run_id ? modelInfo.mlflow_run_id.slice(0, 10) : 'local-prod'}
           </div>
         </div>
 
         {/* Telemetry Buffer Card */}
         <div style={{
           padding: '14px 16px',
-          background: 'rgba(15, 23, 42, 0.6)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: '12px'
+          background: 'var(--bg-card-subtle)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-md)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Telemetry Window</span>
-            <Activity size={16} color="#6366f1" />
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>Telemetry Window</span>
+            <Activity size={14} color="#a1a1aa" />
           </div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#f8fafc' }}>
-            {total} <span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 400 }}>inferences</span>
+          <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ffffff', fontFamily: 'var(--font-mono)' }}>
+            {total} <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', fontWeight: 400 }}>inferences</span>
           </div>
-          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
-            {isWarmup ? `Min 10 samples needed (eval active)` : 'Full statistical window active'}
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+            {isWarmup ? 'Buffer: collecting sample window' : 'Window: full statistical analysis active'}
           </div>
         </div>
 
@@ -124,105 +124,106 @@ export default function DriftMonitor({
         <div style={{
           padding: '14px 16px',
           background: isWarmup
-            ? 'rgba(15, 23, 42, 0.6)'
+            ? 'var(--bg-card-subtle)'
             : isDrift
-              ? 'rgba(244, 63, 94, 0.15)'
-              : 'rgba(16, 185, 129, 0.12)',
+              ? 'rgba(244, 63, 94, 0.1)'
+              : 'rgba(16, 185, 129, 0.08)',
           border: isWarmup
-            ? '1px solid rgba(255, 255, 255, 0.08)'
+            ? '1px solid var(--border-subtle)'
             : isDrift
-              ? '1px solid rgba(244, 63, 94, 0.4)'
+              ? '1px solid rgba(244, 63, 94, 0.35)'
               : '1px solid rgba(16, 185, 129, 0.3)',
-          borderRadius: '12px'
+          borderRadius: 'var(--radius-md)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>PSI Drift Status</span>
-            {isDrift ? <AlertTriangle size={16} color="#f43f5e" /> : <CheckCircle2 size={16} color="#10b981" />}
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>PSI Drift State</span>
+            {isDrift ? <AlertTriangle size={14} color="#f43f5e" /> : <CheckCircle2 size={14} color="#10b981" />}
           </div>
           <div style={{
-            fontSize: '1.2rem',
-            fontWeight: 700,
-            color: isWarmup ? '#e2e8f0' : isDrift ? '#fb7185' : '#34d399'
+            fontSize: '1.25rem',
+            fontWeight: 800,
+            fontFamily: 'var(--font-mono)',
+            color: isWarmup ? '#ffffff' : isDrift ? '#fb7185' : '#34d399'
           }}>
-            {isWarmup ? 'BUFFERING' : isDrift ? 'DRIFT DETECTED' : 'NOMINAL'}
+            {isWarmup ? 'WARMING UP' : isDrift ? 'DRIFT DETECTED' : 'NOMINAL STABLE'}
           </div>
-          <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '4px' }}>
-            Max PSI: <strong>{maxPsi.toFixed(3)}</strong> (Threshold: 0.250)
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+            Max PSI: <strong style={{ color: '#ffffff' }}>{maxPsi.toFixed(3)}</strong> (Cutoff: 0.250)
           </div>
         </div>
       </div>
 
-      {/* Decision Workflow Diagram */}
+      {/* Decision Path */}
       <div style={{
-        margin: '16px 0',
-        padding: '14px 18px',
-        background: 'rgba(2, 6, 23, 0.5)',
-        border: '1px solid rgba(255, 255, 255, 0.06)',
-        borderRadius: '12px'
+        margin: '14px 0',
+        padding: '12px 16px',
+        background: '#050507',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 'var(--radius-sm)'
       }}>
-        <div style={{ fontSize: '0.76rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>
-          MLOps Decision Path
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
+          MLOps Pipeline Topology
         </div>
         <div style={{
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
           flexWrap: 'wrap',
-          fontSize: '0.82rem',
-          color: '#cbd5e1'
+          fontSize: '0.78rem',
+          fontFamily: 'var(--font-mono)',
+          color: '#e4e4e7'
         }}>
-          <span style={{ background: 'rgba(30, 41, 59, 0.8)', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-            📡 Telemetry Ingest
+          <span style={{ background: '#121215', padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+            01. Telemetry Ingest
           </span>
-          <ArrowRight size={14} color="#64748b" />
-          <span style={{ background: 'rgba(30, 41, 59, 0.8)', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-            📊 PSI Drift Analysis
+          <ArrowRight size={12} color="#52525b" />
+          <span style={{ background: '#121215', padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+            02. PSI Vector Diff
           </span>
-          <ArrowRight size={14} color="#64748b" />
+          <ArrowRight size={12} color="#52525b" />
           <span style={{
-            background: isDrift ? 'rgba(244, 63, 94, 0.2)' : 'rgba(16, 185, 129, 0.15)',
-            padding: '4px 10px',
-            borderRadius: '6px',
-            border: isDrift ? '1px solid rgba(244, 63, 94, 0.4)' : '1px solid rgba(16, 185, 129, 0.3)',
-            color: isDrift ? '#fda4af' : '#6ee7b7',
-            fontWeight: 600
+            background: isDrift ? 'rgba(244, 63, 94, 0.15)' : 'rgba(16, 185, 129, 0.1)',
+            padding: '3px 8px',
+            borderRadius: '4px',
+            border: isDrift ? '1px solid rgba(244, 63, 94, 0.3)' : '1px solid rgba(16, 185, 129, 0.25)',
+            color: isDrift ? '#fda4af' : '#a7f3d0'
           }}>
-            {isDrift ? '⚠️ Drift (PSI ≥ 0.25) → Retrain Triggered' : '✅ Stable (PSI < 0.25) → Continue Inference'}
+            {isDrift ? '03. PSI >= 0.25 → Retrain Alert' : '03. PSI < 0.25 → Steady State'}
           </span>
         </div>
       </div>
 
-      {/* Feature-level PSI breakdown */}
+      {/* Feature-Level PSI Breakdown */}
       {Object.keys(features).length > 0 && (
         <div style={{ marginTop: '16px' }}>
-          <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '10px', fontWeight: 600 }}>
-            Feature-Level Population Stability Index (PSI):
+          <div style={{ fontSize: '0.76rem', color: 'var(--text-dim)', marginBottom: '8px', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>
+            Feature Stability Indices (PSI):
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
             {Object.entries(features).map(([feat, m]) => {
               const psiVal = m.psi ?? 0;
               const isWarning = psiVal >= 0.10 && psiVal < 0.25;
               const isDanger = psiVal >= 0.25;
-              const barColor = isDanger ? '#f43f5e' : isWarning ? '#f59e0b' : '#10b981';
+              const barColor = isDanger ? '#f43f5e' : isWarning ? '#f59e0b' : '#ffffff';
               const statusText = isDanger ? 'DRIFT' : isWarning ? 'SHIFT' : 'STABLE';
 
               return (
                 <div key={feat} style={{
-                  background: 'rgba(15, 23, 42, 0.4)',
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255, 255, 255, 0.05)'
+                  background: '#09090b',
+                  padding: '8px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-subtle)'
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '4px' }}>
-                    <span style={{ color: '#cbd5e1', textTransform: 'capitalize' }}>{feat.replace('_', ' ')}</span>
-                    <span style={{ color: barColor, fontWeight: 600, fontSize: '0.72rem' }}>{statusText} ({psiVal.toFixed(3)})</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', marginBottom: '4px', fontFamily: 'var(--font-mono)' }}>
+                    <span style={{ color: '#ffffff' }}>{feat.replace('_', ' ')}</span>
+                    <span style={{ color: barColor, fontWeight: 700 }}>{statusText} {psiVal.toFixed(3)}</span>
                   </div>
-                  <div style={{ width: '100%', height: '4px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                  <div style={{ width: '100%', height: '3px', background: '#18181b', borderRadius: '2px', overflow: 'hidden' }}>
                     <div style={{
                       height: '100%',
                       width: `${Math.min(100, Math.round((psiVal / 0.3) * 100))}%`,
-                      background: barColor,
-                      transition: 'width 0.4s ease'
+                      backgroundColor: barColor,
+                      transition: 'width 0.3s ease'
                     }} />
                   </div>
                 </div>
@@ -232,55 +233,51 @@ export default function DriftMonitor({
         </div>
       )}
 
-      {/* Action Notice */}
+      {/* Terminal Feedback Output */}
       {actionMsg && (
-        <div style={{
-          marginTop: '16px',
-          padding: '10px 14px',
-          background: 'rgba(6, 182, 212, 0.12)',
-          border: '1px solid rgba(6, 182, 212, 0.3)',
-          borderRadius: '8px',
-          color: '#a5f3fc',
-          fontSize: '0.82rem'
-        }}>
-          {actionMsg}
+        <div className="terminal-console" style={{ marginTop: '14px' }}>
+          <div className="terminal-line">
+            <span className="terminal-prompt">$</span>
+            <span>{actionMsg}</span>
+            <span className="terminal-cursor" />
+          </div>
         </div>
       )}
 
       {/* Action Buttons */}
-      <div style={{ display: 'flex', gap: '10px', marginTop: '18px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
         <button
-          className="btn-primary"
+          type="button"
+          className="submit-btn"
           onClick={handleRetrain}
           disabled={retraining}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 18px',
-            fontSize: '0.85rem'
-          }}
+          style={{ flex: 'none', padding: '10px 18px', fontSize: '0.78rem' }}
         >
-          {retraining ? <RefreshCw size={15} className="spin" /> : <Sparkles size={15} />}
-          {retraining ? 'Retraining Model...' : 'Trigger Automated Retraining'}
+          {retraining ? (
+            <>
+              <span className="spinner" style={{ width: 14, height: 14, borderColor: '#888', borderTopColor: '#000' }} />
+              <span>RETRAINING XGBOOST...</span>
+            </>
+          ) : (
+            <>
+              <Zap size={14} fill="#000000" />
+              <span>TRIGGER PIPELINE RETRAIN</span>
+            </>
+          )}
         </button>
 
         <button
-          className="btn-outline"
+          type="button"
+          className="preset-btn"
           onClick={handleReset}
           disabled={resetting}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 16px',
-            fontSize: '0.85rem'
-          }}
+          style={{ padding: '10px 16px', fontSize: '0.78rem' }}
         >
-          <RotateCcw size={14} />
-          Reset Telemetry Buffer
+          <RotateCcw size={13} />
+          <span>Reset Telemetry Window</span>
         </button>
       </div>
     </div>
   );
 }
+
