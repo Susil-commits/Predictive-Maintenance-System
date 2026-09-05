@@ -144,11 +144,6 @@ export default function LandingPage({ onNavigateLogin }) {
         <div className="land-hero-glow" />
 
         <div className="land-hero-content">
-          <div className="land-badge">
-            <span className="status-dot" style={{ background: '#10b981', color: '#10b981', width: 7, height: 7, borderRadius: '50%', boxShadow: '0 0 8px currentColor' }} />
-            <span>Industrial IoT · Machine Learning · MLOps</span>
-          </div>
-
           <h1 className="land-headline">
             Predict Equipment Failure<br />
             <span className="land-headline-accent">Before It Happens</span>
