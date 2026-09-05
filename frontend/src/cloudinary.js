@@ -17,12 +17,7 @@
 const CLOUD_NAME    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
-if (!CLOUD_NAME || !UPLOAD_PRESET) {
-  console.warn(
-    '[PMS Cloudinary] VITE_CLOUDINARY_CLOUD_NAME or VITE_CLOUDINARY_UPLOAD_PRESET is not set. ' +
-    'File uploads will be disabled until these are configured in .env'
-  );
-}
+// Cloudinary configuration is checked dynamically upon upload action
 
 /**
  * Upload any file (image, raw, auto) to Cloudinary.

@@ -12,13 +12,10 @@ if (rawBaseUrl && !rawBaseUrl.includes('localhost') && !rawBaseUrl.includes('127
 }
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
-const API_KEY = import.meta.env.VITE_API_KEY || 'pms-admin-secret-key';
-
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
-    'X-API-Key': API_KEY,
   },
   timeout: 60000,
 });

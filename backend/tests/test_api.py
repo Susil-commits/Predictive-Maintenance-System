@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from backend.main import app
 
 client = TestClient(app)
+ADMIN_API_KEY = os.getenv("PMS_API_KEY", "pms-admin-secret-key")
 
 def test_health_endpoint():
     response = client.get("/health")
@@ -159,7 +160,7 @@ def test_delete_history():
     assert "Invalid or missing API key" in unauth_response.json()["detail"]
 
     # Calling with valid admin API key succeeds
-    response = client.delete("/history", headers={"X-API-Key": "pms-admin-secret-key"})
+    response = client.delete("/history", headers={"X-API-Key": ADMIN_API_KEY})
     assert response.status_code == 200
     data = response.json()
     assert "message" in data
@@ -200,7 +201,7 @@ def test_retrain_endpoint(monkeypatch):
     assert len(mock_called) == 0
 
     # With valid API key should return 200
-    response = client.post("/retrain", headers={"X-API-Key": "pms-admin-secret-key"})
+    response = client.post("/retrain", headers={"X-API-Key": ADMIN_API_KEY})
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "retraining_initiated"
@@ -270,7 +271,7 @@ def test_batch_predict_requires_auth():
     auth_res = client.post(
         "/batch-predict",
         files={"file": ("test.csv", sample_csv, "text/csv")},
-        headers={"X-API-Key": "pms-admin-secret-key"}
+        headers={"X-API-Key": ADMIN_API_KEY}
     )
     assert auth_res.status_code == 200
     data = auth_res.json()
@@ -283,7 +284,7 @@ def test_batch_predict_size_limit_5mb():
     res = client.post(
         "/batch-predict",
         files={"file": ("huge.csv", large_bytes, "text/csv")},
-        headers={"X-API-Key": "pms-admin-secret-key"}
+        headers={"X-API-Key": ADMIN_API_KEY}
     )
     assert res.status_code == 413
     assert "File too large, max 5MB" in res.json()["detail"]
@@ -297,7 +298,7 @@ def test_batch_predict_row_limit_5000():
     res = client.post(
         "/batch-predict",
         files={"file": ("many_rows.csv", csv_content, "text/csv")},
-        headers={"X-API-Key": "pms-admin-secret-key"}
+        headers={"X-API-Key": ADMIN_API_KEY}
     )
     assert res.status_code == 422
     assert "Too many rows, max 5000 per batch" in res.json()["detail"]
@@ -308,7 +309,7 @@ def test_export_history_requires_auth():
     assert unauth.status_code == 401
 
     # Calling with valid admin API key succeeds (or 404 if history empty)
-    res = client.get("/export", headers={"X-API-Key": "pms-admin-secret-key"})
+    res = client.get("/export", headers={"X-API-Key": ADMIN_API_KEY})
     assert res.status_code in [200, 404]
 
 def test_retrain_mutex_lock_collision():
@@ -316,7 +317,7 @@ def test_retrain_mutex_lock_collision():
     # Simulate retraining already active
     backend.main._retraining_active = True
     try:
-        response = client.post("/retrain", headers={"X-API-Key": "pms-admin-secret-key"})
+        response = client.post("/retrain", headers={"X-API-Key": ADMIN_API_KEY})
         assert response.status_code == 409
         assert "already in progress" in response.json()["detail"]
     finally:

@@ -10,6 +10,7 @@ Authentication module for PMS:
 """
 
 import os
+import secrets
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
@@ -126,7 +127,7 @@ def require_admin_auth(
     or a valid admin JWT ('Authorization: Bearer <jwt>').
     """
     expected_key = os.getenv("PMS_API_KEY", "pms-admin-secret-key")
-    if x_api_key and x_api_key == expected_key:
+    if x_api_key and secrets.compare_digest(x_api_key.strip(), expected_key.strip()):
         return {"auth_type": "api_key", "role": "admin"}
 
     if authorization and authorization.startswith("Bearer "):
