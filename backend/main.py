@@ -15,7 +15,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, text
 
 from .database import engine, Base, get_db, SessionLocal
 from .models import PredictionRecord, User
@@ -36,16 +36,20 @@ logger = logging.getLogger("pms.api")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-# Create database tables and seed admin user if needed
-try:
-    Base.metadata.create_all(bind=engine)
-    with SessionLocal() as _db:
-        seed_initial_admin(_db)
-except Exception as e:
-    logger.info(f"Table creation/admin seed note: {e}")
+def init_db():
+    """Ensure tables are created and default admin is seeded."""
+    try:
+        Base.metadata.create_all(bind=engine)
+        with SessionLocal() as _db:
+            seed_initial_admin(_db)
+    except Exception as e:
+        logger.info(f"Table creation/admin seed note: {e}")
+
+init_db()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     yield
 
 app = FastAPI(
@@ -128,14 +132,14 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-@limiter.limit("120/minute")
 def health_check(request: Request, db: Session = Depends(get_db)):
     """
     Health check endpoint returning system, model, version, and database status.
+    Un-throttled to ensure platform load balancer and deployment health checks never fail.
     """
     db_status = "connected"
     try:
-        db.execute(Base.metadata.tables["predictions"].select().limit(1))
+        db.execute(text("SELECT 1"))
     except Exception:
         db_status = "operational"
 

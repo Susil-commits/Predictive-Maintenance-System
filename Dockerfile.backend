@@ -14,12 +14,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
+# Pre-build matplotlib font cache and SHAP internals at image build time
+# to prevent startup latency and container freezes on Render
+RUN python -c "import matplotlib.font_manager; import shap"
+
 # Copy source code and models
 COPY backend /app/backend
 COPY ml /app/ml
 COPY data /app/data
 
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1
+
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]

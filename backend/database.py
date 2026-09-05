@@ -35,9 +35,9 @@ if DATABASE_URL.startswith("postgresql"):
             # Configure robust connection pooling for high-concurrency production workloads
             test_engine = create_engine(
                 DATABASE_URL,
-                connect_args={'connect_timeout': 5},
-                pool_size=10,
-                max_overflow=20,
+                connect_args={'connect_timeout': 10},
+                pool_size=5,
+                max_overflow=10,
                 pool_timeout=30,
                 pool_recycle=300,
                 pool_pre_ping=True
