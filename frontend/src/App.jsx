@@ -43,10 +43,16 @@ export default function App() {
     }
   };
 
-  // Initial data loading
+  // Initial data loading with retry if backend is waking up
   useEffect(() => {
     fetchSystemStatus();
-  }, []);
+    const interval = setInterval(() => {
+      if (!health) {
+        fetchSystemStatus();
+      }
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [health]);
 
   const handleFieldChange = (name, value) => {
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -85,8 +91,12 @@ export default function App() {
       if (updatedDrift) setDriftStatus(updatedDrift);
     } catch (err) {
       console.error("Prediction error:", err);
+      const isNetworkError = !err.response && (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error'));
       setErrorMsg(
-        err.response?.data?.detail || "Unable to reach prediction service. Please ensure the backend is running."
+        err.response?.data?.detail ||
+        (isNetworkError
+          ? "Unable to reach prediction service. The Render backend may be waking up from free-tier sleep (takes ~30-50s). Please wait a moment and try again."
+          : "Unable to reach prediction service. Please ensure the backend is running.")
       );
     } finally {
       setLoading(false);

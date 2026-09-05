@@ -1,6 +1,16 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+let rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+// Ensure remote URLs always use HTTPS and strip trailing slashes
+if (rawBaseUrl && !rawBaseUrl.includes('localhost') && !rawBaseUrl.includes('127.0.0.1')) {
+  if (rawBaseUrl.startsWith('http://')) {
+    rawBaseUrl = rawBaseUrl.replace('http://', 'https://');
+  } else if (!rawBaseUrl.startsWith('https://')) {
+    rawBaseUrl = `https://${rawBaseUrl}`;
+  }
+}
+const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'pms-admin-secret-key';
 
@@ -10,7 +20,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
     'X-API-Key': API_KEY,
   },
-  timeout: 10000,
+  timeout: 60000,
 });
 
 export const getHealth = async () => {
