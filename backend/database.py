@@ -61,6 +61,8 @@ else:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
     logger.info(f"Using database: {DATABASE_URL}")
 
+assert engine is not None
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

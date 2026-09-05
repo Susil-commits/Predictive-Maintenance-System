@@ -47,7 +47,13 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    with engine.connect() as connection:
+    connectable = engine
+    if connectable is None:
+        from sqlalchemy import create_engine
+        url = DATABASE_URL or config.get_main_option("sqlalchemy.url") or "sqlite:///./pms.db"
+        connectable = create_engine(url)
+
+    with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

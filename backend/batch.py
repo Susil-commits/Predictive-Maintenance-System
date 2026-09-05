@@ -138,6 +138,8 @@ def _coerce_and_validate_row(row: dict) -> tuple[dict | None, str | None]:
     result = {}
     for field, (lo, hi) in FIELD_RANGES.items():
         raw = row.get(field)
+        if raw is None:
+            return None, f"Field '{field}' is missing or null"
         try:
             val = float(raw)
         except (TypeError, ValueError):
@@ -240,9 +242,9 @@ async def batch_predict(
         raise HTTPException(status_code=422, detail=str(exc))
 
     # Build a normalised frame using canonical column names
-    df_norm = df[[col_map[c] for c in COLUMN_ALIASES]].rename(
-        columns={v: k for k, v in col_map.items()}
-    )
+    selected_cols = [col_map[c] for c in COLUMN_ALIASES]
+    df_selected = pd.DataFrame(df[selected_cols])
+    df_norm = df_selected.rename(columns={v: k for k, v in col_map.items()})
 
     threshold = getattr(predictor, "threshold", 0.50)
 
@@ -331,7 +333,7 @@ def export_history(
     for rec in records:
         writer.writerow({
             "prediction_id": rec.prediction_id,
-            "timestamp": rec.timestamp.isoformat() if rec.timestamp else "",
+            "timestamp": rec.timestamp.isoformat() if rec.timestamp is not None else "",
             "temperature": rec.temperature,
             "rpm": rec.rpm,
             "pressure": rec.pressure,
