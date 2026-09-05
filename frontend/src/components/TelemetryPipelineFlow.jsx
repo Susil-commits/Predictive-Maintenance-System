@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 const SOURCES = [
-  { id: 'all',       label: 'ANY SENSOR BUS',     sub: 'CAN-Bus / Modbus 500Hz',   icon: Database,        val: 'Active Stream',   color: '#34d399', y: 50 },
+  { id: 'all',       label: 'ANY SENSOR BUS',     sub: 'CAN-Bus / Modbus 500Hz',   icon: Database,        val: 'Active Sensor Bus', color: '#34d399', y: 50 },
   { id: 'temp',      label: 'THERMAL SENSORS',    sub: 'Thermocouple Matrix',       icon: Thermometer,     val: '84.2 °C [Nominal]', color: '#f59e0b', y: 125 },
   { id: 'vib',       label: 'VIBRATION ACCEL',    sub: 'Harmonic Tri-Axial',       icon: Activity,        val: '0.24 g [Stable]',   color: '#10b981', y: 200 },
   { id: 'pressure',  label: 'HYDRAULIC PRESSURE', sub: 'Pneumatic Fluid Line',     icon: Gauge,           val: '22.4 bar [Loaded]', color: '#06b6d4', y: 275 },
@@ -17,7 +17,7 @@ const SOURCES = [
 ];
 
 const DESTINATIONS = [
-  { id: 'studio',    label: 'REAL-TIME STUDIO',   sub: 'Calibrated Risk Gauge',    icon: Radio,           out: 'Prob: 0.12 (LOW RISK)',   color: '#10b981', y: 70 },
+  { id: 'studio',    label: 'DIAGNOSTIC STUDIO',  sub: 'Calibrated Risk Gauge',    icon: Radio,           out: 'Prob: 0.12 (LOW RISK)',   color: '#10b981', y: 70 },
   { id: 'shap',      label: 'SHAP EXPLAINER',     sub: 'TreeExplainer Waterfall',  icon: BarChart3,       out: 'Vib: +0.14, Temp: -0.08', color: '#a78bfa', y: 170 },
   { id: 'drift',     label: 'MLOPS DRIFT RADAR',  sub: 'Population Stability Index', icon: Shield,        out: 'PSI: 0.04 (NO DRIFT)',    color: '#34d399', y: 275 },
   { id: 'audit',     label: 'POSTGRESQL AUDIT',   sub: 'Compliance Event Store',   icon: Database,        out: 'Record ID: #b94e-28af',   color: '#38bdf8', y: 380 },
@@ -45,7 +45,7 @@ export default function TelemetryPipelineFlow() {
             }}
           />
           <span className="flow-status-text">
-            PIPELINE: {anomalyMode ? 'ANOMALY OVERHEAT DETECTED' : 'NOMINAL STREAM (500 Hz)'}
+            PIPELINE: {anomalyMode ? 'ANOMALY OVERHEAT DETECTED' : 'NOMINAL (500 Hz)'}
           </span>
         </div>
 
@@ -230,7 +230,7 @@ export default function TelemetryPipelineFlow() {
                   <rect x="-25" y="-9" width="50" height="18" rx="9" fill="#18181b" stroke="#10b981" strokeWidth="1.2" />
                   <circle cx="-14" cy="0" r="3.5" fill="#10b981" />
                   <text x="4" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="8" fontFamily="var(--font-mono)" fontWeight="700">
-                    STREAM
+                    SIGNAL
                   </text>
                 </g>
 
@@ -501,7 +501,7 @@ export default function TelemetryPipelineFlow() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Eye size={14} color={activeColor} />
             <span style={{ fontSize: '0.78rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#ffffff' }}>
-              {selectedNode ? `NODE INSPECTION: ${selectedNode.label}` : 'PIPELINE TELEMETRY LIVE MONITOR'}
+              {selectedNode ? `NODE INSPECTION: ${selectedNode.label}` : 'PIPELINE TELEMETRY MONITOR'}
             </span>
           </div>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
@@ -533,7 +533,7 @@ export default function TelemetryPipelineFlow() {
             <div className="flow-inspect-grid">
               <div className="flow-inspect-item">
                 <span className="flow-inspect-label">ACTIVE SENSORS</span>
-                <span className="flow-inspect-val">5 Streams (Temp, Vib, Press, RPM, Hrs)</span>
+                <span className="flow-inspect-val">5 Sensors (Temp, Vib, Press, RPM, Hrs)</span>
               </div>
               <div className="flow-inspect-item">
                 <span className="flow-inspect-label">CORE MODEL</span>

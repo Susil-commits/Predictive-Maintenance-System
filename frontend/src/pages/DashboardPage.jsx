@@ -199,7 +199,7 @@ export default function DashboardPage({ onLogout }) {
               }}
             />
             <Radio size={12} style={{ opacity: 0.8 }} />
-            <span>{isHealthy ? 'LIVE' : 'CONNECTING'}</span>
+            <span>{isHealthy ? 'ONLINE' : 'CONNECTING'}</span>
           </div>
           <a
             href={`${API_BASE_URL}/docs`}

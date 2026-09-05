@@ -517,7 +517,7 @@ export default function AdminPage({ onLogout }) {
         <StatChip label="Registered Users" value={users.length} color="#ffffff" />
         <StatChip label="Generated Docs"   value={getAllReportsGrouped().length} color="#34d399" />
         <StatChip label="Access Events"    value={getAccessLog().length} color="var(--text-secondary)" />
-        <StatChip label="System Status"    value="LIVE"         color="#10b981" />
+        <StatChip label="System Status"    value="ONLINE"       color="#10b981" />
         {isCloudinaryConfigured() && (
           <StatChip label="Cloud Storage" value="READY" color="#10b981" />
         )}

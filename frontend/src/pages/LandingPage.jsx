@@ -182,7 +182,7 @@ export default function LandingPage({ onNavigateLogin }) {
 
       {/* Live Telemetry Pipeline Flow Architecture */}
       <section className="land-pipeline-section" id="pipeline-architecture">
-        <div className="land-section-label">LIVE DATA ARCHITECTURE</div>
+        <div className="land-section-label">DATA ARCHITECTURE</div>
         <h2 className="land-section-title">End-to-End Predictive Maintenance Pipeline</h2>
         <p className="land-pipeline-sub">
           Continuous physical sensor streams ingest raw metrics, extract multi-axial failure signatures, execute sub-millisecond calibrated XGBoost inference, and route automated SCADA safety trip orders.
