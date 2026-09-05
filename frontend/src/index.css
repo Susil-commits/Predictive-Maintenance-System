@@ -643,7 +643,7 @@ body {
   color: #a7f3d0;
 }
 
-/* SHAP Waterfall / Feature Attribution */
+/* Root Cause Waterfall / Feature Attribution */
 .factors-section {
   display: flex;
   flex-direction: column;

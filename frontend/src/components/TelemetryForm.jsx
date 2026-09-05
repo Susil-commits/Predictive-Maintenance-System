@@ -284,7 +284,7 @@ export default function TelemetryForm({ formData, onChange, onSubmit, loading, o
             {loading ? (
               <>
                 <span className="spinner" style={{ borderColor: '#888', borderTopColor: '#000' }} />
-                <span>RUNNING SHAP INFERENCE...</span>
+                <span>EVALUATING SENSOR RISK...</span>
               </>
             ) : (
               <>

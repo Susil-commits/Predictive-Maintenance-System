@@ -19,7 +19,7 @@ export default function Header({ health, modelInfo }) {
             </span>
           </h1>
           <p className="brand-tagline">
-            Calibrated XGBoost • SHAP Waterfall Diagnostics • Drift Radar
+            Predictive Telemetry • Root Cause Diagnostics • Drift Radar
           </p>
         </div>
       </div>
@@ -28,9 +28,9 @@ export default function Header({ health, modelInfo }) {
         {modelInfo?.metrics?.roc_auc && (
           <div className="model-badge">
             <Cpu size={13} />
-            <span>XGBoost [{modelInfo.version || 'v12'}]</span>
+            <span>PMS Core [{modelInfo.version || 'v12'}]</span>
             <span style={{ color: 'var(--text-dim)' }}>•</span>
-            <span>AUC {(modelInfo.metrics.roc_auc * 100).toFixed(1)}%</span>
+            <span>Accuracy {(modelInfo.metrics.roc_auc * 100).toFixed(1)}%</span>
           </div>
         )}
         <div 

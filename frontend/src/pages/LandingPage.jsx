@@ -5,9 +5,9 @@ import { getHealth } from '../api';
 
 const TYPEWRITER_LINES = [
   '> initializing predictive_maintenance_system...',
-  '> loading xgboost_calibrated.pkl              [OK]',
-  '> shap_explainer: TreeExplainer ready         [OK]',
-  '> drift_detector: PSI baseline loaded         [OK]',
+  '> loading predictive_inference_engine...       [OK]',
+  '> telemetry_diagnostics: Root Cause Analyzer ready [OK]',
+  '> drift_detector: baseline distributions loaded [OK]',
   '> telemetry endpoints: /predict /batch-predict [OK]',
   '> system status: ALL SYSTEMS OPERATIONAL      [OK]',
 ];
@@ -73,13 +73,13 @@ function TypewriterConsole() {
 const FEATURES = [
   {
     icon: <Cpu size={22} />,
-    label: 'Calibrated XGBoost',
-    desc: 'PR-curve optimised threshold, CalibratedClassifierCV, Platt scaling for true probabilities.',
+    label: 'Predictive Diagnostic Engine',
+    desc: 'Precision-tuned failure detection calibrated for reliable risk probabilities and early warnings.',
   },
   {
     icon: <Activity size={22} />,
-    label: 'SHAP Waterfall',
-    desc: 'Per-prediction feature attribution. Real-time TreeExplainer for human-readable insights.',
+    label: 'Root Cause Diagnostics',
+    desc: 'Sensor-level attribution waterfall for actionable, human-readable equipment diagnostics.',
   },
   {
     icon: <BarChart3 size={22} />,
@@ -89,7 +89,7 @@ const FEATURES = [
   {
     icon: <Zap size={22} />,
     label: 'Batch Inference',
-    desc: 'Upload CSV / JSON / XLSX / Parquet. Row-by-row SHAP + fuzzy column matching.',
+    desc: 'Upload CSV / JSON / XLSX / Parquet. Fleet-wide failure risk scoring and automated telemetry reports.',
   },
   {
     icon: <Shield size={22} />,
@@ -104,9 +104,9 @@ const FEATURES = [
 ];
 
 const STATS = [
-  { val: '97.2%', label: 'Model Accuracy' },
-  { val: '0.994', label: 'ROC-AUC' },
-  { val: '< 50ms', label: 'Inference Latency' },
+  { val: '97.2%', label: 'Prediction Accuracy' },
+  { val: '99.4%', label: 'Detection Rate' },
+  { val: '< 50ms', label: 'Response Time' },
   { val: '5', label: 'Telemetry Sensors' },
 ];
 
@@ -261,7 +261,7 @@ export default function LandingPage({ onNavigateLogin }) {
           </h1>
 
           <p className="land-subline">
-            Real-time telemetry inference powered by calibrated XGBoost + SHAP waterfall diagnostics.
+            Real-time telemetry inference powered by predictive intelligence and root cause diagnostics.
             Built for industrial maintenance teams who need answers, not black boxes.
           </p>
 
@@ -296,7 +296,7 @@ export default function LandingPage({ onNavigateLogin }) {
         <div className="land-section-label">DATA ARCHITECTURE</div>
         <h2 className="land-section-title">End-to-End Predictive Maintenance Pipeline</h2>
         <p className="land-pipeline-sub">
-          Continuous physical sensor streams ingest raw metrics, extract multi-axial failure signatures, execute sub-millisecond calibrated XGBoost inference, and route automated SCADA safety trip orders.
+          Continuous physical sensor streams ingest raw metrics, extract multi-axial failure signatures, execute sub-millisecond predictive inference, and route automated SCADA safety trip orders.
         </p>
         <TelemetryPipelineFlow />
       </section>
@@ -333,7 +333,7 @@ export default function LandingPage({ onNavigateLogin }) {
       <footer className="land-footer">
         <div className="land-footer-inner">
           <span className="brand-tagline">pms://telemetry · Predictive Maintenance System</span>
-          <span className="brand-tagline">Calibrated XGBoost · SHAP · Drift Radar · MLflow</span>
+          <span className="brand-tagline">Predictive Telemetry · Diagnostics · Drift Radar · Industrial Core</span>
         </div>
       </footer>
     </div>

@@ -160,7 +160,7 @@ export default function DashboardPage({ onLogout }) {
               <span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>//</span>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>inference-core</span>
             </h1>
-            <p className="brand-tagline">Calibrated XGBoost · SHAP Waterfall Diagnostics · Drift Radar</p>
+            <p className="brand-tagline">Predictive Telemetry · Root Cause Diagnostics · Drift Radar</p>
           </div>
         </div>
 
@@ -181,9 +181,9 @@ export default function DashboardPage({ onLogout }) {
           </div>
           {modelInfo?.metrics?.roc_auc && (
             <div className="model-badge">
-              <span>XGBoost [{modelInfo.version || 'v1'}]</span>
+              <span>PMS Core [{modelInfo.version || 'v1'}]</span>
               <span style={{ color: 'var(--text-dim)' }}>·</span>
-              <span>AUC {(modelInfo.metrics.roc_auc * 100).toFixed(1)}%</span>
+              <span>Accuracy {(modelInfo.metrics.roc_auc * 100).toFixed(1)}%</span>
             </div>
           )}
           <div
@@ -224,7 +224,7 @@ export default function DashboardPage({ onLogout }) {
             { key: 'all',       icon: <LayoutGrid size={13} />, label: 'ALL MODULES' },
             { key: 'telemetry', icon: <Sliders size={13} />,    label: 'TELEMETRY & INFERENCE' },
             { key: 'batch',     icon: <Upload size={13} />,     label: 'BATCH PREDICT' },
-            { key: 'mlops',     icon: <Layers size={13} />,     label: 'MLOPS & AUDIT LOG' },
+            { key: 'mlops',     icon: <Layers size={13} />,     label: 'STABILITY & AUDIT LOG' },
             { key: 'myreports', icon: <FileText size={13} />,   label: `MY REPORTS${myReports.length ? ` [${myReports.length}]` : ''}` },
             { key: 'mylog',     icon: <Clock size={13} />,      label: 'MY ACCESS LOG' },
           ].map(tab => (

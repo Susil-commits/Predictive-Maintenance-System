@@ -18,8 +18,8 @@ const SOURCES = [
 
 const DESTINATIONS = [
   { id: 'studio',    label: 'DIAGNOSTIC STUDIO',  sub: 'Calibrated Risk Gauge',    icon: Radio,           out: 'Prob: 0.12 (LOW RISK)',   color: '#10b981', y: 70 },
-  { id: 'shap',      label: 'SHAP EXPLAINER',     sub: 'TreeExplainer Waterfall',  icon: BarChart3,       out: 'Vib: +0.14, Temp: -0.08', color: '#a78bfa', y: 170 },
-  { id: 'drift',     label: 'MLOPS DRIFT RADAR',  sub: 'Population Stability Index', icon: Shield,        out: 'PSI: 0.04 (NO DRIFT)',    color: '#34d399', y: 275 },
+  { id: 'root-cause', label: 'ROOT CAUSE ANALYZER', sub: 'Attribution Waterfall',    icon: BarChart3,       out: 'Vib: +0.14, Temp: -0.08', color: '#a78bfa', y: 170 },
+  { id: 'drift',     label: 'DRIFT RADAR',         sub: 'Baseline Stability Index',  icon: Shield,          out: 'PSI: 0.04 (NO DRIFT)',    color: '#34d399', y: 275 },
   { id: 'audit',     label: 'POSTGRESQL AUDIT',   sub: 'Compliance Event Store',   icon: Database,        out: 'Record ID: #b94e-28af',   color: '#38bdf8', y: 380 },
   { id: 'trip',      label: 'SCADA TRIP ORDERS',  sub: 'Automated Safety Dispatch', icon: Zap,            out: 'Status: Standby / Armed', color: '#f43f5e', y: 480 },
 ];
@@ -354,8 +354,8 @@ export default function TelemetryPipelineFlow() {
                 onClick={() => setSelectedNode({
                   id: 'normalize',
                   label: 'CALIBRATION & NORMALIZATION',
-                  sub: 'Platt Scaling & Robust Scaler',
-                  val: 'CalibratedClassifierCV ensures sigmoid output maps to mathematically true posterior probabilities.'
+                  sub: 'Probability Calibration & Scaler',
+                  val: 'Precision calibration ensures output maps reliably to true operational failure probabilities.'
                 })}
               >
                 <rect
@@ -368,7 +368,7 @@ export default function TelemetryPipelineFlow() {
                   NORMALIZE
                 </text>
                 <text x="0" y="93" textAnchor="middle" fill="var(--text-dim)" fontSize="7.5" fontFamily="var(--font-mono)">
-                  PLATT SCALING
+                  RISK SCALING
                 </text>
               </g>
 
@@ -379,7 +379,7 @@ export default function TelemetryPipelineFlow() {
                   id: 'route',
                   label: 'INFERENCE & ROUTING CORE',
                   sub: 'PR-Tuned Decision Threshold Engine',
-                  val: 'Evaluates XGBoost decision boundary (Threshold: 0.6444) and routes outputs to SHAP and live webhooks.'
+                  val: 'Evaluates failure risk boundary (Threshold: 0.6444) and routes outputs to root cause diagnostics and live webhooks.'
                 })}
               >
                 <rect
@@ -536,12 +536,12 @@ export default function TelemetryPipelineFlow() {
                 <span className="flow-inspect-val">5 Sensors (Temp, Vib, Press, RPM, Hrs)</span>
               </div>
               <div className="flow-inspect-item">
-                <span className="flow-inspect-label">CORE MODEL</span>
-                <span className="flow-inspect-val">Calibrated XGBoost (v13, AUC 99.4%)</span>
+                <span className="flow-inspect-label">PREDICTIVE ENGINE</span>
+                <span className="flow-inspect-val">Predictive Diagnostic Core (v13, 99.4% Precision)</span>
               </div>
               <div className="flow-inspect-item">
-                <span className="flow-inspect-label">EXPLAINABILITY</span>
-                <span className="flow-inspect-val">SHAP TreeExplainer Waterfall Active</span>
+                <span className="flow-inspect-label">DIAGNOSTICS</span>
+                <span className="flow-inspect-val">Root Cause Attribution Waterfall Active</span>
               </div>
               <div className="flow-inspect-item">
                 <span className="flow-inspect-label">SIMULATION STATE</span>

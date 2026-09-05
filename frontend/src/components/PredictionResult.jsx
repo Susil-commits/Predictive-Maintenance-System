@@ -250,7 +250,7 @@ export default function PredictionResult({ result }) {
         <div className="panel-header">
           <h2 className="panel-title">
             <ShieldAlert size={18} className="panel-icon" />
-            <span>Diagnostics &amp; SHAP Waterfall</span>
+            <span>Diagnostics &amp; Root Cause Waterfall</span>
           </h2>
           <span className="field-unit">STANDBY</span>
         </div>
@@ -265,7 +265,7 @@ export default function PredictionResult({ result }) {
           </div>
           <p style={{ maxWidth: 360, lineHeight: 1.6 }}>
             Telemetry stream idle. Select a preset or configure sensors, then click{' '}
-            <strong style={{ color: '#ffffff' }}>EVALUATE TELEMETRY</strong> to run tree-explainer inference.
+            <strong style={{ color: '#ffffff' }}>EVALUATE TELEMETRY</strong> to run root cause diagnostic inference.
           </p>
         </div>
       </div>
@@ -325,7 +325,7 @@ export default function PredictionResult({ result }) {
               </span>
             )}
             <span className="field-unit">
-              TREE-EXPLAINER {result.model_version ? `// ${result.model_version.toUpperCase()}` : ''}
+              ROOT CAUSE ENGINE {result.model_version ? `// ${result.model_version.toUpperCase()}` : ''}
             </span>
 
             {/* Saved cloud link */}
@@ -402,10 +402,10 @@ export default function PredictionResult({ result }) {
             )}
           </div>
 
-          {/* SHAP factors */}
+          {/* Root cause factors */}
           <div className="factors-section">
             <div className="factors-title">
-              <span>Feature Attribution (Tree-SHAP)</span>
+              <span>Feature Attribution (Root Cause Impact)</span>
               <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 400 }}>Ranked by Impact Magnitude</span>
             </div>
             {factors.slice(0, 5).map((factor, index) => {

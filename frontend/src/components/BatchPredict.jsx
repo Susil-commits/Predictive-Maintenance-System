@@ -183,7 +183,7 @@ export default function BatchPredict() {
             <>
               <Loader2 size={28} className="batch-spin" style={{ color: 'var(--text-secondary)' }} />
               <p className="batch-drop-text">Running batch inference on <strong>{file?.name}</strong>…</p>
-              <p className="batch-drop-sub">SHAP values computing for each row</p>
+              <p className="batch-drop-sub">Risk factor attribution computing for each row</p>
             </>
           ) : (
             <>

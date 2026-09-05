@@ -176,7 +176,7 @@ export default function ReportDetailModal({ report, onClose, onDelete }) {
               {factors.length > 0 && (
                 <div>
                   <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-dim)', marginBottom: 8, fontWeight: 600 }}>
-                    Tree-SHAP Feature Attribution
+                    Root Cause Feature Attribution
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {factors.map((factor, idx) => {

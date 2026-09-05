@@ -23,10 +23,10 @@ export default function DriftMonitor({
 
   const handleRetrain = async () => {
     setRetraining(true);
-    setActionMsg("executing pipeline: tuning scale_pos_weight, optimizing threshold, logging to MLflow...");
+    setActionMsg("executing pipeline: recalibrating decision thresholds, updating baseline distributions...");
     try {
       await triggerRetrain();
-      setActionMsg("retraining complete: new calibrated model artifact deployed.");
+      setActionMsg("recalibration complete: updated predictive core deployed.");
       setTimeout(() => {
         if (onRefresh) onRefresh();
         setRetraining(false);
@@ -63,13 +63,13 @@ export default function DriftMonitor({
       <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <h2 className="panel-title">
           <Layers size={18} className="panel-icon" />
-          <span>MLOps Drift & Lifecycle Engine</span>
+          <span>System Stability & Drift Monitor</span>
         </h2>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span className="field-unit" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <GitBranch size={12} />
-            <span>MLflow Registry:</span>
-            <strong style={{ color: '#ffffff' }}>PMS-XGBoost [{modelInfo?.version || 'v12'}]</strong>
+            <span>System Registry:</span>
+            <strong style={{ color: '#ffffff' }}>PMS Core [{modelInfo?.version || 'v12'}]</strong>
           </span>
         </div>
       </div>
@@ -89,7 +89,7 @@ export default function DriftMonitor({
           borderRadius: 'var(--radius-md)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>Active Model</span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>Active Engine</span>
             <Cpu size={14} color="#a1a1aa" />
           </div>
           <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ffffff', display: 'flex', alignItems: 'baseline', gap: '6px', fontFamily: 'var(--font-mono)' }}>
@@ -97,7 +97,7 @@ export default function DriftMonitor({
             <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 600 }}>[PROD]</span>
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)' }}>
-            Run: {modelInfo?.mlflow_run_id ? modelInfo.mlflow_run_id.slice(0, 10) : 'local-prod'}
+            Build: {modelInfo?.mlflow_run_id ? modelInfo.mlflow_run_id.slice(0, 10) : 'production'}
           </div>
         </div>
 
@@ -162,7 +162,7 @@ export default function DriftMonitor({
         borderRadius: 'var(--radius-sm)'
       }}>
         <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
-          MLOps Pipeline Topology
+          System Calibration Topology
         </div>
         <div style={{
           display: 'flex',
@@ -256,12 +256,12 @@ export default function DriftMonitor({
           {retraining ? (
             <>
               <span className="spinner" style={{ width: 14, height: 14, borderColor: '#888', borderTopColor: '#000' }} />
-              <span>RETRAINING XGBOOST...</span>
+              <span>RECALIBRATING ENGINE...</span>
             </>
           ) : (
             <>
               <Zap size={14} fill="#000000" />
-              <span>TRIGGER PIPELINE RETRAIN</span>
+              <span>TRIGGER RECALIBRATION</span>
             </>
           )}
         </button>
