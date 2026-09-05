@@ -1,7 +1,7 @@
 {
-  "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/dist",
   "framework": "vite",
+  "buildCommand": "if [ -d frontend ]; then (cd frontend && npm run build && cp -r dist ../dist); else npm run build; fi",
+  "outputDirectory": "dist",
   "rewrites": [
     {
       "source": "/(.*)",
