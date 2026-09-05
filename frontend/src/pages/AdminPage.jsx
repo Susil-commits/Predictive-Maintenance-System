@@ -2,10 +2,17 @@ import React, { useState, useRef } from 'react';
 import {
   Terminal, Users, Plus, Trash2, Shield, LogOut,
   Eye, EyeOff, Check, AlertCircle, Clock, User,
-  Activity, Camera, Loader2, ExternalLink
+  Activity, Camera, Loader2, ExternalLink, FileText,
+  Filter, Layers, Cloud
 } from 'lucide-react';
-import { getUsers, addUser, deleteUser, getSession, logout, getAccessLog, updateUserAvatar, getAdminAvatar } from '../auth';
+import {
+  getUsers, addUser, deleteUser, getSession, logout,
+  getAccessLog, updateUserAvatar, getAdminAvatar,
+  getAllReportsGrouped, deleteReport, clearAllReports,
+  clearAccessLog, deleteAvatar
+} from '../auth';
 import { uploadAvatar, isCloudinaryConfigured } from '../cloudinary';
+import ReportDetailModal from '../components/ReportDetailModal';
 
 // ── Avatar Component ──────────────────────────────────────────────────────────
 
@@ -41,7 +48,7 @@ function UserAvatar({ url, name, size = 36 }) {
   );
 }
 
-function AvatarUploadBtn({ userId, currentUrl, name, onUploaded }) {
+function AvatarUploadBtn({ userId, currentUrl, name, onUploaded, onDeleted }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
@@ -71,8 +78,13 @@ function AvatarUploadBtn({ userId, currentUrl, name, onUploaded }) {
     }
   };
 
+  const handleRemove = () => {
+    deleteAvatar(userId);
+    if (onDeleted) onDeleted();
+  };
+
   return (
-    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
       <input ref={ref} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
       <button
         type="button"
@@ -83,8 +95,19 @@ function AvatarUploadBtn({ userId, currentUrl, name, onUploaded }) {
       >
         {uploading
           ? <><Loader2 size={11} className="batch-spin" /> {progress}%</>
-          : <><Camera size={11} /> Photo</>}
+          : <><Camera size={11} /> {currentUrl ? 'Change' : 'Photo'}</>}
       </button>
+      {currentUrl && (
+        <button
+          type="button"
+          className="preset-btn"
+          onClick={handleRemove}
+          title="Remove photo"
+          style={{ padding: '3px 6px', color: '#fda4af', borderColor: 'rgba(244,63,94,0.3)', fontSize: '0.66rem' }}
+        >
+          <Trash2 size={10} />
+        </button>
+      )}
       {error && <span style={{ fontSize: '0.64rem', color: '#fb7185', marginLeft: 6 }}>{error}</span>}
     </div>
   );
@@ -104,7 +127,20 @@ function StatChip({ label, value, color }) {
 // ── Access log panel ──────────────────────────────────────────────────────────
 
 function AccessLogPanel() {
-  const log = getAccessLog().slice(0, 40);
+  const [log, setLog] = useState(() => getAccessLog().slice(0, 50));
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const handleClear = () => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      setTimeout(() => setConfirmClear(false), 3000);
+      return;
+    }
+    clearAccessLog();
+    setLog([]);
+    setConfirmClear(false);
+  };
+
   return (
     <div className="glass-panel" style={{ marginTop: 20 }}>
       <div className="panel-header">
@@ -115,6 +151,21 @@ function AccessLogPanel() {
             [{log.length} events]
           </span>
         </h2>
+        {log.length > 0 && (
+          <button
+            type="button"
+            className="preset-btn"
+            onClick={handleClear}
+            style={{
+              padding: '4px 10px', fontSize: '0.7rem', gap: 5,
+              color: confirmClear ? '#ffffff' : '#fda4af',
+              borderColor: confirmClear ? '#f43f5e' : 'rgba(244, 63, 94, 0.3)',
+              background: confirmClear ? 'rgba(244, 63, 94, 0.2)' : undefined,
+            }}
+          >
+            <Trash2 size={11} /> {confirmClear ? 'Confirm Clear Log?' : 'Clear Access Log'}
+          </button>
+        )}
       </div>
       {log.length === 0 ? (
         <div className="empty-state">No access events recorded yet.</div>
@@ -159,6 +210,189 @@ function AccessLogPanel() {
   );
 }
 
+// ── Admin Reports Panel ───────────────────────────────────────────────────────
+
+function AdminReportsPanel({ onSelectReport, reportsVersion, onReportDeleted }) {
+  const [reports, setReports] = useState(getAllReportsGrouped);
+  const [filterUser, setFilterUser] = useState('ALL');
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
+
+  const refresh = () => setReports(getAllReportsGrouped());
+
+  React.useEffect(() => {
+    refresh();
+  }, [reportsVersion]);
+
+  const handleDelete = (userId, reportId) => {
+    if (deleteConfirmId === reportId) {
+      deleteReport(userId, reportId);
+      refresh();
+      setDeleteConfirmId(null);
+      if (onReportDeleted) onReportDeleted();
+    } else {
+      setDeleteConfirmId(reportId);
+      setTimeout(() => setDeleteConfirmId(null), 3000);
+    }
+  };
+
+  const handleClearAll = () => {
+    if (!clearConfirm) {
+      setClearConfirm(true);
+      setTimeout(() => setClearConfirm(false), 3000);
+      return;
+    }
+    clearAllReports();
+    refresh();
+    setClearConfirm(false);
+    if (onReportDeleted) onReportDeleted();
+  };
+
+  const userOptions = Array.from(
+    new Map(reports.map(r => [r.userId, r.userName || r.userId])).entries()
+  );
+
+  const filtered = filterUser === 'ALL'
+    ? reports
+    : reports.filter(r => r.userId === filterUser);
+
+  return (
+    <div className="glass-panel" style={{ marginBottom: 20 }}>
+      <div className="panel-header">
+        <h2 className="panel-title">
+          <FileText size={18} className="panel-icon" />
+          <span>Individual Generation Docs &amp; Reports</span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 400, fontFamily: 'var(--font-mono)' }}>
+            [{filtered.length} docs{filterUser !== 'ALL' ? ` filtered` : ''}]
+          </span>
+        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {userOptions.length > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Filter size={12} style={{ color: 'var(--text-dim)' }} />
+              <select
+                value={filterUser}
+                onChange={e => setFilterUser(e.target.value)}
+                className="login-input"
+                style={{ height: 28, fontSize: '0.72rem', padding: '0 8px', background: '#121215', width: 'auto' }}
+              >
+                <option value="ALL">All Users ({reports.length})</option>
+                {userOptions.map(([id, name]) => (
+                  <option key={id} value={id}>{name} ({reports.filter(r => r.userId === id).length})</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {reports.length > 0 && (
+            <button
+              type="button"
+              className="preset-btn"
+              onClick={handleClearAll}
+              style={{
+                padding: '4px 10px', fontSize: '0.7rem', gap: 5,
+                color: clearConfirm ? '#ffffff' : '#fda4af',
+                borderColor: clearConfirm ? '#f43f5e' : 'rgba(244, 63, 94, 0.3)',
+                background: clearConfirm ? 'rgba(244, 63, 94, 0.2)' : undefined,
+              }}
+            >
+              <Trash2 size={11} /> {clearConfirm ? 'Confirm Clear All Docs?' : 'Clear All Docs'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="empty-state">
+          {reports.length === 0
+            ? 'No generation documents saved by any user yet.'
+            : 'No documents match the selected filter.'}
+        </div>
+      ) : (
+        <div className="table-responsive">
+          <table className="history-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Saved Time</th>
+                <th>Risk Verdict</th>
+                <th>Calibrated Prob</th>
+                <th>Input Telemetry</th>
+                <th>Storage</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(r => (
+                <tr key={r.reportId}>
+                  <td style={{ color: '#ffffff', fontWeight: 600 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <User size={13} style={{ color: 'var(--text-dim)' }} />
+                      <span>{r.userName}</span>
+                    </div>
+                  </td>
+                  <td style={{ color: 'var(--text-dim)' }}>
+                    {new Date(r.savedAt).toLocaleString()}
+                  </td>
+                  <td>
+                    <span className={`badge-risk ${r.risk === 'HIGH' ? 'high' : 'low'}`}>
+                      {r.risk}
+                    </span>
+                  </td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                    {r.probability != null ? (r.probability * 100).toFixed(1) + '%' : '—'}
+                  </td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                    {r.inputData?.temperature ? `T:${r.inputData.temperature}°C ` : ''}
+                    {r.inputData?.rpm ? `RPM:${r.inputData.rpm} ` : ''}
+                    {r.inputData?.vibration ? `V:${r.inputData.vibration}` : ''}
+                  </td>
+                  <td>
+                    {r.cloudinaryUrl ? (
+                      <a href={r.cloudinaryUrl} target="_blank" rel="noreferrer" className="cloud-link" style={{ fontSize: '0.72rem' }}>
+                        <Cloud size={11} /> Cloud Doc
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        Local
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        type="button"
+                        className="preset-btn highlight"
+                        onClick={() => onSelectReport(r)}
+                        style={{ padding: '3px 9px', fontSize: '0.7rem', gap: 4 }}
+                      >
+                        <Eye size={11} /> View Doc
+                      </button>
+                      <button
+                        type="button"
+                        className="preset-btn"
+                        onClick={() => handleDelete(r.userId, r.reportId)}
+                        style={{
+                          padding: '3px 9px', fontSize: '0.7rem', gap: 4,
+                          color: deleteConfirmId === r.reportId ? '#ffffff' : '#fda4af',
+                          borderColor: deleteConfirmId === r.reportId ? '#f43f5e' : 'rgba(244, 63, 94, 0.3)',
+                          background: deleteConfirmId === r.reportId ? 'rgba(244, 63, 94, 0.2)' : undefined,
+                        }}
+                      >
+                        <Trash2 size={11} />
+                        {deleteConfirmId === r.reportId ? 'Confirm?' : 'Delete'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 
 export default function AdminPage({ onLogout }) {
@@ -173,6 +407,8 @@ export default function AdminPage({ onLogout }) {
   const [addError, setAddError]     = useState('');
   const [addSuccess, setAddSuccess] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [reportsVersion, setReportsVersion] = useState(0);
 
   const refreshUsers = () => setUsers(getUsers());
 
@@ -243,7 +479,7 @@ export default function AdminPage({ onLogout }) {
       {/* Stats bar */}
       <div className="admin-stats-bar">
         <StatChip label="Registered Users" value={users.length} color="#ffffff" />
-        <StatChip label="Admin Accounts"   value={1}            color="var(--text-secondary)" />
+        <StatChip label="Generated Docs"   value={getAllReportsGrouped().length} color="#34d399" />
         <StatChip label="Access Events"    value={getAccessLog().length} color="var(--text-secondary)" />
         <StatChip label="System Status"    value="LIVE"         color="#10b981" />
         {isCloudinaryConfigured() && (
@@ -278,6 +514,7 @@ export default function AdminPage({ onLogout }) {
               currentUrl={adminAvatar}
               name="Administrator"
               onUploaded={(url) => setAdminAvatar(url)}
+              onDeleted={() => setAdminAvatar(null)}
             />
           </div>
         </div>
@@ -383,6 +620,7 @@ export default function AdminPage({ onLogout }) {
                           currentUrl={u.avatarUrl}
                           name={u.name}
                           onUploaded={(url) => handleUserAvatarUploaded(u.id, url)}
+                          onDeleted={() => handleUserAvatarUploaded(u.id, null)}
                         />
                       </div>
                     </td>
@@ -414,8 +652,28 @@ export default function AdminPage({ onLogout }) {
         )}
       </div>
 
+      {/* Reports and Generation Documents Management */}
+      <AdminReportsPanel
+        onSelectReport={setSelectedReport}
+        reportsVersion={reportsVersion}
+        onReportDeleted={() => setReportsVersion(v => v + 1)}
+      />
+
       {/* Access log */}
       <AccessLogPanel />
+
+      {/* Report detail modal */}
+      {selectedReport && (
+        <ReportDetailModal
+          report={selectedReport}
+          onClose={() => setSelectedReport(null)}
+          onDelete={(r) => {
+            deleteReport(r.userId, r.reportId);
+            setReportsVersion(v => v + 1);
+            setSelectedReport(null);
+          }}
+        />
+      )}
     </div>
   );
 }

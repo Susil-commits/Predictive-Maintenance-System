@@ -216,3 +216,105 @@ export function logPageAccess(page) {
     localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(0, 200)));
   } catch { /* ignore */ }
 }
+
+// ── Report Store ─────────────────────────────────────────────────────────────
+//
+// Storage layout (localStorage):
+//   pms_reports  ->  { [userId]: Report[] }
+//
+// Report shape:
+//   {
+//     reportId:      string,
+//     predictionId:  string | null,
+//     risk:          'HIGH' | 'LOW',
+//     probability:   number,
+//     inputData:     object,
+//     shapFactors:   array,
+//     cloudinaryUrl: string | null,
+//     savedAt:       ISO string,
+//     userId:        string,
+//     userName:      string,
+//   }
+
+const REPORTS_KEY = 'pms_reports';
+
+function _getAllReports() {
+  try { return JSON.parse(localStorage.getItem(REPORTS_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function _saveAllReports(all) {
+  localStorage.setItem(REPORTS_KEY, JSON.stringify(all));
+}
+
+export function saveReport(report) {
+  const all = _getAllReports();
+  const { userId } = report;
+  if (!userId) throw new Error('report.userId is required');
+  const entry = {
+    reportId:      'report-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+    predictionId:  report.predictionId  || null,
+    risk:          report.risk          || 'UNKNOWN',
+    probability:   report.probability   ?? null,
+    inputData:     report.inputData     || {},
+    shapFactors:   report.shapFactors   || [],
+    cloudinaryUrl: report.cloudinaryUrl || null,
+    savedAt:       new Date().toISOString(),
+    userId,
+    userName:      report.userName || 'Unknown',
+  };
+  all[userId] = [entry, ...(all[userId] || [])].slice(0, 100);
+  _saveAllReports(all);
+  return entry;
+}
+
+export function getReportsForUser(userId) {
+  return (_getAllReports()[userId] || []);
+}
+
+export function deleteReport(userId, reportId) {
+  const all = _getAllReports();
+  if (all[userId]) {
+    all[userId] = all[userId].filter(r => r.reportId !== reportId);
+    if (all[userId].length === 0) delete all[userId];
+  }
+  _saveAllReports(all);
+}
+
+export function getAllReportsGrouped() {
+  const all = _getAllReports();
+  const users = getUsers();
+  const userMap = Object.fromEntries(users.map(u => [u.id, u.name]));
+  userMap['admin-root'] = 'Administrator';
+  return Object.entries(all).flatMap(([userId, reports]) =>
+    reports.map(r => ({ ...r, userName: userMap[userId] || r.userName || userId }))
+  ).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+}
+
+export function clearAccessLog() {
+  localStorage.removeItem(LOG_KEY);
+}
+
+export function clearAllReports() {
+  localStorage.removeItem(REPORTS_KEY);
+}
+
+export function deleteAvatar(userId) {
+  if (userId === 'admin-root') {
+    localStorage.removeItem('pms_admin_avatar');
+    const session = getSession();
+    if (session?.userId === 'admin-root') {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl: null }));
+    }
+    return;
+  }
+  const users = getUsers().map(u =>
+    u.id === userId ? { ...u, avatarUrl: null } : u
+  );
+  saveUsers(users);
+  const session = getSession();
+  if (session?.userId === userId) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, avatarUrl: null }));
+  }
+}
+

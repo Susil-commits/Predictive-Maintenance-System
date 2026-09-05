@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Terminal, LogOut, Shield, User, Clock, Radio, Camera } from 'lucide-react';
-import { getSession, logout, logPageAccess, getAccessLog } from '../auth';
+import { Terminal, LogOut, Shield, User, Clock, Radio, Camera, FileText, ExternalLink, Trash2, Cloud, Eye } from 'lucide-react';
+import { getSession, logout, logPageAccess, getAccessLog, getReportsForUser, deleteReport } from '../auth';
 import { isCloudinaryConfigured } from '../cloudinary';
+import ReportDetailModal from '../components/ReportDetailModal';
 
 // Existing PMS modules
 import PresetBar from '../components/PresetBar';
@@ -37,14 +38,20 @@ export default function DashboardPage({ onLogout }) {
   const [errorMsg, setErrorMsg]     = useState(null);
   const [activeTab, setActiveTab]   = useState('all');
   const [myAccessLog, setMyAccessLog] = useState([]);
+  const [myReports,   setMyReports]   = useState([]);
+  const [selectedReport, setSelectedReport] = useState(null);
+
+  const refreshReports = useCallback(() => {
+    if (session?.userId) setMyReports(getReportsForUser(session?.userId));
+  }, [session?.userId]);
 
   // Log page access on mount
   useEffect(() => {
     logPageAccess('dashboard');
-    // Build this user's own access log slice
     const log = getAccessLog().filter(e => e.userId === session?.userId);
     setMyAccessLog(log);
-  }, [session?.userId]);
+    refreshReports();
+  }, [session?.userId, refreshReports]);
 
   const fetchSystemStatus = async () => {
     try {
@@ -193,17 +200,21 @@ export default function DashboardPage({ onLogout }) {
       <div className="view-nav-bar">
         <div className="nav-pill-group">
           {[
-            { key: 'all',      icon: <LayoutGrid size={13} />, label: 'ALL MODULES' },
-            { key: 'telemetry',icon: <Sliders size={13} />,    label: 'TELEMETRY & INFERENCE' },
-            { key: 'batch',    icon: <Upload size={13} />,     label: 'BATCH PREDICT' },
-            { key: 'mlops',    icon: <Layers size={13} />,     label: 'MLOPS & AUDIT LOG' },
-            { key: 'mylog',    icon: <Clock size={13} />,      label: 'MY ACCESS LOG' },
+            { key: 'all',       icon: <LayoutGrid size={13} />, label: 'ALL MODULES' },
+            { key: 'telemetry', icon: <Sliders size={13} />,    label: 'TELEMETRY & INFERENCE' },
+            { key: 'batch',     icon: <Upload size={13} />,     label: 'BATCH PREDICT' },
+            { key: 'mlops',     icon: <Layers size={13} />,     label: 'MLOPS & AUDIT LOG' },
+            { key: 'myreports', icon: <FileText size={13} />,   label: `MY REPORTS${myReports.length ? ` [${myReports.length}]` : ''}` },
+            { key: 'mylog',     icon: <Clock size={13} />,      label: 'MY ACCESS LOG' },
           ].map(tab => (
             <button
               key={tab.key}
               type="button"
               className={`nav-tab-btn ${activeTab === tab.key ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setActiveTab(tab.key);
+                if (tab.key === 'myreports') refreshReports();
+              }}
             >
               {tab.icon}
               <span>{tab.label}</span>
@@ -253,8 +264,72 @@ export default function DashboardPage({ onLogout }) {
         </>
       )}
 
+      {/* My Reports */}
+      {activeTab === 'myreports' && (
+        <div className="glass-panel">
+          <div className="panel-header">
+            <h2 className="panel-title">
+              <FileText size={18} className="panel-icon" />
+              <span>My Saved Reports</span>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 400, fontFamily: 'var(--font-mono)' }}>
+                [{myReports.length} reports]
+              </span>
+            </h2>
+          </div>
+          {myReports.length === 0 ? (
+            <div className="empty-state">
+              No saved reports yet. Run a prediction and click <strong style={{ color: '#fff' }}>Report → Save to Cloud</strong>.
+            </div>
+          ) : (
+            <div className="reports-list">
+              {myReports.map(r => (
+                <div key={r.reportId} className={`report-card ${r.risk === 'HIGH' ? 'high' : 'low'}`}>
+                  <div className="report-card-left">
+                    <span className={`badge-risk ${r.risk === 'HIGH' ? 'high' : 'low'}`}>{r.risk}</span>
+                    <div className="report-card-meta">
+                      <span className="report-card-prob">{r.probability != null ? (r.probability * 100).toFixed(1) + '%' : '—'}</span>
+                      <span className="report-card-date">{new Date(r.savedAt).toLocaleString()}</span>
+                      {r.predictionId && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
+                          #{r.predictionId.slice(0, 10)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="report-card-actions">
+                    <button
+                      type="button"
+                      className="preset-btn highlight"
+                      onClick={() => setSelectedReport(r)}
+                      style={{ padding: '3px 10px', fontSize: '0.7rem', gap: 5 }}
+                    >
+                      <Eye size={11} /> View Doc
+                    </button>
+                    {r.cloudinaryUrl
+                      ? <a href={r.cloudinaryUrl} target="_blank" rel="noreferrer" className="cloud-link"><ExternalLink size={11} /> Cloud Doc</a>
+                      : <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Local only</span>
+                    }
+                    <button
+                      type="button"
+                      className="preset-btn"
+                      onClick={() => {
+                        deleteReport(session?.userId, r.reportId);
+                        setMyReports(getReportsForUser(session?.userId));
+                      }}
+                      style={{ padding: '3px 9px', fontSize: '0.7rem', color: '#fda4af', borderColor: 'rgba(244,63,94,0.3)', gap: 5 }}
+                    >
+                      <Trash2 size={11} /> Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* My Access Log */}
-      {(activeTab === 'mylog') && (
+      {activeTab === 'mylog' && (
         <div className="glass-panel">
           <div className="panel-header">
             <h2 className="panel-title">
@@ -294,6 +369,19 @@ export default function DashboardPage({ onLogout }) {
             </div>
           )}
         </div>
+      )}
+
+      {/* Modal for viewing individual generation doc */}
+      {selectedReport && (
+        <ReportDetailModal
+          report={selectedReport}
+          onClose={() => setSelectedReport(null)}
+          onDelete={(r) => {
+            deleteReport(session?.userId, r.reportId);
+            setMyReports(getReportsForUser(session?.userId));
+            setSelectedReport(null);
+          }}
+        />
       )}
     </div>
   );
