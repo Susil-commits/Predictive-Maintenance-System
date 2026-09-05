@@ -199,7 +199,12 @@ def _run_batch_inference(df_norm: pd.DataFrame, threshold: float) -> list[dict]:
 # POST /batch-predict --------------------------------------------------------
 # ---------------------------------------------------------------------------
 
-@router.post("/batch-predict", summary="Batch telemetry prediction from uploaded file")
+@router.post(
+    "/batch-predict",
+    tags=["Batch Operations"],
+    summary="Batch telemetry prediction from uploaded file",
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]}
+)
 @limiter.limit("10/minute")
 async def batch_predict(
     request: Request,
@@ -271,7 +276,12 @@ async def batch_predict(
 # GET /export ----------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
-@router.get("/export", summary="Export prediction history as CSV")
+@router.get(
+    "/export",
+    tags=["Batch Operations"],
+    summary="Export prediction history as CSV",
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]}
+)
 def export_history(
     limit: int = Query(500, ge=1, le=5000, description="Max rows to export"),
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD or ISO format)"),

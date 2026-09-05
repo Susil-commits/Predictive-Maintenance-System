@@ -17,6 +17,9 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, text
 
+from fastapi.responses import HTMLResponse
+from fastapi.openapi.utils import get_openapi
+
 from .database import engine, Base, get_db, SessionLocal
 from .models import PredictionRecord, User
 from .schemas import (
@@ -31,6 +34,7 @@ from .drift_detector import drift_detector
 from .batch import router as batch_router
 from .limiter import limiter
 from .auth import router as auth_router, seed_initial_admin, require_admin_auth, require_admin_jwt
+from .docs_theme import API_DESCRIPTION, TAGS_METADATA, get_pms_swagger_html, get_pms_redoc_html
 
 logger = logging.getLogger("pms.api")
 if not logger.handlers:
@@ -54,15 +58,56 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Predictive Maintenance System API",
-    description="Real-time vehicle and industrial equipment failure prediction with MLflow tracking, model versioning, and drift detection",
+    description=API_DESCRIPTION,
     version="1.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None,
+    redoc_url=None,
     openapi_url="/openapi.json",
+    openapi_tags=TAGS_METADATA,
     lifespan=lifespan
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+    # Enable interactive Swagger UI Authorize modal with API Key and JWT schemes
+    openapi_schema["components"]["securitySchemes"] = {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "Administrative API Key (Default test key: `pms-admin-secret-key`)"
+        },
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Signed JWT token from `POST /auth/login`. Enter your token directly."
+        }
+    }
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi  # type: ignore
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_docs():
+    """Interactive Swagger UI documentation with custom dark theme, brand navigation and live status."""
+    return HTMLResponse(get_pms_swagger_html(openapi_url=app.openapi_url or "/openapi.json"))
+
+@app.get("/redoc", include_in_schema=False)
+async def custom_redoc_docs():
+    """Clean ReDoc technical reference documentation."""
+    return HTMLResponse(get_pms_redoc_html(openapi_url=app.openapi_url or "/openapi.json"))
 
 # Register authentication & batch routes
 app.include_router(auth_router)
@@ -228,7 +273,7 @@ def predict_maintenance(
     pred_result["timestamp"] = now.isoformat()
     return pred_result
 
-@app.get("/history", tags=["History"])
+@app.get("/history", tags=["Audit & History"])
 def get_prediction_history(
     limit: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -250,14 +295,14 @@ def get_prediction_history(
             detail=f"Database query error: {str(e)}"
         )
 
-@app.delete("/history", tags=["History"])
+@app.delete("/history", tags=["Audit & History"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
 def clear_prediction_history(
     db: Session = Depends(get_db),
     api_key: str = Depends(require_admin_api_key)
 ):
     """
     Clears logged history (useful for dashboard resetting).
-    Requires administrative API key ('X-API-Key' header).
+    Requires administrative authorization ('X-API-Key' header or admin JWT).
     """
     try:
         num_deleted = db.query(PredictionRecord).delete()
@@ -270,7 +315,7 @@ def clear_prediction_history(
             detail=f"Database clear error: {str(e)}"
         )
 
-@app.post("/history/prune", tags=["History"])
+@app.post("/history/prune", tags=["Audit & History"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
 def prune_prediction_history(
     days: int = Query(30, ge=1, le=365, description="Prune records older than this many days"),
     db: Session = Depends(get_db),
@@ -389,7 +434,7 @@ def execute_retraining():
         with _retrain_lock:
             _retraining_active = False
 
-@app.post("/retrain", tags=["MLOps"])
+@app.post("/retrain", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
 def trigger_retraining(
     background_tasks: BackgroundTasks,
     api_key: str = Depends(require_admin_api_key)

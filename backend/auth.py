@@ -253,7 +253,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/users")
+@router.get("/users", openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
 def list_users(
     db: Session = Depends(get_db),
     admin_auth: dict = Depends(require_admin_auth)
@@ -263,7 +263,7 @@ def list_users(
     return [u.to_dict() for u in users]
 
 
-@router.post("/users", status_code=status.HTTP_201_CREATED)
+@router.post("/users", status_code=status.HTTP_201_CREATED, openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
 def create_user(
     req: UserCreateRequest,
     db: Session = Depends(get_db),
@@ -289,7 +289,7 @@ def create_user(
     return new_user.to_dict()
 
 
-@router.delete("/users/{user_id}")
+@router.delete("/users/{user_id}", openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
 def delete_user(
     user_id: str,
     db: Session = Depends(get_db),
