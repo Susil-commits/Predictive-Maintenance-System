@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, Request
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -140,6 +141,44 @@ def _coerce_and_validate_row(row: dict) -> tuple[dict | None, str | None]:
     return result, None
 
 
+def _run_batch_inference(df_norm: pd.DataFrame, threshold: float) -> list[dict]:
+    """
+    Executes per-row feature validation and SHAP model inference in a threadpool worker.
+    """
+    results: list[dict] = []
+    for idx, row_series in df_norm.iterrows():
+        row_dict = row_series.to_dict()
+        row_result: dict = {"row_index": int(idx)}  # type: ignore[arg-type]
+
+        # Copy raw input for transparency
+        row_result["input_data"] = {k: row_dict.get(k) for k in COLUMN_ALIASES}
+
+        # Validate
+        coerced, err = _coerce_and_validate_row(row_dict)
+        if err:
+            row_result["error"] = err
+            results.append(row_result)
+            continue
+
+        # Inference
+        try:
+            pred = predictor.predict(coerced, threshold=threshold)  # type: ignore[arg-type]
+        except Exception as exc:
+            row_result["error"] = f"Inference failed: {exc}"
+            results.append(row_result)
+            continue
+
+        row_result["prediction"]   = pred["failure_risk"]
+        row_result["probability"]  = pred["probability"]
+        row_result["maintenance_required"] = pred["maintenance_required"]
+        row_result["shap_values"]  = pred["shap_values"]
+        row_result["contributing_factors"] = pred["contributing_factors"]
+        row_result["decision_threshold"] = pred["decision_threshold"]
+        results.append(row_result)
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # POST /batch-predict --------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -191,39 +230,10 @@ async def batch_predict(
         columns={v: k for k, v in col_map.items()}
     )
 
-    # --- Per-row inference ---
-    results: list[dict] = []
     threshold = getattr(predictor, "threshold", 0.50)
 
-    for idx, row_series in df_norm.iterrows():
-        row_dict = row_series.to_dict()
-        row_result: dict = {"row_index": int(idx)}  # type: ignore[arg-type]
-
-        # Copy raw input for transparency
-        row_result["input_data"] = {k: row_dict.get(k) for k in COLUMN_ALIASES}
-
-        # Validate
-        coerced, err = _coerce_and_validate_row(row_dict)
-        if err:
-            row_result["error"] = err
-            results.append(row_result)
-            continue
-
-        # Inference
-        try:
-            pred = predictor.predict(coerced, threshold=threshold)  # type: ignore[arg-type]
-        except Exception as exc:
-            row_result["error"] = f"Inference failed: {exc}"
-            results.append(row_result)
-            continue
-
-        row_result["prediction"]   = pred["failure_risk"]
-        row_result["probability"]  = pred["probability"]
-        row_result["maintenance_required"] = pred["maintenance_required"]
-        row_result["shap_values"]  = pred["shap_values"]
-        row_result["contributing_factors"] = pred["contributing_factors"]
-        row_result["decision_threshold"] = pred["decision_threshold"]
-        results.append(row_result)
+    # Offload CPU-heavy inference from the main asyncio event loop to prevent freezing concurrent requests/health-checks
+    results = await run_in_threadpool(_run_batch_inference, df_norm, threshold)
 
     # --- Summary statistics ---
     valid_rows   = [r for r in results if "error" not in r]

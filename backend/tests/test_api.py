@@ -311,3 +311,15 @@ def test_export_history_requires_auth():
     res = client.get("/export", headers={"X-API-Key": "pms-admin-secret-key"})
     assert res.status_code in [200, 404]
 
+def test_retrain_mutex_lock_collision():
+    import backend.main
+    # Simulate retraining already active
+    backend.main._retraining_active = True
+    try:
+        response = client.post("/retrain", headers={"X-API-Key": "pms-admin-secret-key"})
+        assert response.status_code == 409
+        assert "already in progress" in response.json()["detail"]
+    finally:
+        backend.main._retraining_active = False
+
+

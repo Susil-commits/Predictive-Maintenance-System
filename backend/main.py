@@ -2,6 +2,8 @@ import os
 import uuid
 import subprocess
 import sys
+import time
+import threading
 from datetime import datetime, timezone
 from typing import List, Optional
 from contextlib import asynccontextmanager
@@ -246,6 +248,17 @@ def clear_prediction_history(
 
 # ==================== MLOps: Drift Detection & Retraining ====================
 
+# In-memory TTL cache for drift evaluation to prevent database table scan storms
+_drift_cache = {
+    "timestamp": 0.0,
+    "window": 0,
+    "report": None
+}
+
+# Retraining concurrency lock to prevent parallel pipeline execution collisions
+_retrain_lock = threading.Lock()
+_retraining_active = False
+
 @app.get("/drift-status", response_model=DriftStatusResponse, tags=["MLOps"])
 def get_drift_status(
     window: int = Query(100, ge=5, le=1000, description="Number of recent production predictions to evaluate"),
@@ -254,7 +267,12 @@ def get_drift_status(
     """
     Calculates Population Stability Index (PSI) drift across telemetry features
     comparing recent production predictions from the database against training baseline.
+    Protected with a 20-second cache to avoid slamming the database during high-frequency polling.
     """
+    now = time.time()
+    if _drift_cache["report"] and _drift_cache["window"] == window and (now - _drift_cache["timestamp"] < 20.0):
+        return _drift_cache["report"]
+
     try:
         records = (
             db.query(PredictionRecord)
@@ -269,6 +287,11 @@ def get_drift_status(
         METRICS["drift_detected"] = 1 if report.get("drift_detected") else 0
         METRICS["max_psi"] = float(report.get("max_psi") or 0.0)
 
+        # Cache result
+        _drift_cache["timestamp"] = now
+        _drift_cache["window"] = window
+        _drift_cache["report"] = report
+
         return report
     except Exception as e:
         raise HTTPException(
@@ -279,8 +302,9 @@ def get_drift_status(
 @app.post("/drift-status/reset", tags=["MLOps"])
 def reset_drift_detector():
     """
-    Reloads baseline reference statistics from the ML directory.
+    Reloads baseline reference statistics from the ML directory and clears cache.
     """
+    _drift_cache["report"] = None
     loaded = drift_detector.load_reference_stats()
     METRICS["drift_detected"] = 0
     METRICS["max_psi"] = 0.0
@@ -293,7 +317,9 @@ def reset_drift_detector():
 def execute_retraining():
     """
     Runs the ML training pipeline script, updates version, and reloads model in memory.
+    Guarded by _retrain_lock.
     """
+    global _retraining_active
     train_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml", "train.py")
     try:
         print("[Retraining] Triggering ml/train.py...")
@@ -302,9 +328,14 @@ def execute_retraining():
         print(result.stdout[-400:])
         predictor.load_model()
         drift_detector.load_reference_stats()
+        # Invalidate drift cache on new model reload
+        _drift_cache["report"] = None
         print(f"[Retraining] Predictor successfully reloaded with version {predictor.version}")
     except Exception as e:
         print(f"[Retraining] Pipeline error: {e}")
+    finally:
+        with _retrain_lock:
+            _retraining_active = False
 
 @app.post("/retrain", tags=["MLOps"])
 def trigger_retraining(
@@ -313,9 +344,19 @@ def trigger_retraining(
 ):
     """
     Triggers the training pipeline in the background to address data/model drift.
-    Requires administrative API key ('X-API-Key' header).
+    Requires administrative API key ('X-API-Key' header or JWT with role == 'admin').
     Increments model version (v1 -> v2 -> v3), logs to MLflow, and reloads model.
+    Guarded by atomic mutex lock to prevent concurrent retraining collisions.
     """
+    global _retraining_active
+    with _retrain_lock:
+        if _retraining_active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A model retraining pipeline job is already in progress. Please wait for completion."
+            )
+        _retraining_active = True
+
     background_tasks.add_task(execute_retraining)
     return {
         "status": "retraining_initiated",

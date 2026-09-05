@@ -25,10 +25,24 @@ export default function App() {
 
   // Handle browser back/forward — keep state in sync with hash
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash === '#login') setPage('login');
-    else if (hash === '#admin' && isLoggedIn() && getSession()?.role === 'admin') setPage('admin');
-    else if (hash === '#dashboard' && isLoggedIn()) setPage('dashboard');
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash === '#login') {
+        setPage('login');
+      } else if (hash === '#admin') {
+        if (isLoggedIn() && getSession()?.role === 'admin') setPage('admin');
+        else setPage(isLoggedIn() ? 'dashboard' : 'login');
+      } else if (hash === '#dashboard') {
+        if (isLoggedIn()) setPage('dashboard');
+        else setPage('login');
+      } else {
+        setPage(resolveInitialPage());
+      }
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
   const goTo = (p) => {

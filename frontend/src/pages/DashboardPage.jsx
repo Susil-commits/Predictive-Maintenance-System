@@ -70,13 +70,18 @@ export default function DashboardPage({ onLogout }) {
     }
   };
 
+  const refreshAccessLog = useCallback(() => {
+    const log = getAccessLog().filter(e => e.userId === session?.userId);
+    setMyAccessLog(log);
+  }, [session?.userId]);
+
   useEffect(() => {
     fetchSystemStatus();
     const interval = setInterval(() => {
-      if (!health) fetchSystemStatus();
-    }, 6000);
+      fetchSystemStatus();
+    }, 15000);
     return () => clearInterval(interval);
-  }, [health]);
+  }, []);
 
   const handleFieldChange = (name, value) => setFormData(prev => ({ ...prev, [name]: value }));
   const handleSelectPreset = (presetData) => setFormData(presetData);
@@ -214,6 +219,7 @@ export default function DashboardPage({ onLogout }) {
               onClick={() => {
                 setActiveTab(tab.key);
                 if (tab.key === 'myreports') refreshReports();
+                if (tab.key === 'mylog') refreshAccessLog();
               }}
             >
               {tab.icon}
