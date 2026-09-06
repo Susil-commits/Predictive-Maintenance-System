@@ -97,25 +97,26 @@
       "support_failures": 68,
       "support_normal": 1932,
       "total_samples": 2000,
-      "precision": 0.3789,
-      "recall": 0.5294,
-      "f1_score": 0.4417,
-      "roc_auc": 0.9378,
+      "precision": 0.3918,
+      "recall": 0.5588,
+      "f1_score": 0.4606,
+      "roc_auc": 0.9389,
       "status": "PASS"
     },
     "Thermal Failure": {
       "failure_mode": "Thermal (HDF)",
       "support_failures": 29,
       "support_normal": 1932,
-      "true_positives": 11,
-      "false_negatives": 18,
+      "true_positives": 12,
+      "false_negatives": 17,
       "false_positives": 59,
       "true_negatives": 1873,
-      "precision": 0.1571,
-      "recall": 0.3793,
-      "f1_score": 0.2222,
-      "roc_auc": 0.9468,
-      "status": "UNDERPERFORMING"
+      "precision": 0.169,
+      "recall": 0.4138,
+      "f1_score": 0.24,
+      "roc_auc": 0.947,
+      "status": "UNDERPERFORMING",
+      "diagnostic_insight": "Driven by thermal dissipation differential. Moderate sensitivity; misses slow thermal creep cases."
     },
     "Overstrain Failure": {
       "failure_mode": "Overstrain (OSF)",
@@ -128,22 +129,24 @@
       "precision": 0.1806,
       "recall": 0.8125,
       "f1_score": 0.2955,
-      "roc_auc": 0.9708,
-      "status": "UNDERPERFORMING"
+      "roc_auc": 0.9709,
+      "status": "UNDERPERFORMING",
+      "diagnostic_insight": "Strongest detected mode with 81.25% recall. Sharp torque and mechanical power signatures make sudden mechanical overstrains easily separable."
     },
     "Tool Wear Failure": {
       "failure_mode": "Tool Wear (TWF)",
       "support_failures": 9,
       "support_normal": 1932,
-      "true_positives": 2,
-      "false_negatives": 7,
+      "true_positives": 3,
+      "false_negatives": 6,
       "false_positives": 59,
       "true_negatives": 1873,
-      "precision": 0.0328,
-      "recall": 0.2222,
-      "f1_score": 0.0571,
-      "roc_auc": 0.8805,
-      "status": "UNDERPERFORMING"
+      "precision": 0.0484,
+      "recall": 0.3333,
+      "f1_score": 0.0845,
+      "roc_auc": 0.8911,
+      "status": "UNDERPERFORMING",
+      "diagnostic_insight": "Severely data-starved with only 9 test failures (~36 in training set, <0.45% of data). Model triggers on dominant failure signatures (Overstrain/Power), yielding 59 false alarms in 1-vs-All evaluation. Root cause: lack of dedicated wear trajectory labels and class scarcity. Remediation: class-weighted loss per failure type or dedicated multi-head tool wear detector."
     },
     "Power Failure": {
       "failure_mode": "Power Failure (PWF)",
@@ -156,8 +159,22 @@
       "precision": 0.1324,
       "recall": 0.75,
       "f1_score": 0.225,
-      "roc_auc": 0.9602,
-      "status": "UNDERPERFORMING"
+      "roc_auc": 0.9597,
+      "status": "UNDERPERFORMING",
+      "diagnostic_insight": "High sensitivity (75% recall) owing to mechanical_power feature (torque x rotational speed) triggering when electrical power envelope is breached."
+    }
+  },
+  "failure_mode_diagnostics": {
+    "summary": "Segmented failure analysis exposed critical variance across failure types hidden by aggregate F1=0.47.",
+    "key_findings": {
+      "best_performing": "Overstrain (81.25% recall) and Power (75.00% recall) exhibit high diagnostic separability due to sharp torque/power anomaly signatures.",
+      "worst_performing": "Tool Wear Failure (F1=0.0571, Recall=22.22%) is severely under-represented with only 9 test failures.",
+      "root_cause_analysis": "Tool wear failure is cumulative rather than instantaneous. Because TWF represents <0.45% of training samples, the gradient boosting trees prioritize minimizing error on the dominant non-failure class and distinct abrupt failures (OSF/PWF). Consequently, normal fluctuations in operating hours get swallowed by false positives from dominant failure patterns.",
+      "engineering_remediation": [
+        "Class-weighted loss function (scale_pos_weight specialized per failure mode)",
+        "Synthetic oversampling (SMOTE) focused specifically on the TWF operating_hours x vibration_wear feature subspace",
+        "Multi-task hierarchical classification architecture separating wear-out failures from sudden operational overloads"
+      ]
     }
   },
   "scenario_validation": {

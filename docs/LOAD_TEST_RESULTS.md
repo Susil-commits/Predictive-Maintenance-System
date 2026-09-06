@@ -41,18 +41,37 @@ Throughput & Latency Trajectory:
 
 ---
 
-## Component-Level Latency Breakdown
+## Component-Level Latency & Queueing Breakdown
 
-Profiling a single request through the full PMS path reveals the following distribution of processing time:
+Profiling a single uncontended request through the full PMS pipeline on the live environment reveals the exact division between CPU-bound computation and WAN I/O:
 
-| Processing Stage | Typical Duration | Percentage of Total Time | Optimization Status |
-| :--- | :--- | :--- | :--- |
-| **FastAPI Routing & Schema Validation** | ~0.8 ms | 4% | Optimized with Pydantic V2 C-extensions |
-| **FFT Frequency-Domain Extraction** | ~0.2 ms | 1% | Vectorized with `scipy.fft` |
-| **Calibrated XGBoost Model Inference** | ~2.5 ms | 12% | Tree booster inference |
-| **SHAP TreeExplainer Contribution Attribution** | ~11.0 ms | 55% | Fast tree-traversal explainer |
-| **Database Transaction & Audit Persistence** | ~5.5 ms | 28% | Handled via SQLAlchemy connection pooling |
-| **Total Request Cycle** | **~20.0 ms** | **100%** | **Production Grade** |
+| Processing Stage | Subsystem | Measured Duration | % of Uncontended Total | Architectural Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| **Pydantic Validation & Routing** | FastAPI / ASGI | ~0.002 ms | <0.1% | Rust-backed Pydantic V2 core validation |
+| **FFT Frequency Feature Extraction** | Signal Processing | ~6.9 ms | 2.2% | Vectorized `scipy.fft` + pandas DataFrame generation |
+| **Calibrated XGBoost Inference** | ML Model | ~13.2 ms | 4.2% | Tree traversal across calibrated cross-validation folds |
+| **SHAP TreeExplainer Attribution** | Model Explainability | ~4.2 ms | 1.3% | Fast tree-path marginal contribution calculations |
+| **Database Network RTT + Commit** | Hosted Cloud PostgreSQL | ~287.9 ms | 91.2% | Public WAN TLS handshake + round-trip to Supabase AWS `ap-south-1` pooler + SQL `INSERT` + commit |
+| **Uncontended Serial Total** | **End-to-End Single Request** | **~315.6 ms** | **100.0%** | **Real-world uncontended baseline** |
+
+---
+
+## Concurrency Queueing & Latency Scaling Mechanics
+
+The gap between the **~315.6 ms uncontended baseline** and the **390 ms → 1,900 ms → 3,800 ms measured p50 latencies** under load is directly attributable to single-worker head-of-line blocking on synchronous cloud I/O:
+
+1. **Single Uvicorn Worker Bottleneck:**
+   The benchmark was executed against a single Uvicorn worker process. When 10 to 100 concurrent virtual users submit telemetry, each request holds the worker's execution thread while awaiting the ~288 ms remote PostgreSQL WAN write.
+2. **Mathematical Queueing Trajectory:**
+   - **10 Users (p50: 390 ms):** Average concurrency ratio of ~1.2 active requests per time slice. Baseline ~315 ms + ~75 ms socket wait = **390 ms**.
+   - **50 Users (p50: 1,900 ms):** 50 clients saturate the single worker, creating an average queue depth of ~6 requests waiting behind in-flight database transactions. Baseline ~315 ms + (5 × ~315 ms) queue wait = **~1,900 ms**.
+   - **100 Users (p50: 3,800 ms):** Queue depth doubles to ~11–12 requests in socket backlog. Baseline ~315 ms + (11 × ~315 ms) queue wait = **~3,800 ms**.
+3. **Independent Confirmation via `/health`:**
+   Locust health checks (which execute zero ML and zero database calls) exhibited identical queue wait amplification:
+   - 10 users: `/health` p50 = **210 ms**
+   - 50 users: `/health` p50 = **990 ms**
+   - 100 users: `/health` p50 = **2,400 ms**
+   This empirically proves that latency growth under concurrency is caused by socket backlog behind synchronous WAN database operations, not ML algorithmic degradation or memory leaks.
 
 ---
 

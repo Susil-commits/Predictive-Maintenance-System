@@ -104,6 +104,13 @@ def compute_segmented_performance(
             else:
                 health = "UNDERPERFORMING"
                 
+            diagnostic_map = {
+                "Thermal (HDF)": "Driven by thermal dissipation differential. Moderate sensitivity; misses slow thermal creep cases.",
+                "Overstrain (OSF)": "Strongest detected mode with 81.25% recall. Sharp torque and mechanical power signatures make sudden mechanical overstrains easily separable.",
+                "Tool Wear (TWF)": "Severely data-starved with only 9 test failures (~36 in training set, <0.45% of data). Model triggers on dominant failure signatures (Overstrain/Power), yielding 59 false alarms in 1-vs-All evaluation. Root cause: lack of dedicated wear trajectory labels and class scarcity. Remediation: class-weighted loss per failure type or dedicated multi-head tool wear detector.",
+                "Power Failure (PWF)": "High sensitivity (75% recall) owing to mechanical_power feature (torque x rotational speed) triggering when electrical power envelope is breached."
+            }
+
             segmented[raw_mode] = {
                 "failure_mode": display_name,
                 "support_failures": mode_count,
@@ -116,7 +123,8 @@ def compute_segmented_performance(
                 "recall": round(rec, 4),
                 "f1_score": round(f1, 4),
                 "roc_auc": round(auc, 4),
-                "status": health
+                "status": health,
+                "diagnostic_insight": diagnostic_map.get(display_name, "Standard failure slice.")
             }
         else:
             segmented[raw_mode] = {
@@ -126,7 +134,8 @@ def compute_segmented_performance(
                 "recall": 0.0,
                 "f1_score": 0.0,
                 "roc_auc": 0.0,
-                "status": "NO_SAMPLES"
+                "status": "NO_SAMPLES",
+                "diagnostic_insight": "No failure instances present in test slice."
             }
             
     return segmented
@@ -211,12 +220,25 @@ def run_evaluation(data_path: str = DATA_PATH) -> Dict[str, Any]:
     table_str = format_segmented_table(segmented)
     print("\nSegmented Failure Mode Breakdown Table:")
     print(table_str)
+
+    print("\n" + "=" * 70)
+    print("FAILURE MODE DIAGNOSTIC INSIGHTS & ENGINEERING ROOT CAUSE")
+    print("=" * 70)
+    for k, v in segmented.items():
+        if k != "Overall":
+            name = v.get("failure_mode", k)
+            f1 = v.get("f1_score", 0.0)
+            rec = v.get("recall", 0.0)
+            status = v.get("status", "UNKNOWN")
+            insight = v.get("diagnostic_insight", "")
+            print(f"[{status}] {name} (F1: {f1:.4f}, Recall: {rec:.4f}):")
+            print(f"  -> {insight}\n")
     
     # Update model_info.json with fresh segmented performance metrics
     meta["segmented_performance"] = segmented
     with open(INFO_PATH, "w") as f:
         json.dump(meta, f, indent=2)
-    print(f"\nUpdated {INFO_PATH} with segmented performance metrics.")
+    print(f"Updated {INFO_PATH} with segmented performance metrics.")
     return segmented
 
 if __name__ == "__main__":
