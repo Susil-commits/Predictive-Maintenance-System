@@ -78,7 +78,10 @@ def run_pipeline():
     
     # 1. Load Data
     if not os.path.exists(DATA_PATH):
-        from dataset_loader import download_and_prepare_dataset
+        try:
+            from ml.dataset_loader import download_and_prepare_dataset
+        except ImportError:
+            from dataset_loader import download_and_prepare_dataset  # type: ignore
         df = download_and_prepare_dataset()
     else:
         df = pd.read_csv(DATA_PATH)
@@ -190,8 +193,8 @@ def run_pipeline():
         verbose=-1
     )
     lgb_model.fit(X_train, y_train)
-    y_pred_lgb = lgb_model.predict(X_test)
-    y_prob_lgb = lgb_model.predict_proba(X_test)[:, 1]
+    y_pred_lgb = np.asarray(lgb_model.predict(X_test))
+    y_prob_lgb = np.asarray(lgb_model.predict_proba(X_test))[:, 1]
     lgb_roc = roc_auc_score(y_test, y_prob_lgb)
     lgb_f1 = f1_score(y_test, y_pred_lgb)
     lgb_brier = brier_score_loss(y_test, y_prob_lgb)
@@ -276,7 +279,7 @@ def run_pipeline():
         color='#e11d48', s=120, zorder=5,
         label=f'Optimal Threshold = {optimal_threshold:.4f}\n(F1={opt_f1:.4f}, Prec={opt_prec:.4f}, Rec={opt_rec:.4f})'
     )
-    plt.axhline(y=def_prec, color='#94a3b8', linestyle='--', alpha=0.7, label=f'Default 0.50 Precision ({def_prec:.4f})')
+    plt.axhline(y=float(def_prec), color='#94a3b8', linestyle='--', alpha=0.7, label=f'Default 0.50 Precision ({def_prec:.4f})')
     plt.title("Precision-Recall Curve & Optimal Decision Threshold", fontsize=12, fontweight='bold')
     plt.xlabel("Recall (True Positive Rate)", fontsize=11)
     plt.ylabel("Precision (Positive Predictive Value)", fontsize=11)
@@ -406,16 +409,34 @@ def run_pipeline():
     # Save local joblib files for low-latency production fallback
     joblib.dump(calibrated_xgb, model_file)
     joblib.dump(scaler, scaler_file)
+
+    # Export model to ONNX for cross-platform / edge deployment
+    onnx_file = os.path.join(ML_DIR, "model.onnx")
+    try:
+        import onnxmltools
+        from onnxmltools.convert.common.data_types import FloatTensorType
+        booster = xgb.get_booster()
+        original_names = booster.feature_names
+        booster.feature_names = [f"f{i}" for i in range(len(feature_cols))]
+        initial_type = [('float_input', FloatTensorType([None, len(feature_cols)]))]
+        onnx_model = onnxmltools.convert_xgboost(xgb, initial_types=initial_type)
+        booster.feature_names = original_names
+        with open(onnx_file, "wb") as f:
+            f.write(onnx_model.SerializeToString())
+        print(f"Saved ONNX model to {onnx_file} ({os.path.getsize(onnx_file):,} bytes)")
+    except Exception as onnx_err:
+        print(f"[ONNX Export Note] {onnx_err}")
     
     # Compute baseline reference distribution for production drift detection
     base_features = ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours']
     features_stats = {}
     for feat in base_features:
         series = df[feat]
+        series_arr = np.asarray(series, dtype=float)
         quantiles = np.linspace(0, 1, 11)
-        bin_edges = np.unique(np.percentile(series, quantiles * 100))
-        counts, _ = np.histogram(series, bins=bin_edges)
-        expected_pct = (counts / len(series)).tolist()
+        bin_edges = np.unique(np.percentile(series_arr, quantiles * 100))
+        counts, _ = np.histogram(series_arr, bins=bin_edges)
+        expected_pct = (counts / len(series_arr)).tolist()
         features_stats[feat] = {
             "mean": round(float(series.mean()), 4),
             "std": round(float(series.std()), 4),
@@ -509,6 +530,8 @@ def run_pipeline():
             mlflow.log_artifact(scaler_file, artifact_path="preprocessing")
         if os.path.exists(ref_stats_file):
             mlflow.log_artifact(ref_stats_file, artifact_path="drift_baseline")
+        if os.path.exists(onnx_file):
+            mlflow.log_artifact(onnx_file, artifact_path="onnx")
             
         # D. Log Model and Register with MLflow Model Registry
         try:

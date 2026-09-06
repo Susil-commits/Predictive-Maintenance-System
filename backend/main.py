@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, status, Request, Header
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, status, Request, Header, Body
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -27,9 +27,11 @@ from .schemas import (
     PredictionOutput,
     ModelInfoResponse,
     HealthResponse,
-    DriftStatusResponse
+    DriftStatusResponse,
+    RULOutput
 )
 from .predictor import predictor
+from .rul_engine import predict_rul
 from .drift_detector import drift_detector
 from .batch import router as batch_router
 from .limiter import limiter
@@ -280,6 +282,26 @@ def predict_maintenance(
     pred_result["prediction_id"] = pred_id
     pred_result["timestamp"] = now.isoformat()
     return pred_result
+
+@app.post("/predict-rul", response_model=RULOutput, tags=["RUL"])
+def predict_remaining_useful_life(
+    equipment_history: List[dict] = Body(...)  # Time series sensor readings
+):
+    """
+    Predict cycles and operating hours remaining before equipment failure.
+    Input: time-series array of recent sensor readings
+    Output: estimated RUL in cycles, operating hours, confidence, and maintenance recommendation
+    """
+    try:
+        rul_cycles, confidence = predict_rul(equipment_history)
+        return {
+            "estimated_rul_cycles": round(rul_cycles),
+            "estimated_rul_hours": round(rul_cycles * 0.5, 1),
+            "confidence": confidence,
+            "recommendation": "Schedule maintenance" if rul_cycles < 50 else "Continue monitoring"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/history", tags=["Audit & History"])
 def get_prediction_history(

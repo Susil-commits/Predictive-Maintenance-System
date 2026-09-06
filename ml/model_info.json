@@ -1,64 +1,64 @@
 {
   "model_name": "Calibrated XGBoost Classifier",
-  "version": "v13",
+  "version": "v14",
   "calibration": {
     "method": "sigmoid",
     "cv": 3,
-    "brier_score_uncalibrated": 0.0027,
-    "brier_score_calibrated": 0.0017,
-    "brier_reduction_pct": 37.3
+    "brier_score_uncalibrated": 0.078,
+    "brier_score_calibrated": 0.0252,
+    "brier_reduction_pct": 67.74
   },
-  "mlflow_run_id": "5f35b846aa304b66a195ae604d4e4eae",
+  "mlflow_run_id": "6aa7235030cb401992717b085fd3cfbb",
   "mlflow_experiment": "Predictive-Maintenance-System",
-  "trained_date": "2026-09-05 12:37:00",
+  "trained_date": "2026-09-06 06:59:45",
   "dataset_source": "UCI AI4I 2020 Predictive Maintenance Dataset",
-  "total_training_samples": 8016,
-  "total_test_samples": 2005,
-  "decision_threshold": 0.6444,
+  "total_training_samples": 8000,
+  "total_test_samples": 2000,
+  "decision_threshold": 0.2288,
   "metrics": {
-    "roc_auc": 0.9858,
-    "f1_score": 0.9784,
-    "precision": 0.9855,
-    "recall": 0.9714,
-    "brier_score": 0.0017,
-    "decision_threshold": 0.6444,
+    "roc_auc": 0.9367,
+    "f1_score": 0.4596,
+    "precision": 0.3978,
+    "recall": 0.5441,
+    "brier_score": 0.0252,
+    "decision_threshold": 0.2288,
     "default_threshold_metrics": {
       "threshold": 0.5,
-      "f1_score": 0.9714,
-      "precision": 0.9714,
-      "recall": 0.9714
+      "f1_score": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
     },
     "comparison": {
       "logistic_regression": {
-        "roc_auc": 0.982,
-        "f1_score": 0.9189,
-        "brier_score": 0.0081
+        "roc_auc": 0.9005,
+        "f1_score": 0.2393,
+        "brier_score": 0.1261
       },
       "random_forest": {
-        "roc_auc": 0.9872,
-        "f1_score": 0.9855,
-        "brier_score": 0.002
+        "roc_auc": 0.9295,
+        "f1_score": 0.3264,
+        "brier_score": 0.0655
       },
       "lightgbm": {
-        "roc_auc": 0.9883,
-        "f1_score": 0.9714,
-        "brier_score": 0.002
+        "roc_auc": 0.9356,
+        "f1_score": 0.4084,
+        "brier_score": 0.0385
       },
       "xgboost_uncalibrated": {
-        "roc_auc": 0.9849,
-        "brier_score": 0.0027
+        "roc_auc": 0.9341,
+        "brier_score": 0.078
       },
       "xgboost_calibrated": {
-        "roc_auc": 0.9858,
-        "f1_score": 0.9784,
-        "brier_score": 0.0017
+        "roc_auc": 0.9367,
+        "f1_score": 0.4596,
+        "brier_score": 0.0252
       }
     }
   },
   "best_params": {
-    "learning_rate": 0.06,
+    "learning_rate": 0.03,
     "max_depth": 3,
-    "n_estimators": 180
+    "n_estimators": 150
   },
   "feature_names": [
     "temperature",
@@ -91,7 +91,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.9746,
+      "probability": 0.398,
       "passed": true
     },
     "Nominal Baseline": {
@@ -104,7 +104,7 @@
       },
       "expected_risk": "LOW",
       "predicted_risk": "LOW",
-      "probability": 0.0013,
+      "probability": 0.0039,
       "passed": true
     },
     "Thermal Overheat": {
@@ -116,9 +116,9 @@
         "operating_hours": 3100
       },
       "expected_risk": "HIGH",
-      "predicted_risk": "HIGH",
-      "probability": 0.9744,
-      "passed": true
+      "predicted_risk": "LOW",
+      "probability": 0.0187,
+      "passed": false
     },
     "Vibration & Fatigue": {
       "inputs": {
@@ -130,7 +130,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.9745,
+      "probability": 0.4161,
       "passed": true
     },
     "Cold Idle Normal": {
@@ -143,7 +143,7 @@
       },
       "expected_risk": "LOW",
       "predicted_risk": "LOW",
-      "probability": 0.0013,
+      "probability": 0.0058,
       "passed": true
     },
     "Overstrain Pressure Surge": {
@@ -156,7 +156,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.9743,
+      "probability": 0.4131,
       "passed": true
     },
     "Extreme Breakdown (All High)": {
@@ -169,7 +169,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.9746,
+      "probability": 0.4144,
       "passed": true
     },
     "Low RPM Heavy Strain": {
@@ -182,7 +182,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.9744,
+      "probability": 0.4822,
       "passed": true
     },
     "High Speed Light Load (Normal)": {
@@ -194,9 +194,9 @@
         "operating_hours": 1100
       },
       "expected_risk": "LOW",
-      "predicted_risk": "LOW",
-      "probability": 0.3155,
-      "passed": true
+      "predicted_risk": "HIGH",
+      "probability": 0.4592,
+      "passed": false
     }
   }
 }

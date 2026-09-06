@@ -147,9 +147,22 @@ class MaintenancePredictor:
                 "description": factor_descriptions.get(factor_name, "")
             })
 
+        # Uncertainty quantification
+        if 0.40 <= failure_prob <= 0.60:
+            confidence = "LOW"
+            recommendation = "⚠️ UNCERTAIN — Recommend manual inspection"
+        elif failure_prob < 0.40:
+            confidence = "HIGH"
+            recommendation = "✓ Operating normally"
+        else:
+            confidence = "HIGH"
+            recommendation = "🔴 HIGH RISK — Schedule maintenance"
+
         return {
             "failure_risk": risk,
             "probability": round(failure_prob, 4),
+            "confidence": confidence,
+            "recommendation": recommendation,
             "maintenance_required": maintenance_required,
             "contributing_factors": contributing_factors,
             "shap_values": shap_dict,
@@ -157,5 +170,83 @@ class MaintenancePredictor:
             "decision_threshold": round(active_threshold, 4)
         }
 
+    def predict_with_uncertainty(self, input_dict: dict) -> dict:
+        """
+        Return risk + uncertainty flag.
+        If prediction confidence is ambiguous (0.4-0.6), flag for manual review.
+        """
+        if self.model is None:
+            self.load_model()
+        if self.model is None:
+            raise RuntimeError("Model failed to load")
+        X = self.engineer_features(input_dict)
+        prob = float(self.model.predict_proba(X)[0, 1])
+
+        if 0.4 <= prob <= 0.6:
+            confidence = "LOW"
+            recommendation = "⚠️ UNCERTAIN — Recommend manual inspection"
+        elif prob < 0.4:
+            confidence = "HIGH"
+            recommendation = "✓ Operating normally"
+        else:
+            confidence = "HIGH"
+            recommendation = "🔴 HIGH RISK — Schedule maintenance"
+
+        return {
+            "probability": round(prob, 4),
+            "confidence": confidence,
+            "recommendation": recommendation
+        }
+
+# Hardcoded held-out operational scenarios for validation & inference testing (not used in training data)
+HELD_OUT_TEST_SCENARIOS = [
+    {
+        "name": "Target Sample [High-Risk Wear]",
+        "inputs": {"temperature": 92.4, "rpm": 2800, "pressure": 31.5, "vibration": 0.64, "operating_hours": 4820},
+        "expected": "HIGH"
+    },
+    {
+        "name": "Nominal Baseline [Healthy State]",
+        "inputs": {"temperature": 68.0, "rpm": 1500, "pressure": 21.0, "vibration": 0.22, "operating_hours": 950},
+        "expected": "LOW"
+    },
+    {
+        "name": "Thermal Overheat [Acute Temperature Failure]",
+        "inputs": {"temperature": 97.2, "rpm": 2300, "pressure": 27.8, "vibration": 0.42, "operating_hours": 3100},
+        "expected": "HIGH"
+    },
+    {
+        "name": "Vibration & Fatigue [Severe Mechanical Wear]",
+        "inputs": {"temperature": 79.5, "rpm": 3100, "pressure": 33.0, "vibration": 0.72, "operating_hours": 5300},
+        "expected": "HIGH"
+    },
+    {
+        "name": "Cold Idle Normal [Healthy Low Power]",
+        "inputs": {"temperature": 65.0, "rpm": 1200, "pressure": 20.0, "vibration": 0.18, "operating_hours": 500},
+        "expected": "LOW"
+    },
+    {
+        "name": "Overstrain Pressure Surge [Heavy Hydraulic Load]",
+        "inputs": {"temperature": 85.0, "rpm": 2900, "pressure": 38.0, "vibration": 0.58, "operating_hours": 4200},
+        "expected": "HIGH"
+    },
+    {
+        "name": "High Speed Light Load [Highway / Idle Spin]",
+        "inputs": {"temperature": 72.0, "rpm": 3200, "pressure": 19.5, "vibration": 0.28, "operating_hours": 1100},
+        "expected": "LOW"
+    },
+    {
+        "name": "Low RPM Heavy Strain [Stall / Overload Failure]",
+        "inputs": {"temperature": 88.0, "rpm": 1100, "pressure": 39.0, "vibration": 0.70, "operating_hours": 4900},
+        "expected": "HIGH"
+    },
+    {
+        "name": "Extreme Breakdown [All High]",
+        "inputs": {"temperature": 105.0, "rpm": 3300, "pressure": 42.0, "vibration": 0.95, "operating_hours": 5800},
+        "expected": "HIGH"
+    }
+]
+
 # Global singleton
 predictor = MaintenancePredictor()
+

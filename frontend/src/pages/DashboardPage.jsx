@@ -11,8 +11,9 @@ import PredictionResult from '../components/PredictionResult';
 import HistoryTable from '../components/HistoryTable';
 import DriftMonitor from '../components/DriftMonitor';
 import BatchPredict from '../components/BatchPredict';
+import RULForecastCard from '../components/RULForecastCard';
 import {
-  getHealth, getModelInfo, predictMaintenance,
+  getHealth, getModelInfo, predictMaintenance, predictRul,
   getHistory, clearHistory, getDriftStatus, exportHistory,
   API_BASE_URL
 } from '../api';
@@ -41,10 +42,37 @@ export default function DashboardPage({ onLogout }) {
   const [myAccessLog, setMyAccessLog] = useState([]);
   const [myReports,   setMyReports]   = useState([]);
   const [selectedReport, setSelectedReport] = useState(null);
+  const [rulForecast, setRulForecast] = useState(null);
+  const [rulLoading,  setRulLoading]  = useState(false);
 
   const refreshReports = useCallback(() => {
     if (session?.userId) setMyReports(getReportsForUser(session?.userId));
   }, [session?.userId]);
+
+  const fetchRulForecast = useCallback(async (currentData) => {
+    setRulLoading(true);
+    try {
+      const target = currentData || formData;
+      const trajectory = [];
+      const steps = 20;
+      for (let i = 0; i < steps; i++) {
+        const factor = (i + 1) / steps;
+        trajectory.push({
+          temperature: +(target.temperature - (1 - factor) * 8 + (Math.sin(i) * 0.8)).toFixed(1),
+          rpm: Math.round(target.rpm + (Math.cos(i) * 40)),
+          pressure: +(target.pressure - (1 - factor) * 3 + (Math.sin(i * 0.5) * 0.5)).toFixed(1),
+          vibration: +(Math.max(0.12, target.vibration - (1 - factor) * 0.12 + (Math.cos(i) * 0.02))).toFixed(2),
+          operating_hours: Math.round(target.operating_hours - (steps - i) * 0.5)
+        });
+      }
+      const rulRes = await predictRul(trajectory);
+      setRulForecast(rulRes);
+    } catch (err) {
+      console.warn('RUL calculation note:', err);
+    } finally {
+      setRulLoading(false);
+    }
+  }, [formData]);
 
   // Log page access on mount
   useEffect(() => {
@@ -78,24 +106,30 @@ export default function DashboardPage({ onLogout }) {
 
   useEffect(() => {
     fetchSystemStatus();
+    fetchRulForecast(DEFAULT_FORM_DATA);
     const interval = setInterval(() => {
       fetchSystemStatus();
     }, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchRulForecast]);
 
   const handleFieldChange = (name, value) => setFormData(prev => ({ ...prev, [name]: value }));
-  const handleSelectPreset = (presetData) => setFormData(presetData);
+  const handleSelectPreset = (presetData) => {
+    setFormData(presetData);
+    fetchRulForecast(presetData);
+  };
   const handleResetForm = () => setFormData(DEFAULT_FORM_DATA);
 
   const handleSelectHistoryRow = (rowData) => {
-    setFormData({
+    const nextData = {
       temperature: rowData.temperature,
       rpm: rowData.rpm,
       pressure: rowData.pressure,
       vibration: rowData.vibration,
       operating_hours: rowData.operating_hours
-    });
+    };
+    setFormData(nextData);
+    fetchRulForecast(nextData);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -106,6 +140,7 @@ export default function DashboardPage({ onLogout }) {
     try {
       const pred = await predictMaintenance(formData);
       setResult(pred);
+      fetchRulForecast(formData);
       const [updatedHistory, updatedDrift] = await Promise.all([
         getHistory().catch(() => []),
         getDriftStatus().catch(() => null)
@@ -123,7 +158,7 @@ export default function DashboardPage({ onLogout }) {
     } finally {
       setLoading(false);
     }
-  }, [formData]);
+  }, [formData, fetchRulForecast]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -258,16 +293,23 @@ export default function DashboardPage({ onLogout }) {
 
       {/* Telemetry */}
       {(activeTab === 'all' || activeTab === 'telemetry') && (
-        <div className="main-grid">
-          <TelemetryForm
-            formData={formData}
-            onChange={handleFieldChange}
-            onSubmit={handleSubmit}
-            loading={loading}
-            onReset={handleResetForm}
+        <>
+          <div className="main-grid">
+            <TelemetryForm
+              formData={formData}
+              onChange={handleFieldChange}
+              onSubmit={handleSubmit}
+              loading={loading}
+              onReset={handleResetForm}
+            />
+            <PredictionResult result={result} />
+          </div>
+          <RULForecastCard
+            rulData={rulForecast}
+            loading={rulLoading}
+            onRefresh={() => fetchRulForecast(formData)}
           />
-          <PredictionResult result={result} />
-        </div>
+        </>
       )}
 
       {/* Batch */}

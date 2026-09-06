@@ -18,12 +18,29 @@ class PredictionOutput(BaseModel):
     failure_risk: str = Field(..., description="'HIGH' or 'LOW'", json_schema_extra={"example": "HIGH"})
     probability: float = Field(..., description="Failure probability [0.0 - 1.0]", json_schema_extra={"example": 0.87})
     maintenance_required: bool = Field(..., description="Whether maintenance is immediately recommended", json_schema_extra={"example": True})
+    confidence: Optional[str] = Field(None, description="Prediction certainty ('HIGH' or 'LOW')", json_schema_extra={"example": "HIGH"})
+    recommendation: Optional[str] = Field(None, description="Actionable recommendation based on risk and uncertainty", json_schema_extra={"example": "🔴 HIGH RISK — Schedule maintenance"})
     contributing_factors: List[ContributingFactor] = []
     shap_values: Dict[str, float] = {}
     prediction_id: Optional[str] = None
     timestamp: Optional[str] = None
     model_version: Optional[str] = None
     decision_threshold: Optional[float] = Field(None, description="Optimal decision threshold tuned via Precision-Recall curve", json_schema_extra={"example": 0.84})
+
+class RULReadingInput(BaseModel):
+    temperature: float = Field(..., description="Temperature in °C")
+    rpm: float = Field(..., description="Rotational speed")
+    pressure: float = Field(..., description="Pressure in bar")
+    vibration: float = Field(..., description="Vibration amplitude in g")
+    operating_hours: Optional[float] = Field(None, description="Operating hours")
+    cycle: Optional[int] = Field(None, description="Cycle index")
+    timestamp: Optional[str] = Field(None, description="Reading timestamp")
+
+class RULOutput(BaseModel):
+    estimated_rul_cycles: int = Field(..., description="Estimated remaining cycles before failure")
+    estimated_rul_hours: float = Field(..., description="Estimated remaining operating hours")
+    confidence: float = Field(..., description="Model confidence score [0.0 - 1.0]")
+    recommendation: str = Field(..., description="Operational recommendation based on RUL")
 
 class ModelInfoResponse(BaseModel):
     model_name: str

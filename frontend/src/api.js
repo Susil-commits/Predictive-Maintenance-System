@@ -91,6 +91,11 @@ export const predictMaintenance = async (payload) => {
   return response.data;
 };
 
+export const predictRul = async (equipmentHistory) => {
+  const response = await api.post('/predict-rul', equipmentHistory);
+  return response.data;
+};
+
 export const getHistory = async (limit = 20) => {
   const response = await api.get(`/history?limit=${limit}`);
   return response.data;
