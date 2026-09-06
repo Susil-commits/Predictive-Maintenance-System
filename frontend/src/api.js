@@ -91,6 +91,11 @@ export const predictMaintenance = async (payload) => {
   return response.data;
 };
 
+export const predictCounterfactual = async (payload) => {
+  const response = await api.post('/predict-counterfactual', payload);
+  return response.data;
+};
+
 export const predictRul = async (equipmentHistory) => {
   const response = await api.post('/predict-rul', equipmentHistory);
   return response.data;

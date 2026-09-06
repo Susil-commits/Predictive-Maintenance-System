@@ -36,12 +36,13 @@ from .models import PredictionRecord, User
 from .schemas import (
     PredictionInput,
     PredictionOutput,
+    CounterfactualOutput,
     ModelInfoResponse,
     HealthResponse,
     DriftStatusResponse,
     RULOutput
 )
-from .predictor import predictor
+from .predictor import predictor, find_minimal_fix, FEATURE_ORDER, calibrated_model, scaler
 from .rul_engine import predict_rul
 from .drift_detector import drift_detector
 from .batch import router as batch_router
@@ -314,6 +315,29 @@ def predict_maintenance(
     pred_result["prediction_id"] = pred_id
     pred_result["timestamp"] = now.isoformat()
     return pred_result
+
+@app.post("/predict-counterfactual", response_model=CounterfactualOutput, tags=["Prediction"])
+@limiter.limit(predict_rate_limit)
+def predict_counterfactual(
+    request: Request,
+    input_data: PredictionInput
+):
+    """
+    Given vehicle/equipment telemetry, calculates counterfactual remediation:
+    finds the minimal change in the dominant risk-driving parameter that brings
+    predicted failure risk below the PR-tuned decision threshold.
+    """
+    try:
+        features = input_data.model_dump()
+        threshold = getattr(predictor, "threshold", 0.2288)
+        result = find_minimal_fix(calibrated_model, scaler, features, FEATURE_ORDER, threshold=threshold)
+        return result
+    except Exception as e:
+        logger.error(f"Counterfactual calculation error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Counterfactual calculation error: {str(e)}"
+        )
 
 @app.post("/predict-rul", response_model=RULOutput, tags=["RUL"])
 def predict_remaining_useful_life(

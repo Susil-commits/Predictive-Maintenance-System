@@ -139,7 +139,7 @@ export default function DashboardPage({ onLogout }) {
     setErrorMsg(null);
     try {
       const pred = await predictMaintenance(formData);
-      setResult(pred);
+      setResult({ ...pred, input_data: formData });
       fetchRulForecast(formData);
       const [updatedHistory, updatedDrift] = await Promise.all([
         getHistory().catch(() => []),

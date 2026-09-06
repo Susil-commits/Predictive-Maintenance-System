@@ -13,6 +13,81 @@ ML_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(ML_DIR, "model.pkl")
 INFO_PATH = os.path.join(ML_DIR, "model_info.json")
 
+FEATURE_GUIDANCE = {
+    "temperature": {
+        "high": "Temperature is elevated above baseline — inspect cooling system, check coolant levels, verify airflow around heat exchangers.",
+        "low": "Temperature reading is unusually low — verify sensor calibration."
+    },
+    "vibration": {
+        "high": "Vibration is elevated above baseline — likely bearing wear, misalignment, or imbalance. Recommend vibration analysis and bearing inspection.",
+        "low": "Vibration reading is unusually low — verify sensor is functioning."
+    },
+    "pressure": {
+        "high": "Pressure is above normal range — check for blockages or valve malfunction downstream.",
+        "low": "Pressure is below normal range — check for leaks or pump degradation."
+    },
+    "rpm": {
+        "high": "Rotational speed is elevated — verify load conditions match expected operating profile.",
+        "low": "Rotational speed is below expected range — check drive system and load coupling."
+    },
+    "operating_hours": {
+        "high": "Equipment has accumulated significant operating hours — schedule preventive maintenance per manufacturer service interval.",
+        "low": None  # not typically a risk driver on its own
+    }
+}
+
+def generate_root_cause_guidance(shap_values: dict, feature_values: Optional[dict] = None) -> dict:
+    """
+    shap_values: {feature_name: shap_contribution} for this single prediction
+    feature_values: {feature_name: raw_value} for this single prediction
+    Returns the top contributing factor + a human-readable suggested action.
+    """
+    if not shap_values:
+        return {"top_risk_factor": None, "contribution_pct": None, "suggested_action": None}
+
+    # Normalize engineered/interaction feature names to base physical driver
+    feature_to_base = {
+        "temp_pressure_index": "temperature",
+        "thermal_excess": "temperature",
+        "vibration_wear_index": "vibration",
+        "rpm_vibration_ratio": "vibration",
+        "overstrain_index": "pressure",
+        "mechanical_power": "rpm",
+        "vib_dominant_freq": "vibration",
+        "vib_spectral_energy_low": "vibration",
+        "vib_spectral_energy_high": "vibration",
+        "vib_spectral_centroid": "vibration",
+        "operating hours": "operating_hours",
+        "vibration": "vibration",
+        "temperature": "temperature",
+        "pressure": "pressure",
+        "rpm": "rpm",
+        "operating_hours": "operating_hours"
+    }
+
+    # Aggregate contributions into 5 base physical drivers
+    aggregated_shap: Dict[str, float] = {}
+    for feat, val in shap_values.items():
+        base = feature_to_base.get(feat.lower().strip(), feat.lower().strip())
+        aggregated_shap[base] = aggregated_shap.get(base, 0.0) + float(val)
+
+    total_abs = sum(abs(v) for v in aggregated_shap.values())
+
+    # Sort by absolute SHAP contribution, descending
+    sorted_features = sorted(aggregated_shap.items(), key=lambda x: abs(x[1]), reverse=True)
+    top_feature, top_contribution = sorted_features[0]
+
+    direction = "high" if top_contribution >= 0 else "low"
+    guidance = FEATURE_GUIDANCE.get(top_feature, {}).get(direction)
+
+    pct = round(abs(top_contribution) / total_abs * 100, 1) if total_abs > 0 else 0.0
+
+    return {
+        "top_risk_factor": top_feature,
+        "contribution_pct": pct,
+        "suggested_action": guidance or f"{top_feature.replace('_', ' ').capitalize()} is the dominant risk driver — recommend manual inspection."
+    }
+
 class MaintenancePredictor:
     def __init__(self):
         self.model = None
@@ -209,6 +284,9 @@ class MaintenancePredictor:
             confidence = "HIGH"
             recommendation = "🔴 HIGH RISK — Schedule maintenance"
 
+        # Root-cause guidance based on SHAP contributions
+        root_cause = generate_root_cause_guidance(shap_dict, input_dict)
+
         return {
             "failure_risk": risk,
             "probability": round(failure_prob, 4),
@@ -217,6 +295,9 @@ class MaintenancePredictor:
             "maintenance_required": maintenance_required,
             "contributing_factors": contributing_factors,
             "shap_values": shap_dict,
+            "top_risk_factor": root_cause["top_risk_factor"],
+            "contribution_pct": root_cause["contribution_pct"],
+            "suggested_action": root_cause["suggested_action"],
             "model_version": self.version,
             "decision_threshold": round(active_threshold, 4)
         }
@@ -300,4 +381,90 @@ HELD_OUT_TEST_SCENARIOS = [
 
 # Global singleton
 predictor = MaintenancePredictor()
+
+# Core feature ordering and model handles for counterfactual analysis
+FEATURE_ORDER = ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours']
+calibrated_model = predictor.model
+scaler = None  # Tree-based pipeline directly consumes engineered features without standard scaler
+
+def find_minimal_fix(
+    model: Any = None,
+    scaler: Any = None,
+    current_features: Optional[dict] = None,
+    feature_order: Optional[List[str]] = None,
+    threshold: Optional[float] = None
+) -> dict:
+    """
+    Grid-search the top SHAP-driving feature to find the smallest change
+    that flips predicted risk below the decision threshold.
+    """
+    if current_features is None:
+        raise ValueError("current_features dictionary is required")
+
+    active_threshold = threshold if threshold is not None else getattr(predictor, "threshold", 0.2288)
+
+    # Get current prediction
+    current_pred = predictor.predict(current_features, threshold=active_threshold)
+    current_risk = current_pred["probability"]
+
+    if current_risk < active_threshold:
+        return {
+            "already_safe": True,
+            "feature_to_change": None,
+            "current_value": None,
+            "target_value": None,
+            "reduction_needed_pct": None,
+            "risk_before": round(current_risk * 100, 1),
+            "risk_after": round(current_risk * 100, 1),
+            "note": "Telemetry is already within safe operating baseline."
+        }
+
+    # Identify top SHAP feature
+    root_cause = generate_root_cause_guidance(current_pred.get("shap_values", {}), current_features)
+    top_feature_name = root_cause.get("top_risk_factor") or "vibration"
+
+    # Prioritize top feature, then other controllable parameters if top feature cannot flip
+    candidate_features = [top_feature_name]
+    for feat in ["pressure", "vibration", "temperature", "rpm"]:
+        if feat not in candidate_features and feat in current_features:
+            candidate_features.append(feat)
+
+    # Grid search: try reducing the feature by 5%, 10%, ..., 50%
+    for feat in candidate_features:
+        if feat not in current_features or feat == "operating_hours":
+            continue
+        original_value = float(current_features[feat])
+        if original_value <= 0:
+            continue
+
+        for pct_reduction in [5, 10, 15, 20, 25, 30, 40, 50]:
+            test_features = dict(current_features)
+            test_features[feat] = original_value * (1.0 - pct_reduction / 100.0)
+
+            test_pred = predictor.predict(test_features, threshold=active_threshold)
+            test_risk = test_pred["probability"]
+
+            if test_risk < active_threshold:
+                return {
+                    "already_safe": False,
+                    "feature_to_change": feat,
+                    "current_value": round(original_value, 2),
+                    "target_value": round(test_features[feat], 2),
+                    "reduction_needed_pct": pct_reduction,
+                    "risk_before": round(current_risk * 100, 1),
+                    "risk_after": round(test_risk * 100, 1),
+                    "note": f"Reducing {feat} by {pct_reduction}% restores safe operating status."
+                }
+
+    return {
+        "already_safe": False,
+        "feature_to_change": top_feature_name,
+        "current_value": round(float(current_features.get(top_feature_name, 0.0)), 2),
+        "target_value": None,
+        "reduction_needed_pct": None,
+        "risk_before": round(current_risk * 100, 1),
+        "risk_after": None,
+        "note": "No single-feature fix within tested range — recommend full inspection."
+    }
+
 

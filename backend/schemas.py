@@ -22,10 +22,23 @@ class PredictionOutput(BaseModel):
     recommendation: Optional[str] = Field(None, description="Actionable recommendation based on risk and uncertainty", json_schema_extra={"example": "🔴 HIGH RISK — Schedule maintenance"})
     contributing_factors: List[ContributingFactor] = []
     shap_values: Dict[str, float] = {}
+    top_risk_factor: Optional[str] = Field(None, description="The single feature contributing most to this risk score", json_schema_extra={"example": "vibration"})
+    contribution_pct: Optional[float] = Field(None, description="Percentage of total risk attributable to top_risk_factor", json_schema_extra={"example": 42.5})
+    suggested_action: Optional[str] = Field(None, description="Human-readable recommended action based on root cause", json_schema_extra={"example": "Vibration is elevated above baseline — recommend vibration analysis."})
     prediction_id: Optional[str] = None
     timestamp: Optional[str] = None
     model_version: Optional[str] = None
     decision_threshold: Optional[float] = Field(None, description="Optimal decision threshold tuned via Precision-Recall curve", json_schema_extra={"example": 0.84})
+
+class CounterfactualOutput(BaseModel):
+    already_safe: bool = Field(..., description="Whether equipment telemetry is already below the risk threshold", json_schema_extra={"example": False})
+    feature_to_change: Optional[str] = Field(None, description="Primary parameter identified for intervention", json_schema_extra={"example": "vibration"})
+    current_value: Optional[float] = Field(None, description="Current telemetry reading", json_schema_extra={"example": 0.65})
+    target_value: Optional[float] = Field(None, description="Target reading required to remediate risk", json_schema_extra={"example": 0.52})
+    reduction_needed_pct: Optional[int] = Field(None, description="Percentage reduction required", json_schema_extra={"example": 20})
+    risk_before: Optional[float] = Field(None, description="Risk percentage before remediation", json_schema_extra={"example": 41.3})
+    risk_after: Optional[float] = Field(None, description="Risk percentage after remediation", json_schema_extra={"example": 20.4})
+    note: Optional[str] = Field(None, description="Actionable note or operational guidance", json_schema_extra={"example": "Reducing vibration by 20% restores safe operating status."})
 
 class RULReadingInput(BaseModel):
     temperature: float = Field(..., description="Temperature in °C")

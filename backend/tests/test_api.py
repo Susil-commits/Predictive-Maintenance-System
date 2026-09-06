@@ -624,3 +624,63 @@ def test_scheduler_jobs_and_manual_trigger():
     res_data = trigger_res.json()
     assert "status" in res_data
     assert "retraining_recommended" in res_data
+
+
+def test_predict_shap_root_cause_suggestions():
+    payload = {
+        "temperature": 95.0,
+        "rpm": 2800.0,
+        "pressure": 35.0,
+        "vibration": 0.65,
+        "operating_hours": 4200.0
+    }
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "top_risk_factor" in data
+    assert data["top_risk_factor"] is not None
+    assert "contribution_pct" in data
+    assert data["contribution_pct"] is not None
+    assert data["contribution_pct"] > 0
+    assert "suggested_action" in data
+    assert data["suggested_action"] is not None
+    assert len(data["suggested_action"]) > 10
+
+
+def test_predict_counterfactual_high_risk():
+    payload = {
+        "temperature": 95.0,
+        "rpm": 2800.0,
+        "pressure": 35.0,
+        "vibration": 0.65,
+        "operating_hours": 4200.0
+    }
+    response = client.post("/predict-counterfactual", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["already_safe"] is False
+    assert data["feature_to_change"] is not None
+    assert data["current_value"] is not None
+    assert data["target_value"] is not None
+    assert data["target_value"] < data["current_value"]
+    assert data["reduction_needed_pct"] is not None
+    assert data["reduction_needed_pct"] > 0
+    assert data["risk_after"] < data["risk_before"]
+
+
+def test_predict_counterfactual_already_safe():
+    nominal_payload = {
+        "temperature": 65.0,
+        "rpm": 1200.0,
+        "pressure": 20.0,
+        "vibration": 0.18,
+        "operating_hours": 500.0
+    }
+    response = client.post("/predict-counterfactual", json=nominal_payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["already_safe"] is True
+

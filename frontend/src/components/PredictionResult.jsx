@@ -3,10 +3,12 @@ import {
   AlertOctagon, CheckCircle2, TrendingUp, TrendingDown,
   Terminal, ShieldAlert, Hash, Clock,
   Cloud, Eye, EyeOff, Save, ExternalLink,
-  Loader2, Check, Trash2, X, FileText
+  Loader2, Check, Trash2, X, FileText,
+  Wrench, Sparkles, ArrowRight
 } from 'lucide-react';
 import { uploadPredictionReport, isCloudinaryConfigured } from '../cloudinary';
 import { getSession, saveReport } from '../auth';
+import { predictCounterfactual } from '../api';
 
 // ── Inline JSON viewer ────────────────────────────────────────────────────────
 // ── Inline Report viewer ────────────────────────────────────────────────────────
@@ -136,6 +138,17 @@ function ReportViewer({ result, onClose, onSave, savedEntry }) {
                 </div>
               </div>
             )}
+
+            {result.suggested_action && (
+              <div style={{ padding: '8px 10px', background: isHighRisk ? 'rgba(251, 113, 133, 0.08)' : 'rgba(52, 211, 153, 0.08)', border: `1px solid ${isHighRisk ? 'rgba(251, 113, 133, 0.25)' : 'rgba(52, 211, 153, 0.25)'}`, borderRadius: 6 }}>
+                <div style={{ fontSize: '0.64rem', color: isHighRisk ? '#fb7185' : '#34d399', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+                  Root Cause Guidance {result.top_risk_factor ? `[${result.top_risk_factor.toUpperCase()}]` : ''}
+                </div>
+                <div style={{ fontSize: '0.74rem', color: '#f4f4f5', lineHeight: 1.4 }}>
+                  {result.suggested_action}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <pre className="report-viewer-pre" style={{ maxHeight: '52vh' }}>{json}</pre>
@@ -234,15 +247,39 @@ export default function PredictionResult({ result }) {
   const [showPrompt,  setShowPrompt]  = useState(false);
   const [showViewer,  setShowViewer]  = useState(false);
   const [savedEntry,  setSavedEntry]  = useState(null);
+  const [cfData,      setCfData]      = useState(null);
+  const [cfLoading,   setCfLoading]   = useState(false);
+  const [cfError,     setCfError]     = useState(null);
 
-  // When a new result comes in, automatically ask whether to View or Save
+  // When a new result comes in, automatically ask whether to View or Save and evaluate counterfactual if high risk
   React.useEffect(() => {
     if (result) {
       setShowPrompt(true);
       setShowViewer(false);
       setSavedEntry(null);
+      setCfData(null);
+      setCfError(null);
+
+      // Auto-evaluate minimal counterfactual fix for HIGH risk predictions
+      if (result.failure_risk === 'HIGH' && result.input_data) {
+        setCfLoading(true);
+        predictCounterfactual(result.input_data)
+          .then(data => setCfData(data))
+          .catch(err => setCfError(err.message || 'Counterfactual evaluation failed'))
+          .finally(() => setCfLoading(false));
+      }
     }
   }, [result?.prediction_id, result?.timestamp]);
+
+  const handleFetchCounterfactual = () => {
+    if (!result?.input_data || cfLoading) return;
+    setCfLoading(true);
+    setCfError(null);
+    predictCounterfactual(result.input_data)
+      .then(data => setCfData(data))
+      .catch(err => setCfError(err.message || 'Counterfactual evaluation failed'))
+      .finally(() => setCfLoading(false));
+  };
 
   if (!result) {
     return (
@@ -401,6 +438,125 @@ export default function PredictionResult({ result }) {
               <><CheckCircle2 size={18} style={{ flexShrink: 0 }} /><span><strong>Operational Nominal:</strong> Sensor telemetry aligns with baseline healthy tolerances.</span></>
             )}
           </div>
+
+          {/* Root-Cause Prescriptive Action (Plan 1) */}
+          {result.suggested_action && (
+            <div style={{
+              marginTop: 10,
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: isHighRisk ? 'rgba(251, 113, 133, 0.08)' : 'rgba(52, 211, 153, 0.08)',
+              border: `1px solid ${isHighRisk ? 'rgba(251, 113, 133, 0.25)' : 'rgba(52, 211, 153, 0.25)'}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 600, color: isHighRisk ? '#fb7185' : '#34d399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <ShieldAlert size={14} />
+                  <span>Root Cause Prescriptive Action</span>
+                </div>
+                {result.top_risk_factor && (
+                  <span style={{
+                    fontSize: '0.68rem',
+                    fontFamily: 'var(--font-mono)',
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid var(--border-subtle)',
+                    color: '#ffffff'
+                  }}>
+                    Primary Driver: <strong style={{ color: isHighRisk ? '#fb7185' : '#38bdf8', textTransform: 'capitalize' }}>{result.top_risk_factor.replace('_', ' ')}</strong>
+                    {result.contribution_pct != null && ` (${result.contribution_pct}% attribution)`}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '0.82rem', lineHeight: 1.5, color: '#f4f4f5' }}>
+                <strong style={{ color: '#ffffff' }}>Recommended Step:</strong> {result.suggested_action}
+              </div>
+            </div>
+          )}
+
+          {/* Counterfactual "What Would Fix This" Remediation (Plan 2) */}
+          {isHighRisk && (
+            <div style={{
+              marginTop: 10,
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: 'rgba(56, 189, 248, 0.05)',
+              border: '1px solid rgba(56, 189, 248, 0.22)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 600, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <Wrench size={14} />
+                  <span>Counterfactual Remediation (What Would Fix This?)</span>
+                </div>
+                {!cfLoading && (
+                  <button
+                    type="button"
+                    onClick={handleFetchCounterfactual}
+                    className="preset-btn highlight"
+                    style={{ padding: '2px 8px', fontSize: '0.68rem', gap: 4 }}
+                    title="Re-run counterfactual parameter search"
+                  >
+                    <Sparkles size={11} /> Recalculate
+                  </button>
+                )}
+              </div>
+
+              {cfLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.74rem', color: 'var(--text-dim)', padding: '4px 0' }}>
+                  <Loader2 size={13} className="batch-spin" />
+                  <span>Searching parameter space for smallest risk-reversing adjustment...</span>
+                </div>
+              )}
+
+              {cfError && !cfLoading && (
+                <div style={{ fontSize: '0.74rem', color: '#fb7185', fontFamily: 'var(--font-mono)' }}>
+                  {cfError}
+                </div>
+              )}
+
+              {cfData && !cfLoading && (
+                <div style={{ fontSize: '0.8rem', color: '#f4f4f5', lineHeight: 1.5 }}>
+                  {cfData.already_safe ? (
+                    <span style={{ color: '#34d399' }}>Equipment is already operating below the risk threshold.</span>
+                  ) : cfData.target_value != null ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div>
+                        Throttling <strong style={{ color: '#38bdf8', textTransform: 'capitalize' }}>{cfData.feature_to_change?.replace('_', ' ')}</strong> to{' '}
+                        <strong style={{ color: '#34d399' }}>{cfData.target_value}</strong> (from {cfData.current_value},{' '}
+                        <strong style={{ color: '#fb7185' }}>-{cfData.reduction_needed_pct}%</strong>) will reverse failure risk:
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        fontSize: '0.76rem',
+                        fontFamily: 'var(--font-mono)',
+                        background: 'rgba(0,0,0,0.3)',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        flexWrap: 'wrap'
+                      }}>
+                        <span style={{ color: '#fb7185' }}>Risk Before: {cfData.risk_before}%</span>
+                        <ArrowRight size={13} style={{ color: '#94a3b8' }} />
+                        <span style={{ color: '#34d399', fontWeight: 700 }}>Risk After: {cfData.risk_after}% [NOMINAL]</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ color: 'var(--text-dim)' }}>
+                      {cfData.note || 'No single-parameter adjustment within tested range brings risk below threshold — recommend full inspection.'}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Root cause factors */}
           <div className="factors-section">
