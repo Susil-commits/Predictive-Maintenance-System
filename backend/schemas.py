@@ -98,3 +98,16 @@ class DriftStatusResponse(BaseModel):
     reference_version: Optional[str] = None
     message: Optional[str] = None
     feature_metrics: List[FeatureDriftMetric] = []
+
+class RetrievedSourceChunk(BaseModel):
+    failure_mode: str = Field(..., description="Failure mode category (Thermal, Overstrain, Tool Wear, Power, Vibration)")
+    title: str = Field(..., description="Document title of the standard operating procedure")
+    section: str = Field(..., description="Specific procedure section (e.g. Diagnostic Protocol, Remediation)")
+    content: str = Field(..., description="Verifiable industrial procedure text chunk")
+    relevance_score: Optional[float] = Field(None, description="Retrieval similarity score / distance")
+
+class NarrationOutput(PredictionOutput):
+    narrative: str = Field(..., description="Fluent, context-specific LLM narration strictly grounded in the prediction and retrieved procedures")
+    retrieved_sources: List[RetrievedSourceChunk] = Field(default_factory=list, description="Auditable procedure source chunks grounding the recommendation")
+    counterfactual: Optional[CounterfactualOutput] = Field(None, description="Counterfactual minimal-fix remediation analysis if requested or computed")
+

@@ -40,9 +40,11 @@ from .schemas import (
     ModelInfoResponse,
     HealthResponse,
     DriftStatusResponse,
-    RULOutput
+    RULOutput,
+    NarrationOutput
 )
 from .predictor import predictor, find_minimal_fix, FEATURE_ORDER, calibrated_model, scaler
+from .narration_service import orchestrate_predict_and_narrate
 from .rul_engine import predict_rul
 from .drift_detector import drift_detector
 from .batch import router as batch_router
@@ -315,6 +317,87 @@ def predict_maintenance(
     pred_result["prediction_id"] = pred_id
     pred_result["timestamp"] = now.isoformat()
     return pred_result
+
+@app.post("/predict/narrate", response_model=NarrationOutput, tags=["Prediction"])
+@limiter.limit(predict_rate_limit)
+def predict_with_narration(
+    request: Request,
+    input_data: PredictionInput,
+    include_counterfactual: bool = Query(False, description="Whether to include counterfactual remediation in response"),
+    db: Session = Depends(get_db)
+):
+    """
+    Given vehicle/equipment telemetry:
+    1. Computes ML failure risk probability & SHAP root causes (via existing predictor).
+    2. Retrieves standard industrial operating procedures from RAG vector store for the dominant risk factor.
+    3. Synthesizes a fluent, context-specific LLM narration strictly grounded in the prediction metrics.
+    4. Silently falls back to canned prescriptive guidance if the external LLM is down or times out.
+    5. Returns the auditable source chunks alongside the narrative.
+    """
+    t_start = time.perf_counter()
+    threshold = getattr(predictor, "threshold", 0.50)
+    try:
+        result = orchestrate_predict_and_narrate(
+            input_data.model_dump(),
+            threshold=threshold,
+            include_counterfactual=include_counterfactual
+        )
+    except Exception as e:
+        logger.error(f"Narration inference error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Inference error: {str(e)}"
+        )
+
+    # Metrics & Prometheus recording
+    failure_risk = result["failure_risk"]
+    METRICS["total_predictions"] += 1
+    if failure_risk == "HIGH":
+        METRICS["high_risk_predictions"] += 1
+    else:
+        METRICS["low_risk_predictions"] += 1
+    metrics.record_prediction(failure_risk)
+
+    pred_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    # Canary shadow evaluation if active
+    if canary_manager.is_active:
+        try:
+            features_df = predictor.engineer_features(input_data.model_dump())
+            canary_manager.evaluate_request(features_df, result, pred_id)
+        except Exception as c_err:
+            logger.warning(f"Canary shadow evaluation failed in narrate: {c_err}")
+
+    # Record latency
+    duration = time.perf_counter() - t_start
+    metrics.record_predict_latency(duration)
+
+    # Log prediction to database
+    try:
+        db_record = PredictionRecord(
+            prediction_id=pred_id,
+            timestamp=now,
+            temperature=input_data.temperature,
+            rpm=input_data.rpm,
+            pressure=input_data.pressure,
+            vibration=input_data.vibration,
+            operating_hours=input_data.operating_hours,
+            failure_risk=result["failure_risk"],
+            probability=result["probability"],
+            maintenance_required=result["maintenance_required"],
+            shap_values=result["shap_values"],
+            contributing_factors=result["contributing_factors"]
+        )
+        db.add(db_record)
+        db.commit()
+    except Exception as db_err:
+        db.rollback()
+        logger.warning(f"Failed to log prediction to database: {db_err}")
+
+    result["prediction_id"] = pred_id
+    result["timestamp"] = now.isoformat()
+    return result
 
 @app.post("/predict-counterfactual", response_model=CounterfactualOutput, tags=["Prediction"])
 @limiter.limit(predict_rate_limit)

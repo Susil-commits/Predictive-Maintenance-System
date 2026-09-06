@@ -23,6 +23,7 @@ pms.db
 mlruns/
 mlartifacts/
 mlflow/
+backend/chroma_db/
 
 # Node / Frontend
 frontend/node_modules/
