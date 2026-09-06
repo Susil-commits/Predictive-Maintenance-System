@@ -13,6 +13,13 @@ To evaluate production readiness under high-volume factory IoT telemetry streami
 
 Each virtual user simulates a dedicated factory edge gateway continuously streaming sensor telemetry (temperature, rotational speed, pressure, vibration amplitude, operating hours) to the `/predict` endpoint.
 
+> [!IMPORTANT]
+> **Production Context & Rate Limiting Bypass Disclosure:**
+> In standard production deployment, SlowAPI actively enforces a token-bucket rate limit of **60 requests/minute per client IP** (~1 req/s) on `/predict` to safeguard backend workers and database connection pools from exhaustion. For this benchmark harness, rate limiting was intentionally bypassed via `LOAD_TEST_MODE=1` (expanding the ceiling to 1,000,000 req/min) to stress-test the raw computational throughput of FFT feature extraction, calibrated XGBoost inference, SHAP TreeExplainer attribution, and PostgreSQL write commits.
+> 
+> **Takeaway on Production Throughput:** Real-world throughput for any single edge gateway or unauthenticated IP will be bounded by the **60 req/min (1 req/s)** policy unless whitelisted or assigned high-throughput API tiers. Aggregate production throughput will only scale toward the benchmarked numbers (~17-22 req/s) when distributed across multiple distinct client IP addresses.
+
+
 ---
 
 ## Benchmark Results Matrix
