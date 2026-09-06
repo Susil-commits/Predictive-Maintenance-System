@@ -51,11 +51,14 @@ if DATABASE_URL.startswith("postgresql"):
     for attempt in range(1, max_retries + 1):
         try:
             # Configure robust connection pooling for high-concurrency production workloads
+            # Configured to pool_size=20, max_overflow=30 with env override support for cloud pooler limits
+            db_pool_size = int(os.getenv("DB_POOL_SIZE", "20"))
+            db_max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "30"))
             test_engine = create_engine(
                 DATABASE_URL,
                 connect_args={'connect_timeout': 10},
-                pool_size=5,
-                max_overflow=10,
+                pool_size=db_pool_size,
+                max_overflow=db_max_overflow,
                 pool_timeout=30,
                 pool_recycle=300,
                 pool_pre_ping=True

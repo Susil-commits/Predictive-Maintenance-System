@@ -9,6 +9,7 @@ If statistical feature drift exceeds threshold (PSI >= 0.25):
 
 import os
 import sys
+import time
 import subprocess
 import logging
 import threading
@@ -155,7 +156,22 @@ class DriftScheduler:
         train_script = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml", "train.py"
         )
+        lock_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".retrain.lock"
+        )
+        # Multi-worker concurrency guard: prevent simultaneous retraining across multiple Uvicorn workers
+        if os.path.exists(lock_file):
+            try:
+                mtime = os.path.getmtime(lock_file)
+                if time.time() - mtime < 1800:
+                    logger.warning("[Scheduler Retrain] Retraining already in progress in another worker process. Skipping redundant trigger.")
+                    return
+            except Exception:
+                pass
+
         try:
+            with open(lock_file, "w") as f:
+                f.write(f"pid={os.getpid()}\ntimestamp={time.time()}\n")
             logger.info("[Scheduler Retrain] Executing ml/train.py...")
             result = subprocess.run(
                 [sys.executable, train_script],
@@ -178,6 +194,12 @@ class DriftScheduler:
             logger.error(f"[Scheduler Retrain] Unexpected error: {err}")
             with self._lock:
                 self.state["last_retrain_status"] = "FAILED"
+        finally:
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except Exception:
+                    pass
 
     def get_status(self) -> Dict[str, Any]:
         """Returns scheduler state and scheduled job details."""
