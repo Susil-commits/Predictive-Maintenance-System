@@ -14,16 +14,15 @@ logger = logging.getLogger("pms.database")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-# Default to local SQLite fallback if PostgreSQL is not specified or unavailable
-DATABASE_URL = os.getenv("DATABASE_URL") or None
-
-if not DATABASE_URL:
-    POSTGRES_USER = os.getenv("POSTGRES_USER") or "pms_user"
-    POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD") or "pms_secret"
-    POSTGRES_HOST = os.getenv("POSTGRES_HOST") or "localhost"
-    POSTGRES_PORT = os.getenv("POSTGRES_PORT") or "5432"
-    POSTGRES_DB = os.getenv("POSTGRES_DB") or "pms_db"
-    DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+_raw_db_url = os.getenv("DATABASE_URL")
+if not _raw_db_url or not _raw_db_url.strip():
+    raise RuntimeError(
+        "CRITICAL DATABASE CONFIGURATION ERROR: DATABASE_URL environment variable is not set. "
+        "Define DATABASE_URL in your environment or deployment dashboard."
+    )
+DATABASE_URL = _raw_db_url.strip()
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # Attempt to create engine with retry and exponential backoff, fallback gracefully to SQLite
 engine = None
@@ -53,6 +52,8 @@ if DATABASE_URL.startswith("postgresql"):
             if attempt < max_retries:
                 time.sleep(attempt * 1.0)
             else:
+                if os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production":
+                    raise RuntimeError(f"Failed to connect to production PostgreSQL database at {DATABASE_URL}: {err}") from err
                 fallback_url = "sqlite:///./pms.db"
                 logger.error(f"All PostgreSQL connection attempts failed. Falling back to local SQLite database: {fallback_url}")
                 DATABASE_URL = fallback_url

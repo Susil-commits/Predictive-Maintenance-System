@@ -484,4 +484,27 @@ def test_predict_with_uncertainty():
     assert "recommendation" in res
 
 
+def test_validate_startup_env_success():
+    from backend.main import validate_startup_env
+    # Current environment has all required vars set in .env / CI
+    validate_startup_env()
 
+
+def test_validate_startup_env_missing_single_var(monkeypatch):
+    from backend.main import validate_startup_env
+    monkeypatch.delenv("PMS_API_KEY", raising=False)
+    with pytest.raises(RuntimeError) as exc_info:
+        validate_startup_env()
+    assert "PMS_API_KEY" in str(exc_info.value)
+    assert "Missing required environment variables" in str(exc_info.value)
+
+
+def test_validate_startup_env_missing_multiple_vars(monkeypatch):
+    from backend.main import validate_startup_env
+    monkeypatch.setenv("DATABASE_URL", "   ")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    with pytest.raises(RuntimeError) as exc_info:
+        validate_startup_env()
+    err = str(exc_info.value)
+    assert "DATABASE_URL" in err
+    assert "JWT_SECRET" in err

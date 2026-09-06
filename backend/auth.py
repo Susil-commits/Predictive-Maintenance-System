@@ -29,16 +29,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 _raw_jwt = os.getenv("JWT_SECRET")
-if not _raw_jwt:
-    if os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production":
-        logger.critical(
-            "CRITICAL SECURITY WARNING: JWT_SECRET environment variable is not set in production! "
-            "Configure JWT_SECRET in your Render/deployment dashboard environment variables."
-        )
-    _raw_jwt = "pms-super-secret-jwt-signing-key-2026"
-JWT_SECRET: str = _raw_jwt
+if not _raw_jwt or not _raw_jwt.strip():
+    raise RuntimeError(
+        "CRITICAL SECURITY CONFIGURATION ERROR: JWT_SECRET environment variable is not set. "
+        "Define JWT_SECRET in your environment or deployment dashboard."
+    )
+JWT_SECRET: str = _raw_jwt.strip()
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
+
+_raw_pms_api_key = os.getenv("PMS_API_KEY")
+if not _raw_pms_api_key or not _raw_pms_api_key.strip():
+    raise RuntimeError(
+        "CRITICAL SECURITY CONFIGURATION ERROR: PMS_API_KEY environment variable is not set. "
+        "Define PMS_API_KEY in your environment or deployment dashboard."
+    )
+PMS_API_KEY: str = _raw_pms_api_key.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +133,7 @@ def require_admin_auth(
     Hybrid admin dependency: accepts either a valid admin API key ('X-API-Key')
     or a valid admin JWT ('Authorization: Bearer <jwt>').
     """
-    expected_key = (os.getenv("PMS_API_KEY") or "pms-admin-secret-key").strip()
-    if x_api_key and secrets.compare_digest(x_api_key.strip(), expected_key):
+    if x_api_key and secrets.compare_digest(x_api_key.strip(), PMS_API_KEY):
         return {"auth_type": "api_key", "role": "admin"}
 
     if authorization and authorization.startswith("Bearer "):
@@ -156,16 +161,14 @@ def require_admin_auth(
 
 def seed_initial_admin(db: Session):
     """Ensure at least one admin user exists in the database on startup and credentials match config."""
+    admin_username = (os.getenv("ADMIN_USERNAME") or "admin").strip()
+    admin_password = (os.getenv("ADMIN_PASSWORD") or "").strip()
+    if not admin_password:
+        raise RuntimeError(
+            "CRITICAL SECURITY CONFIGURATION ERROR: ADMIN_PASSWORD environment variable is not set. "
+            "Define ADMIN_PASSWORD in your environment or deployment dashboard."
+        )
     try:
-        admin_username = (os.getenv("ADMIN_USERNAME") or "admin").strip()
-        admin_password = (os.getenv("ADMIN_PASSWORD") or "").strip()
-        if not admin_password:
-            if os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production":
-                logger.critical(
-                    "CRITICAL SECURITY WARNING: ADMIN_PASSWORD environment variable is not set in production! "
-                    "Configure ADMIN_PASSWORD in your Render/deployment dashboard environment variables."
-                )
-            admin_password = "PmsAdmin#Secure2026!"
         admin = db.query(User).filter(User.role == "admin").first()
         if not admin:
             new_admin = User(

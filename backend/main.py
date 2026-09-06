@@ -9,6 +9,17 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+load_dotenv()
+
+def validate_startup_env():
+    required_vars = ["DATABASE_URL", "PMS_API_KEY", "JWT_SECRET", "ADMIN_PASSWORD"]
+    missing = [v for v in required_vars if not os.getenv(v, "").strip()]
+    if missing:
+        raise RuntimeError(f"Missing required environment variables at startup: {', '.join(missing)}")
+
+validate_startup_env()
+
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, status, Request, Header, Body
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -56,6 +67,8 @@ def init_db():
                 pass
         with SessionLocal() as _db:
             seed_initial_admin(_db)
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.info(f"Table creation/admin seed note: {e}")
 
@@ -63,6 +76,7 @@ init_db()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_startup_env()
     init_db()
     yield
 
@@ -95,7 +109,7 @@ def custom_openapi():
             "type": "apiKey",
             "in": "header",
             "name": "X-API-Key",
-            "description": "Administrative API Key (Default test key: `pms-admin-secret-key`)"
+            "description": "Administrative API Key matching PMS_API_KEY environment variable"
         },
         "BearerAuth": {
             "type": "http",
