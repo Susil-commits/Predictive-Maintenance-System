@@ -34,10 +34,10 @@ jobs:
       - name: Run Pytest Suite
         env:
           DATABASE_URL: sqlite:///./pms.db
-          PMS_API_KEY: ${{ secrets.CI_TEST_API_KEY }}
+          PMS_API_KEY: ${{ secrets.CI_TEST_API_KEY || 'pms-ci-test-api-key' }}
           ADMIN_USERNAME: admin
-          ADMIN_PASSWORD: ${{ secrets.CI_TEST_ADMIN_PASSWORD }}
-          JWT_SECRET: ${{ secrets.CI_TEST_JWT_SECRET }}
+          ADMIN_PASSWORD: ${{ secrets.CI_TEST_ADMIN_PASSWORD || 'PmsAdmin#Secure2026!' }}
+          JWT_SECRET: ${{ secrets.CI_TEST_JWT_SECRET || 'pms-super-secret-jwt-signing-key-2026' }}
           PYTHONPATH: .
         run: |
           pytest backend/tests/ -v
