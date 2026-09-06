@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from backend.main import app
 
 client = TestClient(app)
-ADMIN_API_KEY = (os.getenv("PMS_API_KEY") or "pms-admin-secret-key").strip()
+ADMIN_API_KEY = (os.getenv("PMS_API_KEY") or "").strip()
 
 def test_health_endpoint():
     response = client.get("/health")
@@ -224,8 +224,8 @@ def test_rate_limiter_allows_requests():
 
 def test_auth_login_seeded_admin_and_jwt():
     # Login with seeded admin account
-    admin_user = os.getenv("ADMIN_USERNAME") or "admin"
-    admin_pass = os.getenv("ADMIN_PASSWORD") or "PmsAdmin#Secure2026!"
+    admin_user = (os.getenv("ADMIN_USERNAME") or "admin").strip()
+    admin_pass = (os.getenv("ADMIN_PASSWORD") or "").strip()
     res = client.post("/auth/login", json={
         "username": admin_user,
         "password": admin_pass
@@ -245,8 +245,8 @@ def test_auth_login_seeded_admin_and_jwt():
     assert isinstance(users_res.json(), list)
 
 def test_auth_create_user_with_designation():
-    admin_user = os.getenv("ADMIN_USERNAME") or "admin"
-    admin_pass = os.getenv("ADMIN_PASSWORD") or "PmsAdmin#Secure2026!"
+    admin_user = (os.getenv("ADMIN_USERNAME") or "admin").strip()
+    admin_pass = (os.getenv("ADMIN_PASSWORD") or "").strip()
     login_res = client.post("/auth/login", json={"username": admin_user, "password": admin_pass})
     assert login_res.status_code == 200
     token = login_res.json()["access_token"]
