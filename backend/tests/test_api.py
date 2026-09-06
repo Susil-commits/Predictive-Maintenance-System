@@ -508,3 +508,119 @@ def test_validate_startup_env_missing_multiple_vars(monkeypatch):
     err = str(exc_info.value)
     assert "DATABASE_URL" in err
     assert "JWT_SECRET" in err
+
+
+def test_request_id_tracing_middleware():
+    # 1. Without header -> Server generates X-Request-ID
+    res = client.get("/health")
+    assert res.status_code == 200
+    assert "x-request-id" in res.headers
+    generated_id = res.headers["x-request-id"]
+    assert len(generated_id) > 0
+
+    # 2. With custom header -> Server echoes exact X-Request-ID
+    custom_trace_id = "trace-pms-test-uuid-999"
+    res2 = client.get("/health", headers={"X-Request-ID": custom_trace_id})
+    assert res2.status_code == 200
+    assert res2.headers["x-request-id"] == custom_trace_id
+
+
+def test_prometheus_latency_histogram_and_counters():
+    # Send a predict request to increment metrics
+    payload = {
+        "temperature": 75.0,
+        "rpm": 1800,
+        "pressure": 22.0,
+        "vibration": 0.25,
+        "operating_hours": 1200
+    }
+    pred_res = client.post("/predict", json=payload)
+    assert pred_res.status_code == 200
+
+    metrics_res = client.get("/metrics")
+    assert metrics_res.status_code == 200
+    content = metrics_res.text
+
+    # Verify Latency Histogram buckets and sum
+    assert "pms_predict_latency_seconds_bucket" in content
+    assert 'le="0.05"' in content
+    assert 'le="+Inf"' in content
+    assert "pms_predict_latency_seconds_sum" in content
+    assert "pms_predict_latency_seconds_count" in content
+
+    # Verify risk counters
+    assert "pms_predictions_by_risk_total" in content
+    assert 'risk="HIGH"' in content or 'risk="LOW"' in content
+
+
+def test_model_info_segmented_performance():
+    res = client.get("/model-info")
+    assert res.status_code == 200
+    data = res.json()
+    assert "segmented_performance" in data
+    seg = data["segmented_performance"]
+    assert "Thermal Failure" in seg
+    assert "Overstrain Failure" in seg
+    assert "Tool Wear Failure" in seg
+    assert "Power Failure" in seg
+    assert "Overall" in seg
+
+    # Check metrics present in breakdown
+    thermal = seg["Thermal Failure"]
+    assert "precision" in thermal
+    assert "recall" in thermal
+    assert "f1_score" in thermal
+    assert "support_failures" in thermal
+    assert thermal["support_failures"] > 0
+
+
+def test_canary_rollout_lifecycle():
+    # 1. Check initial canary status
+    status_res = client.get("/canary/status")
+    assert status_res.status_code == 200
+    initial_status = status_res.json()
+    assert "is_active" in initial_status
+    assert "remaining_requests" in initial_status
+
+    # 2. Activate canary rollout (requires admin auth)
+    start_res = client.post("/canary/start", headers={"X-API-Key": ADMIN_API_KEY})
+    assert start_res.status_code == 200
+    active_data = start_res.json()
+    assert active_data["is_active"] is True
+    assert active_data["remaining_requests"] == 50
+
+    # 3. Send predict request and verify shadow evaluation
+    payload = {
+        "temperature": 70.0,
+        "rpm": 1600,
+        "pressure": 21.0,
+        "vibration": 0.20,
+        "operating_hours": 1000
+    }
+    pred_res = client.post("/predict", json=payload)
+    assert pred_res.status_code == 200
+
+    status_after = client.get("/canary/status").json()
+    assert status_after["evaluated_requests"] >= 1
+    assert status_after["remaining_requests"] <= 49
+
+    # 4. Abort canary rollout
+    abort_res = client.post("/canary/abort", headers={"X-API-Key": ADMIN_API_KEY})
+    assert abort_res.status_code == 200
+    assert abort_res.json()["status"] == "ABORTED"
+
+
+def test_scheduler_jobs_and_manual_trigger():
+    # 1. Get scheduler status and jobs
+    jobs_res = client.get("/scheduler/jobs")
+    assert jobs_res.status_code == 200
+    jobs_data = jobs_res.json()
+    assert "is_running" in jobs_data
+    assert "active_jobs" in jobs_data
+
+    # 2. Manually trigger drift check via admin endpoint
+    trigger_res = client.post("/scheduler/run-drift-check", headers={"X-API-Key": ADMIN_API_KEY})
+    assert trigger_res.status_code == 200
+    res_data = trigger_res.json()
+    assert "status" in res_data
+    assert "retraining_recommended" in res_data

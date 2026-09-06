@@ -1,6 +1,6 @@
 {
-  "model_version": "v14",
-  "generated_at": "2026-09-06 06:59:42",
+  "model_version": "v15",
+  "generated_at": "2026-09-06 18:09:57",
   "sample_count": 10000,
   "features": {
     "temperature": {

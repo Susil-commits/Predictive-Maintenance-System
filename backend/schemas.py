@@ -56,6 +56,8 @@ class ModelInfoResponse(BaseModel):
     metrics: Dict[str, Any]
     feature_names: List[str]
     base_features: List[str]
+    segmented_performance: Optional[Dict[str, Any]] = None
+    scenario_validation: Optional[Dict[str, Any]] = None
 
 class HealthResponse(BaseModel):
     status: str

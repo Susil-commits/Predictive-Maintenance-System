@@ -2,7 +2,7 @@ import os
 from typing import List, Dict, Any, Tuple, Union
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression
+from xgboost import XGBRegressor
 import joblib
 
 ML_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,7 +44,7 @@ def engineer_rolling_features(unit_data: pd.DataFrame, window_size: int = 20) ->
 
 def generate_rul_trajectories(n_units: int = 100, cycles_per_unit: int = 150) -> pd.DataFrame:
     """
-    Simulate equipment degradation over time.
+    Simulate equipment degradation over time with non-linear acceleration near end-of-life.
     Each unit has cycles_per_unit readings before failure.
     RUL = cycles remaining until failure.
     """
@@ -54,18 +54,26 @@ def generate_rul_trajectories(n_units: int = 100, cycles_per_unit: int = 150) ->
     for unit_id in range(1, n_units + 1):
         cycles = np.arange(0, cycles_per_unit)
         
-        # Degradation trajectory: sensors slowly degrade and drift upwards
+        # Non-linear degradation acceleration factor (bathtub curve near failure)
+        progress = cycles / float(cycles_per_unit)
+        # Accelerates significantly after 60% of asset life has elapsed
+        accel = 1.0 + 3.2 * np.power(np.maximum(0.0, progress - 0.5) / 0.5, 2.5)
+        
+        # Degradation trajectory: sensors degrade with accelerating velocity
         temp_base = 68.0 + (unit_id % 10) * 1.5
-        temp_drift = np.cumsum(np.random.normal(0.045, 0.02, len(cycles)))
-        temp_trajectory = np.clip(temp_base + temp_drift, 58.0, 112.0)
+        temp_step = np.random.normal(0.040, 0.015, len(cycles)) * accel
+        temp_drift = np.cumsum(temp_step)
+        temp_trajectory = np.clip(temp_base + temp_drift, 58.0, 115.0)
         
         vibration_base = 0.22 + (unit_id % 10) * 0.015
-        vibration_drift = np.cumsum(np.random.normal(0.0022, 0.0008, len(cycles)))
-        vibration_trajectory = np.clip(vibration_base + vibration_drift, 0.15, 1.10)
+        vib_step = np.random.normal(0.0018, 0.0006, len(cycles)) * accel
+        vibration_drift = np.cumsum(vib_step)
+        vibration_trajectory = np.clip(vibration_base + vibration_drift, 0.15, 1.25)
         
         pressure_base = 22.0 + (unit_id % 5) * 1.8
-        pressure_drift = np.cumsum(np.random.normal(0.028, 0.012, len(cycles)))
-        pressure_trajectory = np.clip(pressure_base + pressure_drift, 18.0, 46.0)
+        press_step = np.random.normal(0.024, 0.010, len(cycles)) * accel
+        pressure_drift = np.cumsum(press_step)
+        pressure_trajectory = np.clip(pressure_base + pressure_drift, 18.0, 48.0)
         
         rpm = np.random.uniform(1500, 3000, len(cycles))
         
@@ -85,8 +93,8 @@ def generate_rul_trajectories(n_units: int = 100, cycles_per_unit: int = 150) ->
     return pd.DataFrame(data)
 
 def train_rul_model():
-    """Train and serialize RUL linear regression baseline model."""
-    print("Generating equipment degradation trajectories...")
+    """Train and serialize upgraded RUL XGBRegressor model with non-linear dynamics."""
+    print("Generating equipment degradation trajectories (with non-linear acceleration)...")
     df = generate_rul_trajectories(n_units=100, cycles_per_unit=150)
     
     print(f"Total samples generated: {len(df)}")
@@ -117,31 +125,39 @@ def train_rul_model():
     print(f"Final training feature matrix shape: {X.shape}")
     print(f"Feature columns ({len(feature_cols)}): {feature_cols}")
     
-    print("Fitting RUL Linear Regression model...")
-    model = LinearRegression()
-    model.fit(X, y)
+    # Train-test split by units (held-out test units 91-100)
+    test_mask = np.isin(df['unit_id'].values[df['cycle'].values >= 20], list(range(91, 101)))
+    X_train, X_test = X[~test_mask], X[test_mask]
+    y_train, y_test = y[~test_mask], y[test_mask]
     
-    # Evaluate on held-out test unit (unit 100)
-    test_unit = df[df['unit_id'] == df['unit_id'].max()].reset_index(drop=True)
-    test_features = engineer_rolling_features(test_unit, window_size=20)
-    test_X = test_features.values[20:]
-    test_y = test_unit['rul'].values[20:]
+    print("Fitting RUL XGBRegressor model (capturing non-linear acceleration)...")
+    model = XGBRegressor(
+        n_estimators=140,
+        max_depth=4,
+        learning_rate=0.04,
+        subsample=0.85,
+        colsample_bytree=0.85,
+        random_state=42,
+        n_jobs=-1
+    )
+    model.fit(X_train, y_train)
     
-    predictions = model.predict(test_X)
-    mape = float(np.mean(np.abs((test_y - predictions) / np.maximum(test_y, 1))) * 100)
-    rmse = float(np.sqrt(np.mean((test_y - predictions) ** 2)))
+    predictions = model.predict(X_test)
+    mape = float(np.mean(np.abs((y_test - predictions) / np.maximum(y_test, 1))) * 100)
+    rmse = float(np.sqrt(np.mean((y_test - predictions) ** 2)))
     
-    print(f"RUL Test MAPE: {mape:.2f}%")
-    print(f"RUL Test RMSE: {rmse:.2f} cycles")
+    print(f"Upgraded RUL Test MAPE: {mape:.2f}%")
+    print(f"Upgraded RUL Test RMSE: {rmse:.2f} cycles")
     
     model_artifact = {
         "model": model,
+        "model_type": "XGBRegressor",
         "feature_cols": feature_cols,
-        "mape": mape,
-        "rmse": rmse
+        "mape": round(mape, 2),
+        "rmse": round(rmse, 2)
     }
     joblib.dump(model_artifact, RUL_MODEL_PATH)
-    print(f"Saved trained RUL model to {RUL_MODEL_PATH}")
+    print(f"Saved upgraded RUL model to {RUL_MODEL_PATH}")
     return model, mape, rmse
 
 _cached_rul_artifact = None

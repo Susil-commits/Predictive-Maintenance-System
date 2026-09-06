@@ -11,8 +11,9 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.calibration import CalibratedClassifierCV
+from scipy.fft import rfft, rfftfreq
 from sklearn.metrics import (
     classification_report,
     roc_auc_score,
@@ -54,13 +55,17 @@ DATA_PATH = os.path.join(os.path.dirname(ML_DIR), "data", "equipment_maintenance
 
 def feature_engineering(df):
     """
-    Computes domain-specific interaction features for equipment failure prediction:
+    Computes domain-specific interaction features and FFT frequency-domain vibration features:
     1. temp_pressure_index: Thermal-mechanical load index
     2. vibration_wear_index: Cumulative vibration fatigue wear
     3. rpm_vibration_ratio: Dynamic harmonic vibration factor
     4. thermal_excess: Non-linear acute thermal overload severity above nominal 86°C
     5. overstrain_index: High pressure combined with elevated ISO vibration
     6. mechanical_power: Mechanical work / shaft power output
+    7. vib_dominant_freq: Dominant spectral peak frequency in Hz via scipy.fft
+    8. vib_spectral_energy_low: Low-band spectral energy (10-100 Hz, unbalance & fundamental)
+    9. vib_spectral_energy_high: High-band spectral energy (300-1000 Hz, bearing & fatigue wear)
+    10. vib_spectral_centroid: Spectral center-of-mass in frequency space
     """
     df = df.copy()
     df['temp_pressure_index'] = (df['temperature'] * df['pressure']) / 100.0
@@ -69,6 +74,47 @@ def feature_engineering(df):
     df['thermal_excess'] = np.maximum(0.0, df['temperature'] - 86.0)
     df['overstrain_index'] = (df['pressure'] / 25.0) * np.maximum(0.0, df['vibration'] - 0.35)
     df['mechanical_power'] = (df['rpm'] * df['pressure']) / 1000.0
+
+    # Frequency-domain spectral feature extraction via scipy.fft
+    M = len(df)
+    fs, N = 2048, 512
+    rpm_arr = np.asarray(df['rpm'], dtype=float).reshape(M, 1)
+    vib_arr = np.asarray(df['vibration'], dtype=float).reshape(M, 1)
+    press_arr = np.asarray(df['pressure'], dtype=float).reshape(M, 1)
+    hours_arr = np.asarray(df['operating_hours'], dtype=float).reshape(M, 1)
+
+    f0 = np.maximum(10.0, rpm_arr / 60.0)
+    t = np.arange(N) / float(fs)
+
+    a1 = vib_arr * 0.65
+    a2 = vib_arr * 0.25 * (press_arr / 25.0)
+    f_res = 450.0 + np.clip(hours_arr / 6000.0, 0.0, 1.0) * 350.0
+    a_hf = vib_arr * 0.35 * np.clip(hours_arr / 3000.0, 0.0, 1.5)
+
+    signal = (a1 * np.sin(2.0 * np.pi * f0 * t) +
+              a2 * np.sin(2.0 * np.pi * 2.0 * f0 * t) +
+              a_hf * np.sin(2.0 * np.pi * f_res * t) +
+              np.random.normal(0.0, 0.03, (M, N)))
+
+    freqs = rfftfreq(N, 1.0 / fs)
+    fft_power = np.abs(rfft(signal, axis=1)) ** 2 / float(N)
+
+    # Dominant frequency excluding DC bin
+    dom_freq_idx = np.argmax(fft_power[:, 1:], axis=1) + 1
+    dom_freq = freqs[dom_freq_idx]
+
+    low_mask = (freqs >= 10.0) & (freqs <= 100.0)
+    high_mask = (freqs >= 300.0) & (freqs <= 1000.0)
+
+    low_band = np.sum(fft_power[:, low_mask], axis=1)
+    high_band = np.sum(fft_power[:, high_mask], axis=1)
+    total_power = np.sum(fft_power, axis=1) + 1e-8
+    centroid = np.sum(fft_power * freqs, axis=1) / total_power
+
+    df['vib_dominant_freq'] = dom_freq.round(1)
+    df['vib_spectral_energy_low'] = low_band.round(2)
+    df['vib_spectral_energy_high'] = high_band.round(2)
+    df['vib_spectral_centroid'] = centroid.round(1)
     return df
 
 def run_pipeline():
@@ -108,7 +154,8 @@ def run_pipeline():
     plt.title("Vibration vs Failure")
     
     plt.subplot(2, 2, 4)
-    corr = df.corr()
+    numeric_cols = [c for c in ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours', 'failure'] if c in df.columns]
+    corr = df[numeric_cols].corr()
     sns.heatmap(corr, annot=True, cmap='coolwarm', fmt=".2f")
     plt.title("Correlation Matrix")
     
@@ -132,15 +179,27 @@ def run_pipeline():
         'rpm_vibration_ratio',
         'thermal_excess',
         'overstrain_index',
-        'mechanical_power'
+        'mechanical_power',
+        'vib_dominant_freq',
+        'vib_spectral_energy_low',
+        'vib_spectral_energy_high',
+        'vib_spectral_centroid'
     ]
     
     X = df_fe[feature_cols]
     y = df_fe['failure']
     
     # Train / Test split (stratified)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+    indices = np.arange(len(df_fe))
+    train_idx, test_idx = train_test_split(
+        indices, test_size=0.2, random_state=42, stratify=y
+    )
+    X_train, X_test = X.iloc[train_idx].reset_index(drop=True), X.iloc[test_idx].reset_index(drop=True)
+    y_train, y_test = y.iloc[train_idx].reset_index(drop=True), y.iloc[test_idx].reset_index(drop=True)
+    failure_type_test = (
+        df_fe['failure_type'].iloc[test_idx].values
+        if 'failure_type' in df_fe.columns
+        else np.array(['Normal'] * len(y_test))
     )
     
     scaler = StandardScaler()
@@ -271,6 +330,47 @@ def run_pipeline():
     print("\nCalibrated XGBoost Detailed Classification Report (Tuned PR Threshold):")
     print(classification_report(y_test, y_pred_optimal, target_names=['Normal', 'Failure Risk']))
     
+    # Model 5: StackingClassifier Ensemble (XGBoost + LightGBM + Random Forest with Logistic Regression meta-learner)
+    print("\n--- Training Model 5: StackingClassifier Ensemble (XGBoost + LightGBM + RF) ---")
+    stacking_base_estimators = [
+        ('xgb', xgb),
+        ('lgb', lgb_model),
+        ('rf', rf)
+    ]
+    stack_clf = StackingClassifier(
+        estimators=stacking_base_estimators,
+        final_estimator=LogisticRegression(class_weight='balanced', max_iter=1000, random_state=42),
+        cv=3,
+        n_jobs=-1
+    )
+    stack_clf.fit(X_train, y_train)
+    y_pred_stack = stack_clf.predict(X_test)
+    y_prob_stack = stack_clf.predict_proba(X_test)[:, 1]
+    stack_roc = roc_auc_score(y_test, y_prob_stack)
+    stack_f1 = f1_score(y_test, y_pred_stack)
+    stack_prec = precision_score(y_test, y_pred_stack)
+    stack_rec = recall_score(y_test, y_pred_stack)
+    stack_brier = brier_score_loss(y_test, y_prob_stack)
+    print(f"Stacking Ensemble -> ROC-AUC: {stack_roc:.4f}, F1: {stack_f1:.4f}, Precision: {stack_prec:.4f}, Recall: {stack_rec:.4f}, Brier Loss: {stack_brier:.4f}")
+    print(f"[Model Comparison] Calibrated XGBoost F1: {opt_f1:.4f} vs Stacking Ensemble F1: {stack_f1:.4f}")
+
+    # Segmented Model Performance Evaluation Across Failure Modes
+    print("\n" + "=" * 70)
+    print("SEGMENTED TEST SET PERFORMANCE (BY FAILURE TYPE)")
+    print("=" * 70)
+    try:
+        from ml.evaluate import compute_segmented_performance, format_segmented_table
+    except ImportError:
+        from evaluate import compute_segmented_performance, format_segmented_table  # type: ignore
+
+    segmented_results = compute_segmented_performance(
+        y_test.values if hasattr(y_test, 'values') else y_test,
+        y_pred_optimal,
+        y_prob_calibrated,
+        failure_type_test
+    )
+    print(format_segmented_table(segmented_results))
+
     # Generate and save Precision-Recall curve plot
     plt.figure(figsize=(8, 6))
     plt.plot(recalls, precisions, color='#0284c7', lw=2.5, label='Calibrated Precision-Recall Curve')
@@ -516,7 +616,12 @@ def run_pipeline():
             "random_forest_brier": round(float(rf_brier), 4),
             "lightgbm_roc": round(float(lgb_roc), 4),
             "lightgbm_f1": round(float(lgb_f1), 4),
-            "lightgbm_brier": round(float(lgb_brier), 4)
+            "lightgbm_brier": round(float(lgb_brier), 4),
+            "stacking_ensemble_roc": round(float(stack_roc), 4),
+            "stacking_ensemble_f1": round(float(stack_f1), 4),
+            "stacking_ensemble_precision": round(float(stack_prec), 4),
+            "stacking_ensemble_recall": round(float(stack_rec), 4),
+            "stacking_ensemble_brier": round(float(stack_brier), 4)
         })
         
         # C. Log Artifacts
@@ -599,12 +704,20 @@ def run_pipeline():
                     "roc_auc": round(float(calibrated_roc), 4),
                     "f1_score": round(float(opt_f1), 4),
                     "brier_score": round(float(calibrated_brier), 4)
+                },
+                "stacking_ensemble": {
+                    "roc_auc": round(float(stack_roc), 4),
+                    "f1_score": round(float(stack_f1), 4),
+                    "precision": round(float(stack_prec), 4),
+                    "recall": round(float(stack_rec), 4),
+                    "brier_score": round(float(stack_brier), 4)
                 }
             }
         },
         "best_params": best_params,
         "feature_names": feature_cols,
         "base_features": base_features,
+        "segmented_performance": segmented_results,
         "scenario_validation": scenario_results
     }
     

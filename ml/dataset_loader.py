@@ -123,17 +123,48 @@ def download_and_prepare_dataset():
     # 5. Operating Hours: 200 - 6000 hrs (derived from tool wear accumulation)
     operating_hours = np.clip(200.0 + wear_norm * 4800.0 + np.random.normal(0, 50, n), 100.0, 6500.0).round()
     
+    # Extract failure mode flags for segmented performance analysis
+    hdf = df_raw['HDF'].fillna(0).astype(int) if 'HDF' in df_raw.columns else pd.Series(0, index=df.index)
+    osf = df_raw['OSF'].fillna(0).astype(int) if 'OSF' in df_raw.columns else pd.Series(0, index=df.index)
+    twf = df_raw['TWF'].fillna(0).astype(int) if 'TWF' in df_raw.columns else pd.Series(0, index=df.index)
+    pwf = df_raw['PWF'].fillna(0).astype(int) if 'PWF' in df_raw.columns else pd.Series(0, index=df.index)
+    rnf = df_raw['RNF'].fillna(0).astype(int) if 'RNF' in df_raw.columns else pd.Series(0, index=df.index)
+
+    def determine_failure_type(row):
+        if row['failure'] == 0:
+            return 'Normal'
+        types = []
+        if row['hdf'] == 1:
+            types.append('Thermal Failure')
+        if row['osf'] == 1:
+            types.append('Overstrain Failure')
+        if row['twf'] == 1:
+            types.append('Tool Wear Failure')
+        if row['pwf'] == 1:
+            types.append('Power Failure')
+        if row['rnf'] == 1:
+            types.append('Random Failure')
+        return types[0] if types else 'Other Failure'
+
     clean_df = pd.DataFrame({
         "temperature": temperature.round(1),
         "rpm": rpm.astype(int),
         "pressure": pressure.round(1),
         "vibration": vibration.round(2),
         "operating_hours": operating_hours.astype(int),
-        "failure": df['failure'].astype(int)
+        "failure": df['failure'].astype(int),
+        "hdf": hdf,
+        "osf": osf,
+        "twf": twf,
+        "pwf": pwf,
+        "rnf": rnf
     })
+    clean_df['failure_type'] = clean_df.apply(determine_failure_type, axis=1)
     
     clean_df.to_csv(PROCESSED_CSV, index=False)
     print(f"Processed dataset saved to {PROCESSED_CSV} (Total rows: {len(clean_df)}, Failure rate: {clean_df['failure'].mean():.2%})")
+    print("Failure Mode Breakdown in dataset:")
+    print(clean_df['failure_type'].value_counts())
     return clean_df
 
 if __name__ == "__main__":

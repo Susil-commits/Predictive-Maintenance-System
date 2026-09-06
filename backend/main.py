@@ -28,7 +28,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, text
 
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.openapi.utils import get_openapi
 
 from .database import engine, Base, get_db, SessionLocal
@@ -48,10 +48,12 @@ from .batch import router as batch_router
 from .limiter import limiter
 from .auth import router as auth_router, seed_initial_admin, require_admin_auth, require_admin_jwt
 from .docs_theme import API_DESCRIPTION, TAGS_METADATA, get_pms_swagger_html, get_pms_redoc_html
+from .logging_config import set_request_id, get_request_id, setup_logging
+from .metrics import metrics
+from .scheduler import drift_scheduler
+from .canary import canary_manager
 
 logger = logging.getLogger("pms.api")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 def init_db():
     """Ensure tables are created and default admin is seeded."""
@@ -78,7 +80,9 @@ init_db()
 async def lifespan(app: FastAPI):
     validate_startup_env()
     init_db()
+    drift_scheduler.start()
     yield
+    drift_scheduler.shutdown()
 
 app = FastAPI(
     title="Predictive Maintenance System API",
@@ -92,6 +96,21 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Binds or generates X-Request-ID for end-to-end distributed tracing across logs and responses."""
+    req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    set_request_id(req_id)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = req_id
+    return response
+
+def predict_rate_limit() -> str:
+    """Dynamic rate limiter supporting load test mode via LOAD_TEST_MODE env var."""
+    if os.getenv("LOAD_TEST_MODE") == "1":
+        return "1000000/minute"
+    return "60/minute"
 
 def custom_openapi():
     if app.openapi_schema:
@@ -159,26 +178,9 @@ METRICS = {
 @app.get("/metrics", tags=["Metrics"])
 def get_metrics():
     """
-    Exposes Prometheus format system, prediction, and MLOps drift metrics.
+    Exposes Prometheus format system, prediction latency histogram, risk counters, and MLOps drift metrics.
     """
-    lines = [
-        "# HELP pms_predictions_total Total number of equipment risk predictions evaluated",
-        "# TYPE pms_predictions_total counter",
-        f"pms_predictions_total {METRICS['total_predictions']}",
-        "# HELP pms_predictions_high_risk Total number of HIGH risk predictions",
-        "# TYPE pms_predictions_high_risk counter",
-        f"pms_predictions_high_risk {METRICS['high_risk_predictions']}",
-        "# HELP pms_predictions_low_risk Total number of LOW risk predictions",
-        "# TYPE pms_predictions_low_risk counter",
-        f"pms_predictions_low_risk {METRICS['low_risk_predictions']}",
-        "# HELP pms_drift_detected Flag indicating whether data drift is detected (1=Drift, 0=Stable)",
-        "# TYPE pms_drift_detected gauge",
-        f"pms_drift_detected {METRICS['drift_detected']}",
-        "# HELP pms_drift_max_psi Maximum Population Stability Index (PSI) observed across features",
-        "# TYPE pms_drift_max_psi gauge",
-        f"pms_drift_max_psi {METRICS['max_psi']}",
-    ]
-    return "\n".join(lines) + "\n"
+    return PlainTextResponse(metrics.generate_prometheus_text(), media_type="text/plain; version=0.0.4")
 
 # Enable CORS for frontend
 app.add_middleware(
@@ -233,7 +235,7 @@ def get_model_info():
     return metadata
 
 @app.post("/predict", response_model=PredictionOutput, tags=["Prediction"])
-@limiter.limit("60/minute")
+@limiter.limit(predict_rate_limit)
 def predict_maintenance(
     request: Request,
     input_data: PredictionInput,
@@ -243,7 +245,9 @@ def predict_maintenance(
     Given vehicle/equipment telemetry, predicts failure risk, probability,
     and computes SHAP-based feature contributions. Logs result to PostgreSQL/database.
     Applies the decision threshold tuned via Precision-Recall curve.
+    Evaluates dual-model shadow prediction if canary rollout is active.
     """
+    t_start = time.perf_counter()
     # Active decision threshold tuned via Precision-Recall curve (defaulting to 0.50 if not specified)
     threshold = getattr(predictor, "threshold", 0.50)
     try:
@@ -260,16 +264,30 @@ def predict_maintenance(
     pred_result["maintenance_required"] = (pred_result["probability"] >= threshold)
     pred_result["decision_threshold"] = threshold
 
-    # Update Prometheus counters
+    # Update Prometheus counters and backward-compatible METRICS dict
     METRICS["total_predictions"] += 1
     if pred_result["failure_risk"] == "HIGH":
         METRICS["high_risk_predictions"] += 1
     else:
         METRICS["low_risk_predictions"] += 1
 
+    metrics.record_prediction(pred_result["failure_risk"])
+
     # Generate unique ID and timestamp
     pred_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
+
+    # Canary shadow evaluation if active
+    if canary_manager.is_active:
+        try:
+            features_df = predictor.engineer_features(input_data.model_dump())
+            canary_manager.evaluate_request(features_df, pred_result, pred_id)
+        except Exception as c_err:
+            logger.warning(f"Canary shadow evaluation failed: {c_err}")
+
+    # Record inference duration in Prometheus latency histogram
+    duration = time.perf_counter() - t_start
+    metrics.record_predict_latency(duration)
 
     # Log prediction to database
     try:
@@ -504,3 +522,55 @@ def trigger_retraining(
         "current_version": predictor.version,
         "message": "Retraining job queued in background. Model will be auto-promoted upon completion."
     }
+
+# ==================== MLOps: Canary Rollout ====================
+
+@app.get("/canary/status", tags=["MLOps"])
+def get_canary_status():
+    """Returns the current status of dual-model canary rollout."""
+    return canary_manager.get_status()
+
+@app.post("/canary/start", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
+def start_canary_rollout(
+    api_key: str = Depends(require_admin_api_key)
+):
+    """
+    Activates canary evaluation mode for the next 50 live inference requests.
+    Scores requests with both primary and candidate models in shadow mode.
+    """
+    return canary_manager.start_canary()
+
+@app.post("/canary/promote", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
+def promote_canary_model(
+    api_key: str = Depends(require_admin_api_key)
+):
+    """
+    Promotes the evaluated canary model to primary production model.
+    """
+    return canary_manager.promote_canary()
+
+@app.post("/canary/abort", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
+def abort_canary_rollout(
+    api_key: str = Depends(require_admin_api_key)
+):
+    """
+    Aborts active canary rollout and unloads candidate model.
+    """
+    return canary_manager.abort_canary()
+
+# ==================== MLOps: Scheduler ====================
+
+@app.get("/scheduler/jobs", tags=["MLOps"])
+def get_scheduler_jobs():
+    """Returns active scheduled jobs and next trigger times."""
+    return drift_scheduler.get_status()
+
+@app.post("/scheduler/run-drift-check", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
+async def trigger_scheduler_drift_check(
+    api_key: str = Depends(require_admin_api_key)
+):
+    """
+    Manually triggers the daily scheduled drift check job on demand.
+    Evaluates PSI and triggers candidate retraining if drift is detected.
+    """
+    return await drift_scheduler.run_drift_check()

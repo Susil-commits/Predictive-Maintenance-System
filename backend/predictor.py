@@ -32,7 +32,11 @@ class MaintenancePredictor:
             'rpm_vibration_ratio',
             'thermal_excess',
             'overstrain_index',
-            'mechanical_power'
+            'mechanical_power',
+            'vib_dominant_freq',
+            'vib_spectral_energy_low',
+            'vib_spectral_energy_high',
+            'vib_spectral_centroid'
         ]
         self.load_model()
 
@@ -70,6 +74,49 @@ class MaintenancePredictor:
         df['thermal_excess'] = (df['temperature'] - 86.0).clip(lower=0.0)
         df['overstrain_index'] = (df['pressure'] / 25.0) * (df['vibration'] - 0.35).clip(lower=0.0)
         df['mechanical_power'] = (df['rpm'] * df['pressure']) / 1000.0
+
+        # Frequency-domain vibration feature extraction via scipy.fft
+        if "raw_waveform" in input_dict and isinstance(input_dict["raw_waveform"], (list, np.ndarray)) and len(input_dict["raw_waveform"]) >= 64:
+            from scipy.fft import rfft, rfftfreq
+            sig = np.asarray(input_dict["raw_waveform"], dtype=float)
+            fs = float(input_dict.get("sampling_rate", 2048.0))
+            N = len(sig)
+            freqs = rfftfreq(N, 1.0 / fs)
+            pwr = np.abs(rfft(sig)) ** 2 / float(N)
+            dom_idx = int(np.argmax(pwr[1:]) + 1) if len(pwr) > 1 else 0
+            df['vib_dominant_freq'] = float(freqs[dom_idx])
+            df['vib_spectral_energy_low'] = float(np.sum(pwr[(freqs >= 10.0) & (freqs <= 100.0)]))
+            df['vib_spectral_energy_high'] = float(np.sum(pwr[(freqs >= 300.0) & (freqs <= 1000.0)]))
+            tot_pwr = float(np.sum(pwr)) + 1e-8
+            df['vib_spectral_centroid'] = float(np.sum(pwr * freqs) / tot_pwr)
+        else:
+            from scipy.fft import rfft, rfftfreq
+            rpm_val = float(df['rpm'].iloc[0])
+            vib_val = float(df['vibration'].iloc[0])
+            press_val = float(df['pressure'].iloc[0])
+            hours_val = float(df['operating_hours'].iloc[0])
+
+            fs, N = 2048, 512
+            f0 = max(10.0, rpm_val / 60.0)
+            t = np.arange(N) / float(fs)
+            a1 = vib_val * 0.65
+            a2 = vib_val * 0.25 * (press_val / 25.0)
+            f_res = 450.0 + min(1.0, hours_val / 6000.0) * 350.0
+            a_hf = vib_val * 0.35 * min(1.5, hours_val / 3000.0)
+
+            signal = (a1 * np.sin(2.0 * np.pi * f0 * t) +
+                      a2 * np.sin(2.0 * np.pi * 2.0 * f0 * t) +
+                      a_hf * np.sin(2.0 * np.pi * f_res * t))
+            freqs = rfftfreq(N, 1.0 / fs)
+            pwr = np.abs(rfft(signal)) ** 2 / float(N)
+            dom_idx = int(np.argmax(pwr[1:]) + 1) if len(pwr) > 1 else 0
+
+            df['vib_dominant_freq'] = round(float(freqs[dom_idx]), 1)
+            df['vib_spectral_energy_low'] = round(float(np.sum(pwr[(freqs >= 10.0) & (freqs <= 100.0)])), 2)
+            df['vib_spectral_energy_high'] = round(float(np.sum(pwr[(freqs >= 300.0) & (freqs <= 1000.0)])), 2)
+            tot_pwr = float(np.sum(pwr)) + 1e-8
+            df['vib_spectral_centroid'] = round(float(np.sum(pwr * freqs) / tot_pwr), 1)
+
         return pd.DataFrame(df[self.feature_names])
 
     def predict(self, input_dict: dict, threshold: Optional[float] = None) -> dict:
@@ -104,7 +151,11 @@ class MaintenancePredictor:
                 shap_dict.get("vibration", 0.0) +
                 0.6 * shap_dict.get("vibration_wear_index", 0.0) +
                 0.5 * shap_dict.get("rpm_vibration_ratio", 0.0) +
-                0.5 * shap_dict.get("overstrain_index", 0.0)
+                0.5 * shap_dict.get("overstrain_index", 0.0) +
+                0.4 * shap_dict.get("vib_dominant_freq", 0.0) +
+                0.4 * shap_dict.get("vib_spectral_energy_low", 0.0) +
+                0.5 * shap_dict.get("vib_spectral_energy_high", 0.0) +
+                0.3 * shap_dict.get("vib_spectral_centroid", 0.0)
             ),
             "Temperature": (
                 shap_dict.get("temperature", 0.0) +

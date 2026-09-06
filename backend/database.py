@@ -8,11 +8,30 @@ from sqlalchemy.orm import sessionmaker
 # Load .env variables
 load_dotenv()
 
+import random
 import time
+from .logging_config import logger as _root_logger, setup_logging
 
 logger = logging.getLogger("pms.database")
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+def calculate_backoff(attempt: int, base_delay: float = 1.0, max_delay: float = 10.0) -> float:
+    """Calculates exponential backoff delay with randomized jitter."""
+    exp_delay = min(max_delay, base_delay * (2.0 ** (attempt - 1)))
+    jitter = random.uniform(0.0, 0.3 * exp_delay)
+    return exp_delay + jitter
+
+def execute_with_retry(fn, max_retries: int = 3, base_delay: float = 0.5):
+    """Executes a database operation with exponential backoff retry on transient failure."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt == max_retries:
+                logger.error(f"Database operation failed permanently after {max_retries} attempts: {e}")
+                raise
+            delay = calculate_backoff(attempt, base_delay=base_delay)
+            logger.warning(f"Database transient error (attempt {attempt}/{max_retries}): {e}. Retrying in {delay:.2f}s...")
+            time.sleep(delay)
 
 _raw_db_url = os.getenv("DATABASE_URL")
 if not _raw_db_url or not _raw_db_url.strip():
@@ -50,7 +69,9 @@ if DATABASE_URL.startswith("postgresql"):
         except Exception as err:
             logger.warning(f"PostgreSQL connection attempt {attempt}/{max_retries} failed: {err}")
             if attempt < max_retries:
-                time.sleep(attempt * 1.0)
+                delay = calculate_backoff(attempt, base_delay=1.0)
+                logger.info(f"Applying exponential backoff: sleeping {delay:.2f}s before reconnect attempt {attempt + 1}")
+                time.sleep(delay)
             else:
                 if os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production":
                     raise RuntimeError(f"Failed to connect to production PostgreSQL database at {DATABASE_URL}: {err}") from err
