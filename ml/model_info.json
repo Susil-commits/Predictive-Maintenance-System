@@ -1,27 +1,27 @@
 {
   "model_name": "Calibrated XGBoost Classifier",
-  "version": "v15",
+  "version": "v16",
   "calibration": {
     "method": "sigmoid",
     "cv": 3,
-    "brier_score_uncalibrated": 0.0791,
-    "brier_score_calibrated": 0.0252,
-    "brier_reduction_pct": 68.19
+    "brier_score_uncalibrated": 0.0751,
+    "brier_score_calibrated": 0.0253,
+    "brier_reduction_pct": 66.31
   },
-  "mlflow_run_id": "6cf6b5fdcda64af9beaa2277ae706df1",
+  "mlflow_run_id": "60fe6e257a184598b0e5fa23981f20a9",
   "mlflow_experiment": "Predictive-Maintenance-System",
-  "trained_date": "2026-09-06 18:10:02",
+  "trained_date": "2026-09-07 00:42:38",
   "dataset_source": "UCI AI4I 2020 Predictive Maintenance Dataset",
   "total_training_samples": 8000,
   "total_test_samples": 2000,
-  "decision_threshold": 0.2198,
+  "decision_threshold": 0.2339,
   "metrics": {
-    "roc_auc": 0.9389,
-    "f1_score": 0.4699,
-    "precision": 0.398,
-    "recall": 0.5735,
-    "brier_score": 0.0252,
-    "decision_threshold": 0.2198,
+    "roc_auc": 0.9372,
+    "f1_score": 0.472,
+    "precision": 0.4086,
+    "recall": 0.5588,
+    "brier_score": 0.0253,
+    "decision_threshold": 0.2339,
     "default_threshold_metrics": {
       "threshold": 0.5,
       "f1_score": 0.0,
@@ -30,40 +30,40 @@
     },
     "comparison": {
       "logistic_regression": {
-        "roc_auc": 0.9074,
-        "f1_score": 0.2523,
-        "brier_score": 0.1178
+        "roc_auc": 0.9028,
+        "f1_score": 0.2494,
+        "brier_score": 0.1173
       },
       "random_forest": {
-        "roc_auc": 0.9318,
-        "f1_score": 0.3314,
-        "brier_score": 0.0657
+        "roc_auc": 0.9315,
+        "f1_score": 0.3863,
+        "brier_score": 0.0479
       },
       "lightgbm": {
-        "roc_auc": 0.9348,
-        "f1_score": 0.3736,
-        "brier_score": 0.038
+        "roc_auc": 0.9332,
+        "f1_score": 0.4138,
+        "brier_score": 0.0352
       },
       "xgboost_uncalibrated": {
-        "roc_auc": 0.9345,
-        "brier_score": 0.0791
+        "roc_auc": 0.9344,
+        "brier_score": 0.0751
       },
       "xgboost_calibrated": {
-        "roc_auc": 0.9389,
-        "f1_score": 0.4699,
-        "brier_score": 0.0252
+        "roc_auc": 0.9372,
+        "f1_score": 0.472,
+        "brier_score": 0.0253
       },
       "stacking_ensemble": {
-        "roc_auc": 0.9348,
-        "f1_score": 0.2904,
-        "precision": 0.1727,
-        "recall": 0.9118,
-        "brier_score": 0.1152
+        "roc_auc": 0.933,
+        "f1_score": 0.2917,
+        "precision": 0.1731,
+        "recall": 0.9265,
+        "brier_score": 0.1165
       }
     }
   },
   "best_params": {
-    "learning_rate": 0.03,
+    "learning_rate": 0.04,
     "max_depth": 3,
     "n_estimators": 150
   },
@@ -97,24 +97,24 @@
       "support_failures": 68,
       "support_normal": 1932,
       "total_samples": 2000,
-      "precision": 0.3918,
+      "precision": 0.4086,
       "recall": 0.5588,
-      "f1_score": 0.4606,
-      "roc_auc": 0.9389,
+      "f1_score": 0.472,
+      "roc_auc": 0.9372,
       "status": "PASS"
     },
     "Thermal Failure": {
       "failure_mode": "Thermal (HDF)",
       "support_failures": 29,
       "support_normal": 1932,
-      "true_positives": 12,
-      "false_negatives": 17,
-      "false_positives": 59,
-      "true_negatives": 1873,
-      "precision": 0.169,
-      "recall": 0.4138,
-      "f1_score": 0.24,
-      "roc_auc": 0.947,
+      "true_positives": 13,
+      "false_negatives": 16,
+      "false_positives": 55,
+      "true_negatives": 1877,
+      "precision": 0.1912,
+      "recall": 0.4483,
+      "f1_score": 0.268,
+      "roc_auc": 0.9437,
       "status": "UNDERPERFORMING",
       "diagnostic_insight": "Driven by thermal dissipation differential. Moderate sensitivity; misses slow thermal creep cases."
     },
@@ -124,12 +124,12 @@
       "support_normal": 1932,
       "true_positives": 13,
       "false_negatives": 3,
-      "false_positives": 59,
-      "true_negatives": 1873,
-      "precision": 0.1806,
+      "false_positives": 55,
+      "true_negatives": 1877,
+      "precision": 0.1912,
       "recall": 0.8125,
-      "f1_score": 0.2955,
-      "roc_auc": 0.9709,
+      "f1_score": 0.3095,
+      "roc_auc": 0.9707,
       "status": "UNDERPERFORMING",
       "diagnostic_insight": "Strongest detected mode with 81.25% recall. Sharp torque and mechanical power signatures make sudden mechanical overstrains easily separable."
     },
@@ -139,12 +139,12 @@
       "support_normal": 1932,
       "true_positives": 3,
       "false_negatives": 6,
-      "false_positives": 59,
-      "true_negatives": 1873,
-      "precision": 0.0484,
+      "false_positives": 55,
+      "true_negatives": 1877,
+      "precision": 0.0517,
       "recall": 0.3333,
-      "f1_score": 0.0845,
-      "roc_auc": 0.8911,
+      "f1_score": 0.0896,
+      "roc_auc": 0.8852,
       "status": "UNDERPERFORMING",
       "diagnostic_insight": "Severely data-starved with only 9 test failures (~36 in training set, <0.45% of data). Model triggers on dominant failure signatures (Overstrain/Power), yielding 59 false alarms in 1-vs-All evaluation. Root cause: lack of dedicated wear trajectory labels and class scarcity. Remediation: class-weighted loss per failure type or dedicated multi-head tool wear detector."
     },
@@ -152,29 +152,16 @@
       "failure_mode": "Power Failure (PWF)",
       "support_failures": 12,
       "support_normal": 1932,
-      "true_positives": 9,
-      "false_negatives": 3,
-      "false_positives": 59,
-      "true_negatives": 1873,
-      "precision": 0.1324,
-      "recall": 0.75,
-      "f1_score": 0.225,
-      "roc_auc": 0.9597,
+      "true_positives": 8,
+      "false_negatives": 4,
+      "false_positives": 55,
+      "true_negatives": 1877,
+      "precision": 0.127,
+      "recall": 0.6667,
+      "f1_score": 0.2133,
+      "roc_auc": 0.958,
       "status": "UNDERPERFORMING",
       "diagnostic_insight": "High sensitivity (75% recall) owing to mechanical_power feature (torque x rotational speed) triggering when electrical power envelope is breached."
-    }
-  },
-  "failure_mode_diagnostics": {
-    "summary": "Segmented failure analysis exposed critical variance across failure types hidden by aggregate F1=0.47.",
-    "key_findings": {
-      "best_performing": "Overstrain (81.25% recall) and Power (75.00% recall) exhibit high diagnostic separability due to sharp torque/power anomaly signatures.",
-      "worst_performing": "Tool Wear Failure (F1=0.0571, Recall=22.22%) is severely under-represented with only 9 test failures.",
-      "root_cause_analysis": "Tool wear failure is cumulative rather than instantaneous. Because TWF represents <0.45% of training samples, the gradient boosting trees prioritize minimizing error on the dominant non-failure class and distinct abrupt failures (OSF/PWF). Consequently, normal fluctuations in operating hours get swallowed by false positives from dominant failure patterns.",
-      "engineering_remediation": [
-        "Class-weighted loss function (scale_pos_weight specialized per failure mode)",
-        "Synthetic oversampling (SMOTE) focused specifically on the TWF operating_hours x vibration_wear feature subspace",
-        "Multi-task hierarchical classification architecture separating wear-out failures from sudden operational overloads"
-      ]
     }
   },
   "scenario_validation": {
@@ -188,7 +175,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.4068,
+      "probability": 0.4398,
       "passed": true
     },
     "Nominal Baseline": {
@@ -201,7 +188,7 @@
       },
       "expected_risk": "LOW",
       "predicted_risk": "LOW",
-      "probability": 0.0037,
+      "probability": 0.0043,
       "passed": true
     },
     "Thermal Overheat": {
@@ -214,7 +201,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "LOW",
-      "probability": 0.0182,
+      "probability": 0.0145,
       "passed": false
     },
     "Vibration & Fatigue": {
@@ -227,7 +214,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.4248,
+      "probability": 0.4551,
       "passed": true
     },
     "Cold Idle Normal": {
@@ -240,7 +227,7 @@
       },
       "expected_risk": "LOW",
       "predicted_risk": "LOW",
-      "probability": 0.0048,
+      "probability": 0.0054,
       "passed": true
     },
     "Overstrain Pressure Surge": {
@@ -253,7 +240,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.4088,
+      "probability": 0.4267,
       "passed": true
     },
     "Extreme Breakdown (All High)": {
@@ -266,7 +253,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.4239,
+      "probability": 0.4585,
       "passed": true
     },
     "Low RPM Heavy Strain": {
@@ -279,7 +266,7 @@
       },
       "expected_risk": "HIGH",
       "predicted_risk": "HIGH",
-      "probability": 0.482,
+      "probability": 0.4769,
       "passed": true
     },
     "High Speed Light Load (Normal)": {
@@ -292,7 +279,7 @@
       },
       "expected_risk": "LOW",
       "predicted_risk": "HIGH",
-      "probability": 0.4711,
+      "probability": 0.4769,
       "passed": false
     }
   }
