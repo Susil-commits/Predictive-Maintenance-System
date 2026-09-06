@@ -24,11 +24,13 @@ from .predictor import predictor, find_minimal_fix, calibrated_model, scaler, FE
 
 logger = logging.getLogger("pms.narration")
 
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
 # Directory paths
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 KNOWLEDGE_BASE_DIR = os.path.join(CURRENT_DIR, "knowledge_base")
-CHROMA_PERSIST_DIR = os.path.join(CURRENT_DIR, "chroma_db")
-COLLECTION_NAME = "pms_maintenance_procedures"
 
 # Query mapping from top_risk_factor / failure mode to semantic RAG search queries
 QUERY_EXPANSIONS: Dict[str, str] = {
@@ -60,15 +62,15 @@ FAILURE_MODE_MAP: Dict[str, str] = {
 
 class MaintenanceRAGStore:
     """
-    Lightweight vector store for industrial maintenance procedures using ChromaDB.
-    Maintains a robust fallback mechanism if ChromaDB cannot initialize.
+    In-memory TF-IDF + Cosine Similarity vector store for standard industrial maintenance procedures.
+    Zero external downloads, zero external services, zero database file dependencies.
+    Built once at module load time.
     """
-    def __init__(self, kb_dir: str = KNOWLEDGE_BASE_DIR, persist_dir: str = CHROMA_PERSIST_DIR):
+    def __init__(self, kb_dir: str = KNOWLEDGE_BASE_DIR):
         self.kb_dir = kb_dir
-        self.persist_dir = persist_dir
-        self.client = None
-        self.collection = None
-        self._fallback_chunks: List[Dict[str, Any]] = []
+        self.chunks: List[Dict[str, Any]] = []
+        self.vectorizer: Optional[TfidfVectorizer] = None
+        self.tfidf_matrix: Any = None
         self._init_store()
 
     def _parse_markdown_chunks(self) -> List[Dict[str, Any]]:
@@ -138,45 +140,33 @@ class MaintenanceRAGStore:
         return chunks
 
     def _init_store(self):
-        """Initializes ChromaDB persistent client and collection, seeding chunks if needed."""
-        chunks = self._parse_markdown_chunks()
-        self._fallback_chunks = chunks
+        """Initializes in-memory TF-IDF index across all knowledge base procedure chunks."""
+        self.chunks = self._parse_markdown_chunks()
+        if not self.chunks:
+            logger.warning("No procedure chunks loaded for TF-IDF RAG store.")
+            return
 
         try:
-            import chromadb
-            os.makedirs(self.persist_dir, exist_ok=True)
-            self.client = chromadb.PersistentClient(path=self.persist_dir)
-            self.collection = self.client.get_or_create_collection(
-                name=COLLECTION_NAME,
-                metadata={"description": "Standard Industrial Maintenance Procedures for PMS"}
+            self.vectorizer = TfidfVectorizer(
+                ngram_range=(1, 2),
+                stop_words="english",
+                sublinear_tf=True
             )
-
-            # Check if collection already has documents
-            if self.collection.count() == 0 and chunks:
-                logger.info(f"Indexing {len(chunks)} maintenance procedure chunks into ChromaDB...")
-                ids = [str(c["id"]) for c in chunks]
-                docs = [str(c["content"]) for c in chunks]
-                metadatas: Any = [{
-                    "failure_mode": str(c["failure_mode"]),
-                    "title": str(c["title"]),
-                    "section": str(c["section"])
-                } for c in chunks]
-
-                self.collection.add(
-                    ids=ids,
-                    documents=docs,
-                    metadatas=metadatas
-                )
-                logger.info("ChromaDB indexing completed successfully.")
+            corpus = [c["content"] for c in self.chunks]
+            self.tfidf_matrix = self.vectorizer.fit_transform(corpus)
+            logger.info(f"Initialized in-memory TF-IDF RAG store with {len(self.chunks)} chunks.")
         except Exception as e:
-            logger.warning(f"ChromaDB initialization failed ({e}). Operating in memory fallback mode.")
-            self.collection = None
+            logger.error(f"Failed to initialize TF-IDF vectorizer: {e}")
 
     def retrieve(self, query: str, n_results: int = 2) -> List[Dict[str, Any]]:
         """
         Retrieves the top matching procedure chunks for a given query or failure mode.
+        Uses TF-IDF representation and cosine similarity scoring.
         Returns auditable chunk dictionaries.
         """
+        if not self.chunks or self.vectorizer is None or self.tfidf_matrix is None:
+            return []
+
         if not query:
             query = "vibration"
 
@@ -184,79 +174,41 @@ class MaintenanceRAGStore:
         semantic_query = QUERY_EXPANSIONS.get(norm_query, query)
         target_mode = FAILURE_MODE_MAP.get(norm_query)
 
-        # 1. Try ChromaDB retrieval
-        if self.collection is not None:
-            try:
-                # Optionally filter by failure_mode if identified
-                where_clause = {"failure_mode": target_mode} if target_mode else None
-                query_args: Dict[str, Any] = {
-                    "query_texts": [semantic_query],
-                    "n_results": min(n_results, max(1, self.collection.count()))
-                }
-                if where_clause:
-                    query_args["where"] = where_clause
+        try:
+            query_vec = self.vectorizer.transform([semantic_query])
+            raw_sims = cosine_similarity(query_vec, self.tfidf_matrix).flatten()
 
-                results = self.collection.query(**query_args)
-                docs_list = results.get("documents") or []
-                metas_list = results.get("metadatas") or []
-                dists_list = results.get("distances") or []
+            # Boost chunks that directly align with target failure mode
+            sims = np.copy(raw_sims)
+            if target_mode:
+                for idx, chunk in enumerate(self.chunks):
+                    if chunk["failure_mode"] == target_mode:
+                        sims[idx] += 1.0
 
-                # If filtered search returned empty, query without where clause
-                if (not docs_list or not docs_list[0]) and where_clause:
-                    del query_args["where"]
-                    results = self.collection.query(**query_args)
-                    docs_list = results.get("documents") or []
-                    metas_list = results.get("metadatas") or []
-                    dists_list = results.get("distances") or []
+            top_indices = np.argsort(sims)[::-1][:n_results]
 
-                retrieved = []
-                docs = docs_list[0] if docs_list else []
-                metas = metas_list[0] if metas_list else []
-                distances = dists_list[0] if dists_list else [None] * len(docs)
+            retrieved = []
+            for idx in top_indices:
+                chunk = self.chunks[idx]
+                retrieved.append({
+                    "failure_mode": chunk["failure_mode"],
+                    "title": chunk["title"],
+                    "section": chunk["section"],
+                    "content": chunk["content"],
+                    "relevance_score": round(float(raw_sims[idx]), 4)
+                })
 
-                for doc, meta, dist in zip(docs, metas, distances):
-                    meta_dict = meta if isinstance(meta, dict) else {}
-                    retrieved.append({
-                        "failure_mode": str(meta_dict.get("failure_mode", "General")),
-                        "title": str(meta_dict.get("title", "")),
-                        "section": str(meta_dict.get("section", "")),
-                        "content": str(doc),
-                        "relevance_score": round(1.0 - float(dist), 4) if dist is not None else None
-                    })
-
-                if retrieved:
-                    return retrieved
-            except Exception as e:
-                logger.warning(f"ChromaDB query failed ({e}); falling back to in-memory matching.")
-
-        # 2. Resilient In-Memory Fallback
-        return self._fallback_retrieve(norm_query, target_mode, n_results)
-
-    def _fallback_retrieve(self, norm_query: str, target_mode: Optional[str], n_results: int) -> List[Dict[str, Any]]:
-        """Simple deterministic matching fallback using target failure mode or keyword overlap."""
-        matches = []
-        for chunk in self._fallback_chunks:
-            score = 0.0
-            if target_mode and chunk["failure_mode"] == target_mode:
-                score += 2.0
-            if norm_query in chunk["content"].lower():
-                score += 1.0
-            if "remediation" in chunk["section"].lower() or "protocol" in chunk["section"].lower():
-                score += 0.5
-
-            if score > 0:
-                matches.append((score, chunk))
-
-        matches.sort(key=lambda x: x[0], reverse=True)
-        top = matches[:n_results]
-
-        return [{
-            "failure_mode": c["failure_mode"],
-            "title": c["title"],
-            "section": c["section"],
-            "content": c["content"],
-            "relevance_score": round(score / 3.5, 4)
-        } for score, c in top]
+            return retrieved
+        except Exception as e:
+            logger.error(f"TF-IDF retrieval error ({e}); using direct category matching.")
+            fallback = [c for c in self.chunks if not target_mode or c["failure_mode"] == target_mode]
+            return [{
+                "failure_mode": c["failure_mode"],
+                "title": c["title"],
+                "section": c["section"],
+                "content": c["content"],
+                "relevance_score": 1.0
+            } for c in fallback[:n_results]]
 
 
 # Global RAG store singleton
