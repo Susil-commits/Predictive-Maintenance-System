@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > **Live Deployments & Quick Links:**
-> - 🌐 **Production Frontend (Vercel)**: [https://pms-frontend.vercel.app](https://pms-frontend.vercel.app) *(or your deployed Vercel URL)*
+> - 🌐 **Production Frontend (Vercel)**: [https://pms-frontend.vercel.app](https://pms-frontend.vercel.app)
 > - ⚡ **Production API (Render)**: [https://pms-backend.onrender.com](https://pms-backend.onrender.com)
 > - 📖 **Interactive Swagger Docs**: [https://pms-backend.onrender.com/docs](https://pms-backend.onrender.com/docs)
 > - 📊 **Prometheus Metrics**: [https://pms-backend.onrender.com/metrics](https://pms-backend.onrender.com/metrics)
@@ -76,7 +76,7 @@ An end-to-end machine learning platform for industrial equipment predictive main
 | `GET` | `/export` | **Admin Auth** (`X-API-Key` / JWT) | Streams prediction history as downloadable CSV file |
 | `POST` | `/auth/login` | Public | Authenticates credentials with bcrypt, returns signed JWT access token |
 | `GET` | `/drift-status` | Public | Evaluates Population Stability Index (PSI) drift against baseline reference |
-| `POST` | `/drift-status/reset` | Public | Reloads baseline reference statistics from model training |
+| `POST` | `/drift-status/reset` | **Admin Auth** (`X-API-Key` / JWT) | Reloads baseline reference statistics from model training |
 | `GET` | `/history` | Public | Returns recent inference records and predictions |
 | `DELETE` | `/history` | **Admin Auth** (`X-API-Key` / JWT) | Clears prediction audit history (for development & demo reset) |
 | `POST` | `/retrain` | **Admin Auth** (`X-API-Key` / JWT) | Triggers background model retraining and hot-reload upon drift |
@@ -149,26 +149,26 @@ The model is trained on the UCI AI4I 2020 Predictive Maintenance Dataset with ph
 
 | Model | ROC-AUC | F1-Score | Brier Score Loss | Recall | Precision | Configuration / Notes |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Logistic Regression** (Baseline) | 0.8368 | 0.2017 | 0.1398 | 0.7794 | 0.1170 | Standard scaling, balanced weights |
-| **Random Forest** | 0.9423 | 0.3897 | 0.0529 | 0.7794 | 0.2585 | 150 estimators, balanced class weights |
-| **LightGBM** | 0.9389 | 0.4142 | 0.0342 | 0.7353 | 0.2874 | 150 estimators, `scale_pos_weight: 28.21` |
-| **XGBoost** (Uncalibrated, 0.50 Cutoff) | 0.9398 | 0.1111 | 0.0638 | 0.0588 | 1.0000 | GridSearchCV tuned, uncalibrated probabilities |
-| **Calibrated XGBoost** (PR-Tuned Production) | **0.9489** | **0.4966** | **0.0237** | **0.5294** | **0.4675** | `CalibratedClassifierCV` (sigmoid, cv=3), threshold `0.2619` |
+| **Logistic Regression** (Baseline) | 0.9065 | 0.2500 | 0.1171 | 0.7794 | 0.1476 | Standard scaling, balanced weights |
+| **Random Forest** | 0.9313 | 0.3766 | 0.0488 | 0.4265 | 0.3372 | 150 estimators, balanced class weights |
+| **LightGBM** | 0.9276 | 0.4260 | 0.0363 | 0.5294 | 0.3564 | 150 estimators, `scale_pos_weight: 19.96` |
+| **XGBoost** (Uncalibrated, 0.50 Cutoff) | 0.9303 | 0.0000 | 0.0887 | 0.0000 | 0.0000 | GridSearchCV tuned, uncalibrated probabilities |
+| **Calibrated XGBoost** (PR-Tuned Production) | **0.9336** | **0.4277** | **0.0263** | **0.5000** | **0.3736** | `CalibratedClassifierCV` (sigmoid, cv=3), threshold `0.2849`, test positives = 68 |
 
 ### Probability Calibration & Brier Score Loss
 
 - **Why Calibration Matters**: While tree-based models (like XGBoost and Random Forest) yield strong discriminative ranking (high ROC-AUC), their raw output scores are frequently distorted by extreme gradient boosting iterations and class reweighting (`scale_pos_weight`). Consequently, a predicted score of "0.70" does not mean a 70% chance of failure—it is merely a relative ranking score.
 - **Platt Sigmoid Scaling (`CalibratedClassifierCV`)**: Using 3-fold cross-validated Platt scaling maps raw decision values through a calibrated sigmoid transformation, aligning predicted probabilities with true empirical event frequencies.
-- **Quantifiable Error Reduction**: The Brier Score Loss drops from **0.0638** (uncalibrated XGBoost) to **0.0237** (calibrated XGBoost)—a **62.9% reduction in probabilistic error**. This ensures that threshold tuning operates on trustworthy probabilities rather than arbitrary monotonic ranks.
+- **Quantifiable Error Reduction**: The Brier Score Loss drops from **0.0887** (uncalibrated XGBoost) to **0.0263** (calibrated XGBoost)—a **70.4% reduction in probabilistic error**. This ensures that threshold tuning operates on trustworthy probabilities rather than arbitrary monotonic ranks.
 
 ### Class Imbalance & Threshold Tuning Insights
 
-> **"AUC 0.94 but low precision is class imbalance + default threshold, not a broken model"**
+> **"AUC 0.93+ but low default precision is class imbalance + default threshold, not a broken model"**
 
-- **Class Imbalance Dynamics**: In industrial equipment telemetry, failures represent ~3.4% of total observations (9,663 normal vs. 342 failure records, an approximate 28:1 ratio).
-- **Impact of `scale_pos_weight`**: Setting `scale_pos_weight = (neg_count / pos_count)` (28.21) scales the gradient loss of positive minority instances by 28.2x, preventing the model from collapsing to the majority class.
-- **Precision-Recall Curve Tuning**: Instead of the default 0.50 cutoff, the decision threshold is tuned across the Precision-Recall curve to maximize the $F_1$-score. Tuning to **0.2619** on calibrated probabilities elevates $F_1$ to **0.4966** while maintaining an exceptional ROC-AUC of **0.9489**.
-- **Operational Reality & Honest Metric Assessment**: At the tuned threshold, the model achieves **Precision 0.47 / Recall 0.53 / F1 0.50** (alongside ROC-AUC 0.95 and Brier 0.0237). In an operational environment, this means roughly half of flagged "HIGH risk" warnings are actionable alerts. Rather than claiming 99% off-the-shelf accuracy on an imbalanced dataset, this demonstrates rigorous MLOps practice—transparently calibrating probabilities and navigating the precision/recall tradeoff.
+- **Class Imbalance Dynamics**: In industrial equipment telemetry, failures represent ~3.4% of total observations (9,661 normal vs. 339 failure records, an approximate 28:1 ratio; 68 positive failures in 2,000 held-out test samples).
+- **Impact of `scale_pos_weight` & Class Weighting**: Setting `scale_pos_weight = (neg_count / pos_count) * 0.7` combined with class-weighted sampling (3.0x on Tool Wear Failures) scales gradient loss to prevent the model from collapsing to the majority class.
+- **Precision-Recall Curve Tuning**: Instead of the default 0.50 cutoff, the decision threshold is tuned across the Precision-Recall curve to maximize the $F_1$-score. Tuning to **0.2849** on calibrated probabilities achieves $F_1$ of **0.4277** (Precision: **0.3736**, Recall: **0.5000**), whereas the default 0.50 threshold collapses to $F_1$ of **0.0000** (0.00 precision / 0.00 recall).
+- **Operational Reality & Honest Metric Assessment**: At the tuned threshold, the model achieves **Precision 0.37 / Recall 0.50 / F1 0.43** (alongside ROC-AUC 0.9336, Stratified 5-Fold CV ROC-AUC 0.9348 ± 0.0087, and Brier 0.0263 across 68 test failure positives). In an operational environment, roughly four in ten flagged warnings are immediate actionable repairs, while capturing half of all emerging catastrophic mechanical breakdowns before downtime occurs.
 
 ### Next-Step Production Enhancements
 
@@ -181,9 +181,11 @@ Experiment metrics, reference statistics, serialized artifacts, and the Precisio
 ---
 
 ## Model Performance Notes
-- **Realistic Performance**: ROC-AUC 0.85 ± 0.03 on independent test set (after fixing feature leakage)
-- **Why lower than initial?** First version had data leakage (failure labels mathematically encoded in synthetic features). Fixed via independent sensor noise generation.
-- **Lesson learned**: Validated against 9 held-out scenarios post-deployment to ensure generalization.
+- **Validated Generalization (5-Fold CV)**: Stratified 5-Fold CV ROC-AUC **0.9348 ± 0.0087**; held-out test ROC-AUC **0.9336** (test positives count = 68 out of 2,000 test samples).
+- **Calibration & Threshold Tuning**: Brier score loss drops from 0.0887 to 0.0263 (70.4% error reduction via Platt sigmoid calibration). F1 is 0.4277 at PR-tuned threshold 0.2849 (vs. 0.0000 at default 0.50 cutoff under 28:1 class imbalance).
+- **Limitations**: AI4I-derived synthetic data; small test positive count (68 total test failures, 9 Tool Wear failures). Empirical slice metrics exhibit high variance; real-world industrial deployments require continual domain recalibration.
+- **Leakage Prevention**: Strictly verified via automated regression tests (`backend/tests/test_leakage.py`): train/test split occurs before scaling and feature fitting, and no feature is a direct mathematical function of the label.
+- **Held-Out Slices**: Validated across operational slices (Thermal, Overstrain, Tool Wear, Power Failure).
 
 ---
 
@@ -296,7 +298,7 @@ pytest backend/tests/test_api.py -v
 ## Security Controls & Production Roadmap
 
 1. **Authentication & Authorization (Active Control / Resolved)**:
-   - **Implemented**: Mutating and resource-intensive administrative operations (`DELETE /history` to purge audit records and `POST /retrain` to trigger background retraining) are guarded by an `X-API-Key` administrative header matching `PMS_API_KEY`. Unauthenticated requests are rejected with `401 Unauthorized`.
+   - **Implemented**: Mutating and administrative operations (`DELETE /history` to purge audit records, `POST /drift-status/reset` to restore reference drift baselines, and `POST /retrain` to trigger background retraining) are guarded by an `X-API-Key` administrative header matching `PMS_API_KEY` or signed admin JWT. Unauthenticated requests are rejected with `401 Unauthorized` / `403 Forbidden`.
    - **Production Roadmap**: Introduce OAuth2/OIDC JWT tokens with fine-grained role-based access control (RBAC) for multi-tenant organizational hierarchy.
 2. **Rate Limiting & Abuse Prevention (Active Control / Resolved)**:
    - **Implemented**: The core inference endpoint (`POST /predict`) is shielded against automated abuse and traffic bursts via `slowapi` rate limiting (60 requests per minute per IP), answering security concerns before they become production vulnerabilities.

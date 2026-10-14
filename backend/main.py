@@ -566,10 +566,13 @@ def get_drift_status(
             detail=f"Drift detection error: {str(e)}"
         )
 
-@app.post("/drift-status/reset", tags=["MLOps"])
-def reset_drift_detector():
+@app.post("/drift-status/reset", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
+def reset_drift_detector(
+    api_key: str = Depends(require_admin_api_key)
+):
     """
     Reloads baseline reference statistics from the ML directory and clears cache.
+    Requires administrative API key ('X-API-Key' header or JWT with role == 'admin').
     """
     _drift_cache["report"] = None
     loaded = drift_detector.load_reference_stats()

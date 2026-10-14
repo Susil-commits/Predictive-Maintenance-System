@@ -6,14 +6,14 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
+import seaborn as sns  # type: ignore
 
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.calibration import CalibratedClassifierCV
-from scipy.fft import rfft, rfftfreq
+from scipy.fft import rfft, rfftfreq  # type: ignore
 from sklearn.metrics import (
     classification_report,
     roc_auc_score,
@@ -53,7 +53,7 @@ def determine_next_version(metadata_path: str) -> str:
 ML_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(os.path.dirname(ML_DIR), "data", "equipment_maintenance_data.csv")
 
-def feature_engineering(df):
+def feature_engineering(df, seed=42):
     """
     Computes domain-specific interaction features and FFT frequency-domain vibration features:
     1. temp_pressure_index: Thermal-mechanical load index
@@ -91,13 +91,14 @@ def feature_engineering(df):
     f_res = 450.0 + np.clip(hours_arr / 6000.0, 0.0, 1.0) * 350.0
     a_hf = vib_arr * 0.35 * np.clip(hours_arr / 3000.0, 0.0, 1.5)
 
+    rng = np.random.default_rng(seed)
     signal = (a1 * np.sin(2.0 * np.pi * f0 * t) +
               a2 * np.sin(2.0 * np.pi * 2.0 * f0 * t) +
               a_hf * np.sin(2.0 * np.pi * f_res * t) +
-              np.random.normal(0.0, 0.03, (M, N)))
+              rng.normal(0.0, 0.03, (M, N)))
 
-    freqs = rfftfreq(N, 1.0 / fs)
-    fft_power = np.abs(rfft(signal, axis=1)) ** 2 / float(N)
+    freqs = np.asarray(rfftfreq(N, 1.0 / fs))
+    fft_power = np.abs(np.asarray(rfft(signal, axis=1))) ** 2 / float(N)
 
     # Dominant frequency excluding DC bin
     dom_freq_idx = np.argmax(fft_power[:, 1:], axis=1) + 1
@@ -142,20 +143,20 @@ def run_pipeline():
     
     plt.figure(figsize=(12, 8))
     plt.subplot(2, 2, 1)
-    sns.countplot(x='failure', data=df, hue='failure', palette='Blues', legend=False)
+    sns.countplot(x='failure', data=df, hue='failure', palette='Blues', legend=False)  # type: ignore
     plt.title("Class Distribution (0 = Normal, 1 = Risk)")
     
     plt.subplot(2, 2, 2)
-    sns.boxplot(x='failure', y='temperature', data=df, hue='failure', palette='OrRd', legend=False)
+    sns.boxplot(x='failure', y='temperature', data=df, hue='failure', palette='OrRd', legend=False)  # type: ignore
     plt.title("Temperature vs Failure")
     
     plt.subplot(2, 2, 3)
-    sns.boxplot(x='failure', y='vibration', data=df, hue='failure', palette='Purples', legend=False)
+    sns.boxplot(x='failure', y='vibration', data=df, hue='failure', palette='Purples', legend=False)  # type: ignore
     plt.title("Vibration vs Failure")
     
     plt.subplot(2, 2, 4)
     numeric_cols = [c for c in ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours', 'failure'] if c in df.columns]
-    corr = df[numeric_cols].corr()
+    corr = pd.DataFrame(df[numeric_cols]).corr()
     sns.heatmap(corr, annot=True, cmap='coolwarm', fmt=".2f")
     plt.title("Correlation Matrix")
     
@@ -211,6 +212,16 @@ def run_pipeline():
     pos_count = int((y_train == 1).sum())
     scale_pos_weight = float(neg_count / max(pos_count, 1))
     print(f"\n[Class Imbalance Analysis] Normal={neg_count}, Failures={pos_count} (Ratio={scale_pos_weight:.4f})")
+
+    # Class-weighted sample weighting to address severe data scarcity for Tool Wear Failures (<0.45% of data)
+    failure_type_train = (
+        df_fe['failure_type'].iloc[train_idx].values
+        if 'failure_type' in df_fe.columns
+        else np.array(['Normal'] * len(y_train))
+    )
+    sample_weight = np.ones(len(y_train), dtype=np.float32)
+    sample_weight[failure_type_train == 'Tool Wear Failure'] = np.float32(3.0)
+    print(f"[Class Weighting] Applied failure-mode sample weighting: Tool Wear Failure x3.0 ({int((failure_type_train == 'Tool Wear Failure').sum())} training samples)")
     
     # 4. Model Training Sequence
     # Baseline: Logistic Regression
@@ -218,7 +229,7 @@ def run_pipeline():
     lr = LogisticRegression(max_iter=1000, class_weight='balanced', random_state=42)
     lr.fit(X_train_scaled, y_train)
     y_pred_lr = lr.predict(X_test_scaled)
-    y_prob_lr = lr.predict_proba(X_test_scaled)[:, 1]
+    y_prob_lr = np.asarray(lr.predict_proba(X_test_scaled))[:, 1]
     lr_roc = roc_auc_score(y_test, y_prob_lr)
     lr_f1 = f1_score(y_test, y_pred_lr)
     lr_brier = brier_score_loss(y_test, y_prob_lr)
@@ -236,7 +247,7 @@ def run_pipeline():
     )
     rf.fit(X_train, y_train)
     y_pred_rf = rf.predict(X_test)
-    y_prob_rf = rf.predict_proba(X_test)[:, 1]
+    y_prob_rf = np.asarray(rf.predict_proba(X_test))[:, 1]
     rf_roc = roc_auc_score(y_test, y_prob_rf)
     rf_f1 = f1_score(y_test, y_pred_rf)
     rf_brier = brier_score_loss(y_test, y_prob_rf)
@@ -286,7 +297,7 @@ def run_pipeline():
         n_jobs=-1,
         verbose=1
     )
-    grid_search.fit(X_train, y_train)
+    grid_search.fit(X_train, y_train, sample_weight=sample_weight)
     xgb = grid_search.best_estimator_
     best_params = grid_search.best_params_
     print(f"GridSearchCV best params: {best_params} (best CV ROC-AUC: {grid_search.best_score_:.4f})")
@@ -299,7 +310,7 @@ def run_pipeline():
     # Model Calibration: Platt Sigmoid Calibration via CalibratedClassifierCV
     print("\n--- Applying Platt Sigmoid Calibration (CalibratedClassifierCV) ---")
     calibrated_xgb = CalibratedClassifierCV(estimator=xgb, method='sigmoid', cv=3)
-    calibrated_xgb.fit(X_train, y_train)
+    calibrated_xgb.fit(X_train, y_train, sample_weight=sample_weight)
     y_prob_calibrated = calibrated_xgb.predict_proba(X_test)[:, 1]
     calibrated_roc = roc_auc_score(y_test, y_prob_calibrated)
     calibrated_brier = brier_score_loss(y_test, y_prob_calibrated)
@@ -329,6 +340,49 @@ def run_pipeline():
     print(f"Tuned Calibrated XGBoost (PR Threshold {optimal_threshold:.4f}) -> ROC-AUC: {calibrated_roc:.4f}, F1: {opt_f1:.4f}, Precision: {opt_prec:.4f}, Recall: {opt_rec:.4f}")
     print("\nCalibrated XGBoost Detailed Classification Report (Tuned PR Threshold):")
     print(classification_report(y_test, y_pred_optimal, target_names=['Normal', 'Failure Risk']))
+
+    # Stratified 5-Fold Cross-Validation on Calibrated XGBoost (Leakage-free generalizability assessment)
+    print("\n--- 5-Fold Stratified Cross-Validation (Calibrated XGBoost) ---")
+    skf_5 = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv_auc_scores = []
+    for fold, (tr_idx, val_idx) in enumerate(skf_5.split(X, y), 1):
+        X_fold_tr, X_fold_val = X.iloc[tr_idx], X.iloc[val_idx]
+        y_fold_tr, y_fold_val = y.iloc[tr_idx], y.iloc[val_idx]
+
+        f_neg = int((y_fold_tr == 0).sum())
+        f_pos = int((y_fold_tr == 1).sum())
+        f_spw = float(f_neg / max(f_pos, 1)) * 0.7
+
+        f_ft = (
+            df_fe['failure_type'].iloc[tr_idx].values
+            if 'failure_type' in df_fe.columns
+            else np.array(['Normal'] * len(y_fold_tr))
+        )
+        f_sw = np.ones(len(y_fold_tr), dtype=np.float32)
+        f_sw[f_ft == 'Tool Wear Failure'] = np.float32(3.0)
+
+        f_xgb = XGBClassifier(
+            **best_params,
+            scale_pos_weight=f_spw,
+            subsample=0.85,
+            colsample_bytree=0.85,
+            min_child_weight=3,
+            gamma=0.2,
+            reg_alpha=0.1,
+            reg_lambda=1.0,
+            random_state=42,
+            eval_metric='logloss'
+        )
+        f_cal = CalibratedClassifierCV(estimator=f_xgb, method='sigmoid', cv=3)
+        f_cal.fit(X_fold_tr, y_fold_tr, sample_weight=f_sw)
+        f_prob = f_cal.predict_proba(X_fold_val)[:, 1]
+        f_auc = float(roc_auc_score(y_fold_val, f_prob))
+        cv_auc_scores.append(f_auc)
+        print(f"  Fold {fold} ROC-AUC: {f_auc:.4f}")
+
+    cv_roc_mean = float(np.mean(cv_auc_scores))
+    cv_roc_std = float(np.std(cv_auc_scores))
+    print(f"Stratified 5-Fold CV ROC-AUC: {cv_roc_mean:.4f} ± {cv_roc_std:.4f}")
     
     # Model 5: StackingClassifier Ensemble (XGBoost + LightGBM + Random Forest with Logistic Regression meta-learner)
     print("\n--- Training Model 5: StackingClassifier Ensemble (XGBoost + LightGBM + RF) ---")
@@ -345,7 +399,7 @@ def run_pipeline():
     )
     stack_clf.fit(X_train, y_train)
     y_pred_stack = stack_clf.predict(X_test)
-    y_prob_stack = stack_clf.predict_proba(X_test)[:, 1]
+    y_prob_stack = np.asarray(stack_clf.predict_proba(X_test))[:, 1]
     stack_roc = roc_auc_score(y_test, y_prob_stack)
     stack_f1 = f1_score(y_test, y_pred_stack)
     stack_prec = precision_score(y_test, y_pred_stack)
@@ -364,10 +418,10 @@ def run_pipeline():
         from evaluate import compute_segmented_performance, format_segmented_table  # type: ignore
 
     segmented_results = compute_segmented_performance(
-        y_test.values if hasattr(y_test, 'values') else y_test,
-        y_pred_optimal,
-        y_prob_calibrated,
-        failure_type_test
+        np.asarray(y_test),
+        np.asarray(y_pred_optimal),
+        np.asarray(y_prob_calibrated),
+        np.asarray(failure_type_test)
     )
     print(format_segmented_table(segmented_results))
 
@@ -599,6 +653,8 @@ def run_pipeline():
         # B. Log Metrics (Including Calibrated and baseline metrics)
         mlflow.log_metrics({
             "calibrated_xgb_roc_auc": round(float(calibrated_roc), 4),
+            "cv_roc_auc_mean": round(float(cv_roc_mean), 4),
+            "cv_roc_auc_std": round(float(cv_roc_std), 4),
             "calibrated_xgb_f1_score": round(float(opt_f1), 4),
             "calibrated_xgb_precision": round(float(opt_prec), 4),
             "calibrated_xgb_recall": round(float(opt_rec), 4),
@@ -669,6 +725,10 @@ def run_pipeline():
         "decision_threshold": round(float(optimal_threshold), 4),
         "metrics": {
             "roc_auc": round(float(calibrated_roc), 4),
+            "stratified_5fold_cv": {
+                "roc_auc_mean": round(float(cv_roc_mean), 4),
+                "roc_auc_std": round(float(cv_roc_std), 4)
+            },
             "f1_score": round(float(opt_f1), 4),
             "precision": round(float(opt_prec), 4),
             "recall": round(float(opt_rec), 4),

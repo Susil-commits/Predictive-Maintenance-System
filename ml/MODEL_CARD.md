@@ -15,15 +15,21 @@
 - **NOT suitable for**: Autonomous control shutdown or life-critical safety shutdown systems without human-in-the-loop validation.
 
 ## Performance
-- **Realistic Un-leaked Baseline**:
-  - **ROC-AUC**: ~0.85 ± 0.03 on stratified test set
-  - **Precision**: Tuned for low false alarm rate in industrial monitoring
-  - **Recall**: Optimized via Precision-Recall curve threshold tuning
-  - **Brier Score Loss**: Significantly reduced via Platt sigmoid calibration (~0.02)
+- **Stratified 5-Fold Cross-Validation**:
+  - **ROC-AUC (CV)**: **0.9348 ± 0.0087** across 5 stratified folds (replaces stale uncalibrated estimate)
+- **Held-Out Test Set Evaluation** (Total test samples = 2,000; Test positives count = 68, Normal = 1,932):
+  - **ROC-AUC**: **0.9336**
+  - **Brier Score Loss**:
+    - Uncalibrated XGBoost: **0.0887**
+    - Calibrated XGBoost (Platt Sigmoid): **0.0263** (70.38% probabilistic error reduction)
+  - **Threshold Performance Comparison**:
+    - **Tuned Threshold (`0.2849`)**: **F1: 0.4277** | Precision: 0.3736 | Recall: 0.5000
+    - **Default Threshold (`0.5000`)**: **F1: 0.0000** | Precision: 0.0000 | Recall: 0.0000 (highlights necessity of Precision-Recall threshold optimization under 28:1 class imbalance)
 - **Held-Out Slice Verification**:
-  - Validated across 9 held-out operational slices (Nominal, Thermal Overheat, Vibration Fatigue, Overstrain Surge, Cold Idle, Stall Strain, Highway Light Load, Extreme Breakdown).
+  - Validated across operational slices (Thermal Overheat, Vibration Fatigue, Overstrain Surge, Tool Wear, Power Failure).
 
 ## Limitations
+- **Data Distribution & Sample Size**: AI4I-derived synthetic data; small test positive count (68 total test failures, with as few as 9 test samples for Tool Wear failure). Empirical slice metrics exhibit high variance; real-world industrial deployments require continual domain recalibration.
 - **Synthetic Noise Formulation**: Trained on high-fidelity AI4I distribution; operational domain shifts in field environments may require recalibration.
 - **Binary Classification Scope**: Predicts instantaneous state risk; Remaining Useful Life (time-to-failure) is handled separately by `ml/rul_engine.py`.
 - **Operating Envelope Validity**:

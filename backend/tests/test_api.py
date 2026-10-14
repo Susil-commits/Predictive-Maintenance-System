@@ -143,7 +143,17 @@ def test_drift_status_endpoint():
     assert len(data["feature_metrics"]) == 5
 
 def test_drift_reset_endpoint():
-    response = client.post("/drift-status/reset")
+    # Calling without API key should be rejected with 401 Unauthorized
+    unauth_response = client.post("/drift-status/reset")
+    assert unauth_response.status_code in (401, 403)
+    assert "Invalid or missing API key" in unauth_response.json()["detail"]
+
+    # Calling with invalid API key should also be rejected
+    invalid_response = client.post("/drift-status/reset", headers={"X-API-Key": "wrong-secret-key"})
+    assert invalid_response.status_code == 401
+
+    # Calling with valid admin API key succeeds
+    response = client.post("/drift-status/reset", headers={"X-API-Key": ADMIN_API_KEY})
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "reset_successful"
