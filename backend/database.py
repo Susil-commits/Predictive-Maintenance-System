@@ -43,6 +43,36 @@ DATABASE_URL = _raw_db_url.strip()
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Adapt driver scheme based on installed DBAPI drivers (psycopg vs psycopg2)
+if DATABASE_URL.startswith("postgresql"):
+    has_psycopg = False
+    has_psycopg2 = False
+    try:
+        import psycopg  # noqa: F401
+        has_psycopg = True
+    except ImportError:
+        pass
+
+    try:
+        import psycopg2  # noqa: F401
+        has_psycopg2 = True
+    except ImportError:
+        pass
+
+    if DATABASE_URL.startswith("postgresql://"):
+        if has_psycopg:
+            DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+        elif has_psycopg2:
+            DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+        else:
+            logger.warning("Neither 'psycopg' nor 'psycopg2' is available in the current Python environment.")
+    elif DATABASE_URL.startswith("postgresql+psycopg://") and not has_psycopg and has_psycopg2:
+        logger.warning("'psycopg' is missing; falling back to installed 'psycopg2' driver.")
+        DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
+    elif DATABASE_URL.startswith("postgresql+psycopg2://") and not has_psycopg2 and has_psycopg:
+        logger.warning("'psycopg2' is missing; falling back to installed 'psycopg' driver.")
+        DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+
 # Attempt to create engine with retry and exponential backoff, fallback gracefully to SQLite
 engine = None
 

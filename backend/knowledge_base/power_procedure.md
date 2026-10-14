@@ -1,7 +1,7 @@
 # Standard Operating Procedure: Power Failure & Electrical Drive Overload (PWF)
 
 ## 1. Overview & Physical Mechanism
-Power Failure (PWF) stems from electrical or electro-mechanical impedance mismatch in the motor drive system, where delivered mechanical power ($P = \tau \times \omega$) exceeds either the thermal rating of the motor stator windings or the current-limiting threshold of the Variable Frequency Drive (VFD). Power failures often manifest as sudden torque collapse, rotational stall, or thermal tripping under peak load.
+Power Failure (PWF) stems from electrical or electro-mechanical impedance mismatch in the motor drive system, where delivered mechanical power (P = τ × ω, or torque × rotational speed) exceeds either the thermal rating of the motor stator windings or the current-limiting threshold of the Variable Frequency Drive (VFD). Power failures often manifest as sudden torque collapse, rotational stall, or thermal tripping under peak load.
 
 ## 2. Telemetry Symptoms & Risk Signatures
 - **Primary Indicator**: Rotational speed (RPM) anomalies (abnormal high speed slip or sharp sub-baseline stall drop under load).

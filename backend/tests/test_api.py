@@ -584,6 +584,34 @@ def test_model_info_segmented_performance():
     assert thermal["support_failures"] > 0
 
 
+def test_model_info_cross_validated_failure_mode_uncertainty():
+    res = client.get("/model-info")
+    assert res.status_code == 200
+    data = res.json()
+    assert "stratified_5fold_cv_per_mode" in data or "cv_failure_mode_performance" in data
+    cv_perf = data.get("stratified_5fold_cv_per_mode") or data.get("cv_failure_mode_performance")
+    assert cv_perf is not None
+    assert "Thermal Failure" in cv_perf
+    assert "Tool Wear Failure" in cv_perf
+    assert "Overstrain Failure" in cv_perf
+    assert "Power Failure" in cv_perf
+    assert "Overall" in cv_perf
+
+    twf = cv_perf["Tool Wear Failure"]
+    assert twf["total_support"] == 43
+    assert "f1_mean" in twf
+    assert "f1_std" in twf
+    assert "f1_range" in twf
+    assert "recall_mean" in twf
+    assert len(twf["f1_range"]) == 2
+
+    hdf = cv_perf["Thermal Failure"]
+    assert hdf["total_support"] == 115
+    assert "f1_mean" in hdf
+    assert "f1_std" in hdf
+    assert "f1_range" in hdf
+
+
 def test_canary_rollout_lifecycle():
     # 1. Check initial canary status
     status_res = client.get("/canary/status")

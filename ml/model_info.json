@@ -105,7 +105,17 @@
       "recall": 0.4853,
       "f1_score": 0.4177,
       "roc_auc": 0.9336,
-      "status": "PASS"
+      "status": "PASS",
+      "cv_f1_mean": 0.3466,
+      "cv_f1_std": 0.0212,
+      "cv_f1_range": [
+        0.3191,
+        0.3846
+      ],
+      "cv_recall_mean": 0.2597,
+      "cv_recall_std": 0.0252,
+      "cv_roc_auc_mean": 0.9348,
+      "cv_roc_auc_std": 0.0087
     },
     "Thermal Failure": {
       "failure_mode": "Thermal (HDF)",
@@ -120,7 +130,17 @@
       "f1_score": 0.1702,
       "roc_auc": 0.9327,
       "status": "UNDERPERFORMING",
-      "diagnostic_insight": "Driven by thermal dissipation differential. Moderate sensitivity; misses slow thermal creep cases."
+      "diagnostic_insight": "Driven by thermal dissipation differential. Moderate sensitivity; misses slow thermal creep cases.",
+      "cv_f1_mean": 0.1212,
+      "cv_f1_std": 0.0384,
+      "cv_f1_range": [
+        0.0625,
+        0.1667
+      ],
+      "cv_recall_mean": 0.1113,
+      "cv_recall_std": 0.0389,
+      "cv_roc_auc_mean": 0.933,
+      "cv_roc_auc_std": 0.0032
     },
     "Overstrain Failure": {
       "failure_mode": "Overstrain (OSF)",
@@ -135,7 +155,17 @@
       "f1_score": 0.3023,
       "roc_auc": 0.9739,
       "status": "UNDERPERFORMING",
-      "diagnostic_insight": "Strongest detected mode with 81.25% recall. Sharp torque and mechanical power signatures make sudden mechanical overstrains easily separable."
+      "diagnostic_insight": "Strongest detected mode with 81.25% recall. Sharp torque and mechanical power signatures make sudden mechanical overstrains easily separable.",
+      "cv_f1_mean": 0.4137,
+      "cv_f1_std": 0.0984,
+      "cv_f1_range": [
+        0.2326,
+        0.5333
+      ],
+      "cv_recall_mean": 0.5014,
+      "cv_recall_std": 0.1617,
+      "cv_roc_auc_mean": 0.9715,
+      "cv_roc_auc_std": 0.0136
     },
     "Tool Wear Failure": {
       "failure_mode": "Tool Wear (TWF)",
@@ -150,7 +180,17 @@
       "f1_score": 0.1408,
       "roc_auc": 0.9036,
       "status": "UNDERPERFORMING",
-      "diagnostic_insight": "Severely data-starved with only 9 test failures (~36 in training set, <0.45% of data). Model triggers on dominant failure signatures (Overstrain/Power), yielding 59 false alarms in 1-vs-All evaluation. Root cause: lack of dedicated wear trajectory labels and class scarcity. Remediation: class-weighted loss per failure type or dedicated multi-head tool wear detector."
+      "diagnostic_insight": "Severely data-starved with only 9 test failures (~36 in training set, <0.45% of data). Model triggers on dominant failure signatures (Overstrain/Power), yielding 59 false alarms in 1-vs-All evaluation. Root cause: lack of dedicated wear trajectory labels and class scarcity. Remediation: class-weighted loss per failure type or dedicated multi-head tool wear detector.",
+      "cv_f1_mean": 0.0285,
+      "cv_f1_std": 0.0353,
+      "cv_f1_range": [
+        0.0,
+        0.08
+      ],
+      "cv_recall_mean": 0.05,
+      "cv_recall_std": 0.0667,
+      "cv_roc_auc_mean": 0.9144,
+      "cv_roc_auc_std": 0.0124
     },
     "Power Failure": {
       "failure_mode": "Power Failure (PWF)",
@@ -165,7 +205,17 @@
       "f1_score": 0.1842,
       "roc_auc": 0.9504,
       "status": "UNDERPERFORMING",
-      "diagnostic_insight": "High sensitivity (75% recall) owing to mechanical_power feature (torque x rotational speed) triggering when electrical power envelope is breached."
+      "diagnostic_insight": "High sensitivity (75% recall) owing to mechanical_power feature (torque x rotational speed) triggering when electrical power envelope is breached.",
+      "cv_f1_mean": 0.2956,
+      "cv_f1_std": 0.0671,
+      "cv_f1_range": [
+        0.2286,
+        0.4091
+      ],
+      "cv_recall_mean": 0.3522,
+      "cv_recall_std": 0.1093,
+      "cv_roc_auc_mean": 0.9394,
+      "cv_roc_auc_std": 0.0119
     }
   },
   "scenario_validation": {
@@ -285,6 +335,370 @@
       "predicted_risk": "HIGH",
       "probability": 0.4525,
       "passed": false
+    }
+  },
+  "cv_failure_mode_performance": {
+    "Overall": {
+      "failure_mode": "All Failures (Overall)",
+      "total_support": 339,
+      "mean_support_per_fold": 67.8,
+      "fold_supports": [
+        67,
+        68,
+        68,
+        68,
+        68
+      ],
+      "f1_mean": 0.3466,
+      "f1_std": 0.0212,
+      "f1_range": [
+        0.3191,
+        0.3846
+      ],
+      "recall_mean": 0.2597,
+      "recall_std": 0.0252,
+      "recall_range": [
+        0.2206,
+        0.2985
+      ],
+      "precision_mean": 0.527,
+      "precision_std": 0.0318,
+      "precision_range": [
+        0.4865,
+        0.5769
+      ],
+      "roc_auc_mean": 0.9348,
+      "roc_auc_std": 0.0087,
+      "roc_auc_range": [
+        0.9229,
+        0.9458
+      ]
+    },
+    "Thermal Failure": {
+      "failure_mode": "Thermal (HDF)",
+      "total_support": 115,
+      "mean_support_per_fold": 23.0,
+      "fold_supports": [
+        27,
+        24,
+        20,
+        24,
+        20
+      ],
+      "f1_mean": 0.1212,
+      "f1_std": 0.0384,
+      "f1_range": [
+        0.0625,
+        0.1667
+      ],
+      "recall_mean": 0.1113,
+      "recall_std": 0.0389,
+      "recall_range": [
+        0.05,
+        0.15
+      ],
+      "precision_mean": 0.1354,
+      "precision_std": 0.0399,
+      "precision_range": [
+        0.0833,
+        0.1905
+      ],
+      "roc_auc_mean": 0.933,
+      "roc_auc_std": 0.0032,
+      "roc_auc_range": [
+        0.9282,
+        0.9379
+      ]
+    },
+    "Overstrain Failure": {
+      "failure_mode": "Overstrain (OSF)",
+      "total_support": 92,
+      "mean_support_per_fold": 18.4,
+      "fold_supports": [
+        16,
+        18,
+        22,
+        17,
+        19
+      ],
+      "f1_mean": 0.4137,
+      "f1_std": 0.0984,
+      "f1_range": [
+        0.2326,
+        0.5333
+      ],
+      "recall_mean": 0.5014,
+      "recall_std": 0.1617,
+      "recall_range": [
+        0.2632,
+        0.75
+      ],
+      "precision_mean": 0.3609,
+      "precision_std": 0.0827,
+      "precision_range": [
+        0.2083,
+        0.45
+      ],
+      "roc_auc_mean": 0.9715,
+      "roc_auc_std": 0.0136,
+      "roc_auc_range": [
+        0.9499,
+        0.9862
+      ]
+    },
+    "Tool Wear Failure": {
+      "failure_mode": "Tool Wear (TWF)",
+      "total_support": 43,
+      "mean_support_per_fold": 8.6,
+      "fold_supports": [
+        8,
+        6,
+        10,
+        7,
+        12
+      ],
+      "f1_mean": 0.0285,
+      "f1_std": 0.0353,
+      "f1_range": [
+        0.0,
+        0.08
+      ],
+      "recall_mean": 0.05,
+      "recall_std": 0.0667,
+      "recall_range": [
+        0.0,
+        0.1667
+      ],
+      "precision_mean": 0.0205,
+      "precision_std": 0.0252,
+      "precision_range": [
+        0.0,
+        0.0526
+      ],
+      "roc_auc_mean": 0.9144,
+      "roc_auc_std": 0.0124,
+      "roc_auc_range": [
+        0.8966,
+        0.9313
+      ]
+    },
+    "Power Failure": {
+      "failure_mode": "Power Failure (PWF)",
+      "total_support": 80,
+      "mean_support_per_fold": 16.0,
+      "fold_supports": [
+        14,
+        18,
+        14,
+        18,
+        16
+      ],
+      "f1_mean": 0.2956,
+      "f1_std": 0.0671,
+      "f1_range": [
+        0.2286,
+        0.4091
+      ],
+      "recall_mean": 0.3522,
+      "recall_std": 0.1093,
+      "recall_range": [
+        0.2778,
+        0.5625
+      ],
+      "precision_mean": 0.2584,
+      "precision_std": 0.0515,
+      "precision_range": [
+        0.1905,
+        0.3214
+      ],
+      "roc_auc_mean": 0.9394,
+      "roc_auc_std": 0.0119,
+      "roc_auc_range": [
+        0.9194,
+        0.9501
+      ]
+    }
+  },
+  "stratified_5fold_cv_per_mode": {
+    "Overall": {
+      "failure_mode": "All Failures (Overall)",
+      "total_support": 339,
+      "mean_support_per_fold": 67.8,
+      "fold_supports": [
+        67,
+        68,
+        68,
+        68,
+        68
+      ],
+      "f1_mean": 0.3466,
+      "f1_std": 0.0212,
+      "f1_range": [
+        0.3191,
+        0.3846
+      ],
+      "recall_mean": 0.2597,
+      "recall_std": 0.0252,
+      "recall_range": [
+        0.2206,
+        0.2985
+      ],
+      "precision_mean": 0.527,
+      "precision_std": 0.0318,
+      "precision_range": [
+        0.4865,
+        0.5769
+      ],
+      "roc_auc_mean": 0.9348,
+      "roc_auc_std": 0.0087,
+      "roc_auc_range": [
+        0.9229,
+        0.9458
+      ]
+    },
+    "Thermal Failure": {
+      "failure_mode": "Thermal (HDF)",
+      "total_support": 115,
+      "mean_support_per_fold": 23.0,
+      "fold_supports": [
+        27,
+        24,
+        20,
+        24,
+        20
+      ],
+      "f1_mean": 0.1212,
+      "f1_std": 0.0384,
+      "f1_range": [
+        0.0625,
+        0.1667
+      ],
+      "recall_mean": 0.1113,
+      "recall_std": 0.0389,
+      "recall_range": [
+        0.05,
+        0.15
+      ],
+      "precision_mean": 0.1354,
+      "precision_std": 0.0399,
+      "precision_range": [
+        0.0833,
+        0.1905
+      ],
+      "roc_auc_mean": 0.933,
+      "roc_auc_std": 0.0032,
+      "roc_auc_range": [
+        0.9282,
+        0.9379
+      ]
+    },
+    "Overstrain Failure": {
+      "failure_mode": "Overstrain (OSF)",
+      "total_support": 92,
+      "mean_support_per_fold": 18.4,
+      "fold_supports": [
+        16,
+        18,
+        22,
+        17,
+        19
+      ],
+      "f1_mean": 0.4137,
+      "f1_std": 0.0984,
+      "f1_range": [
+        0.2326,
+        0.5333
+      ],
+      "recall_mean": 0.5014,
+      "recall_std": 0.1617,
+      "recall_range": [
+        0.2632,
+        0.75
+      ],
+      "precision_mean": 0.3609,
+      "precision_std": 0.0827,
+      "precision_range": [
+        0.2083,
+        0.45
+      ],
+      "roc_auc_mean": 0.9715,
+      "roc_auc_std": 0.0136,
+      "roc_auc_range": [
+        0.9499,
+        0.9862
+      ]
+    },
+    "Tool Wear Failure": {
+      "failure_mode": "Tool Wear (TWF)",
+      "total_support": 43,
+      "mean_support_per_fold": 8.6,
+      "fold_supports": [
+        8,
+        6,
+        10,
+        7,
+        12
+      ],
+      "f1_mean": 0.0285,
+      "f1_std": 0.0353,
+      "f1_range": [
+        0.0,
+        0.08
+      ],
+      "recall_mean": 0.05,
+      "recall_std": 0.0667,
+      "recall_range": [
+        0.0,
+        0.1667
+      ],
+      "precision_mean": 0.0205,
+      "precision_std": 0.0252,
+      "precision_range": [
+        0.0,
+        0.0526
+      ],
+      "roc_auc_mean": 0.9144,
+      "roc_auc_std": 0.0124,
+      "roc_auc_range": [
+        0.8966,
+        0.9313
+      ]
+    },
+    "Power Failure": {
+      "failure_mode": "Power Failure (PWF)",
+      "total_support": 80,
+      "mean_support_per_fold": 16.0,
+      "fold_supports": [
+        14,
+        18,
+        14,
+        18,
+        16
+      ],
+      "f1_mean": 0.2956,
+      "f1_std": 0.0671,
+      "f1_range": [
+        0.2286,
+        0.4091
+      ],
+      "recall_mean": 0.3522,
+      "recall_std": 0.1093,
+      "recall_range": [
+        0.2778,
+        0.5625
+      ],
+      "precision_mean": 0.2584,
+      "precision_std": 0.0515,
+      "precision_range": [
+        0.1905,
+        0.3214
+      ],
+      "roc_auc_mean": 0.9394,
+      "roc_auc_std": 0.0119,
+      "roc_auc_range": [
+        0.9194,
+        0.9501
+      ]
     }
   }
 }

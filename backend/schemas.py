@@ -70,6 +70,8 @@ class ModelInfoResponse(BaseModel):
     feature_names: List[str]
     base_features: List[str]
     segmented_performance: Optional[Dict[str, Any]] = None
+    cv_failure_mode_performance: Optional[Dict[str, Any]] = None
+    stratified_5fold_cv_per_mode: Optional[Dict[str, Any]] = None
     scenario_validation: Optional[Dict[str, Any]] = None
 
 class HealthResponse(BaseModel):
