@@ -151,7 +151,9 @@ def run_pipeline():
         sns.countplot(x='failure', data=df, hue='failure', palette='Blues', legend=False)  # type: ignore
     else:
         counts = df['failure'].value_counts()
-        plt.bar(counts.index.astype(str), counts.values, color=['#3b82f6', '#ef4444'])
+        x_labels = [str(i) for i in counts.index]
+        y_values = [int(v) for v in counts.values]
+        plt.bar(x_labels, y_values, color=['#3b82f6', '#ef4444'])
     plt.title("Class Distribution (0 = Normal, 1 = Risk)")
     
     plt.subplot(2, 2, 2)
