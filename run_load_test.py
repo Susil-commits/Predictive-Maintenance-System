@@ -52,7 +52,7 @@ def run_load_test():
     env["PYTHONUNBUFFERED"] = "1"
 
     # Start uvicorn server on dedicated benchmark port with 2 workers matching production Dockerfile
-    server_cmd = [
+    server_cmd: list[str] = [
         sys.executable, "-m", "uvicorn",
         "backend.main:app",
         "--host", "127.0.0.1",
@@ -69,16 +69,16 @@ def run_load_test():
             raise RuntimeError(f"Server failed to start within timeout on {BASE_URL}")
 
         benchmark_results = []
-
+ 
         for step in CONCURRENCY_STEPS:
-            u = step["users"]
-            r = step["spawn_rate"]
-            d = step["duration"]
+            u = int(step["users"])
+            r = int(step["spawn_rate"])
+            d = str(step["duration"])
             csv_prefix = os.path.join(DOCS_DIR, f"locust_{u}users")
 
             print(f"\n[BENCHMARK] Running Locust: {u} concurrent users (spawn rate: {r}/s, duration: {d})...")
             
-            locust_cmd = [
+            locust_cmd: list[str] = [
                 sys.executable, "-m", "locust",
                 "-f", LOCUST_FILE,
                 "--headless",
