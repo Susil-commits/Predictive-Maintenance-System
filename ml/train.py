@@ -6,7 +6,11 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns  # type: ignore
+try:
+    import seaborn as sns  # type: ignore
+except ImportError:
+    sns = None
+
 
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
@@ -143,21 +147,41 @@ def run_pipeline():
     
     plt.figure(figsize=(12, 8))
     plt.subplot(2, 2, 1)
-    sns.countplot(x='failure', data=df, hue='failure', palette='Blues', legend=False)  # type: ignore
+    if sns is not None:
+        sns.countplot(x='failure', data=df, hue='failure', palette='Blues', legend=False)  # type: ignore
+    else:
+        counts = df['failure'].value_counts()
+        plt.bar(counts.index.astype(str), counts.values, color=['#3b82f6', '#ef4444'])
     plt.title("Class Distribution (0 = Normal, 1 = Risk)")
     
     plt.subplot(2, 2, 2)
-    sns.boxplot(x='failure', y='temperature', data=df, hue='failure', palette='OrRd', legend=False)  # type: ignore
+    if sns is not None:
+        sns.boxplot(x='failure', y='temperature', data=df, hue='failure', palette='OrRd', legend=False)  # type: ignore
+    else:
+        norm_temp = df.loc[df['failure'] == 0, 'temperature'].dropna()
+        fail_temp = df.loc[df['failure'] == 1, 'temperature'].dropna()
+        plt.boxplot([norm_temp, fail_temp], tick_labels=['0', '1'])
     plt.title("Temperature vs Failure")
     
     plt.subplot(2, 2, 3)
-    sns.boxplot(x='failure', y='vibration', data=df, hue='failure', palette='Purples', legend=False)  # type: ignore
+    if sns is not None:
+        sns.boxplot(x='failure', y='vibration', data=df, hue='failure', palette='Purples', legend=False)  # type: ignore
+    else:
+        norm_vib = df.loc[df['failure'] == 0, 'vibration'].dropna()
+        fail_vib = df.loc[df['failure'] == 1, 'vibration'].dropna()
+        plt.boxplot([norm_vib, fail_vib], tick_labels=['0', '1'])
     plt.title("Vibration vs Failure")
     
     plt.subplot(2, 2, 4)
     numeric_cols = [c for c in ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours', 'failure'] if c in df.columns]
     corr = pd.DataFrame(df[numeric_cols]).corr()
-    sns.heatmap(corr, annot=True, cmap='coolwarm', fmt=".2f")
+    if sns is not None:
+        sns.heatmap(corr, annot=True, cmap='coolwarm', fmt=".2f")
+    else:
+        im = plt.imshow(corr.values, cmap='coolwarm', aspect='auto')
+        plt.colorbar(im)
+        plt.xticks(range(len(numeric_cols)), numeric_cols, rotation=45, ha='right', fontsize=8)
+        plt.yticks(range(len(numeric_cols)), numeric_cols, fontsize=8)
     plt.title("Correlation Matrix")
     
     plt.tight_layout()
