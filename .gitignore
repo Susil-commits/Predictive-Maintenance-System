@@ -15,6 +15,9 @@ env/
 venv/
 ENV/
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # Databases & MLOps
 *.db

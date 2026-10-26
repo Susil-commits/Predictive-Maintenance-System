@@ -12,15 +12,29 @@ CRITICAL INVARIANT:
 - Fully auditable: Returns retrieved procedure chunks alongside the generated narrative.
 """
 
+import glob
+import logging
 import os
 import re
-import glob
-import time
-import logging
-import httpx
-from typing import Optional, Dict, Any, List
+from typing import Any
 
-from .predictor import predictor, find_minimal_fix, calibrated_model, scaler, FEATURE_ORDER
+import httpx
+
+from .predictor import (
+    FEATURE_ORDER,
+    calibrated_model,
+    find_minimal_fix,
+    predictor,
+    scaler,
+)
+from backend.security import (
+    CanaryTrap,
+    InputSanitizer,
+    PIISanitizer,
+    PromptShield,
+    get_audit_logger,
+    get_circuit_breaker,
+)
 
 logger = logging.getLogger("pms.narration")
 
@@ -33,7 +47,7 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 KNOWLEDGE_BASE_DIR = os.path.join(CURRENT_DIR, "knowledge_base")
 
 # Query mapping from top_risk_factor / failure mode to semantic RAG search queries
-QUERY_EXPANSIONS: Dict[str, str] = {
+QUERY_EXPANSIONS: dict[str, str] = {
     "temperature": "Thermal Heat Dissipation Failure (HDF) cooling circuit heat exchanger inspection",
     "thermal": "Thermal Heat Dissipation Failure (HDF) cooling circuit heat exchanger inspection",
     "pressure": "Overstrain Failure (OSF) hydraulic overpressure relief valve accumulator strain",
@@ -46,7 +60,7 @@ QUERY_EXPANSIONS: Dict[str, str] = {
     "power": "Power Failure (PWF) electrical drive motor torque stall speed unbalance",
 }
 
-FAILURE_MODE_MAP: Dict[str, str] = {
+FAILURE_MODE_MAP: dict[str, str] = {
     "temperature": "Thermal (HDF)",
     "thermal": "Thermal (HDF)",
     "pressure": "Overstrain (OSF)",
@@ -66,14 +80,15 @@ class MaintenanceRAGStore:
     Zero external downloads, zero external services, zero database file dependencies.
     Built once at module load time.
     """
+
     def __init__(self, kb_dir: str = KNOWLEDGE_BASE_DIR):
         self.kb_dir = kb_dir
-        self.chunks: List[Dict[str, Any]] = []
-        self.vectorizer: Optional[TfidfVectorizer] = None
+        self.chunks: list[dict[str, Any]] = []
+        self.vectorizer: TfidfVectorizer | None = None
         self.tfidf_matrix: Any = None
         self._init_store()
 
-    def _parse_markdown_chunks(self) -> List[Dict[str, Any]]:
+    def _parse_markdown_chunks(self) -> list[dict[str, Any]]:
         """
         Parses all .md files in the knowledge base into semantic chunks.
         Each chunk represents a logical section (Overview, Symptoms, Protocol, Causes, Remediation).
@@ -127,13 +142,15 @@ class MaintenanceRAGStore:
 
                     sec_idx += 1
                     chunk_id = f"{os.path.splitext(os.path.basename(file_path))[0]}_chunk_{sec_idx}"
-                    chunks.append({
-                        "id": chunk_id,
-                        "failure_mode": failure_mode,
-                        "title": title,
-                        "section": sec_name,
-                        "content": sec_clean
-                    })
+                    chunks.append(
+                        {
+                            "id": chunk_id,
+                            "failure_mode": failure_mode,
+                            "title": title,
+                            "section": sec_name,
+                            "content": sec_clean,
+                        }
+                    )
             except Exception as e:
                 logger.error(f"Failed to parse markdown document {file_path}: {e}")
 
@@ -147,18 +164,14 @@ class MaintenanceRAGStore:
             return
 
         try:
-            self.vectorizer = TfidfVectorizer(
-                ngram_range=(1, 2),
-                stop_words="english",
-                sublinear_tf=True
-            )
+            self.vectorizer = TfidfVectorizer(ngram_range=(1, 2), stop_words="english", sublinear_tf=True)
             corpus = [c["content"] for c in self.chunks]
             self.tfidf_matrix = self.vectorizer.fit_transform(corpus)
             logger.info(f"Initialized in-memory TF-IDF RAG store with {len(self.chunks)} chunks.")
         except Exception as e:
             logger.error(f"Failed to initialize TF-IDF vectorizer: {e}")
 
-    def retrieve(self, query: str, n_results: int = 2) -> List[Dict[str, Any]]:
+    def retrieve(self, query: str, n_results: int = 2) -> list[dict[str, Any]]:
         """
         Retrieves the top matching procedure chunks for a given query or failure mode.
         Uses TF-IDF representation and cosine similarity scoring.
@@ -190,25 +203,30 @@ class MaintenanceRAGStore:
             retrieved = []
             for idx in top_indices:
                 chunk = self.chunks[idx]
-                retrieved.append({
-                    "failure_mode": chunk["failure_mode"],
-                    "title": chunk["title"],
-                    "section": chunk["section"],
-                    "content": chunk["content"],
-                    "relevance_score": round(float(raw_sims[idx]), 4)
-                })
+                retrieved.append(
+                    {
+                        "failure_mode": chunk["failure_mode"],
+                        "title": chunk["title"],
+                        "section": chunk["section"],
+                        "content": chunk["content"],
+                        "relevance_score": round(float(raw_sims[idx]), 4),
+                    }
+                )
 
             return retrieved
         except Exception as e:
             logger.error(f"TF-IDF retrieval error ({e}); using direct category matching.")
             fallback = [c for c in self.chunks if not target_mode or c["failure_mode"] == target_mode]
-            return [{
-                "failure_mode": c["failure_mode"],
-                "title": c["title"],
-                "section": c["section"],
-                "content": c["content"],
-                "relevance_score": 1.0
-            } for c in fallback[:n_results]]
+            return [
+                {
+                    "failure_mode": c["failure_mode"],
+                    "title": c["title"],
+                    "section": c["section"],
+                    "content": c["content"],
+                    "relevance_score": 1.0,
+                }
+                for c in fallback[:n_results]
+            ]
 
 
 # Global RAG store singleton
@@ -220,6 +238,7 @@ class LLMNarrationClient:
     Client for generating fluent, grounded operational narratives using external LLMs.
     Guarantees strict grounding in provided numbers and graceful fallback to canned guidance.
     """
+
     def __init__(self):
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -229,9 +248,9 @@ class LLMNarrationClient:
 
     def build_prompt(
         self,
-        prediction: Dict[str, Any],
-        retrieved_chunks: List[Dict[str, Any]],
-        counterfactual: Optional[Dict[str, Any]] = None
+        prediction: dict[str, Any],
+        retrieved_chunks: list[dict[str, Any]],
+        counterfactual: dict[str, Any] | None = None,
     ) -> str:
         """
         Builds a narrow, strictly grounded prompt using only pre-computed structured metrics.
@@ -283,44 +302,112 @@ STRICT INSTRUCTIONS:
 
     def generate_narrative(
         self,
-        prediction: Dict[str, Any],
-        retrieved_chunks: List[Dict[str, Any]],
-        counterfactual: Optional[Dict[str, Any]] = None
+        prediction: dict[str, Any],
+        retrieved_chunks: list[dict[str, Any]],
+        counterfactual: dict[str, Any] | None = None,
     ) -> str:
         """
-        Executes the LLM narration call with robust error handling.
-        Silently falls back to canned suggested_action if the external LLM is down,
-        times out, or is unconfigured.
+        Executes the LLM narration call with robust error handling and enterprise AI guardrails:
+        1. Injects dynamic cryptographic canary honeytoken into system prompt.
+        2. Applies Zero-PII sanitization to redact plant IPs and credentials.
+        3. Enforces circuit breaker protection against downstream provider outages.
+        4. Scans response for canary leakage and suppresses unauthorized output.
+        5. Logs auditable event to immutable audit trail.
         """
         fallback_text = prediction.get("suggested_action") or "Telemetry indicates nominal baseline operation."
-        prompt = self.build_prompt(prediction, retrieved_chunks, counterfactual)
+        base_prompt = self.build_prompt(prediction, retrieved_chunks, counterfactual)
 
-        # 1. Check if an API key is available
+        # 1. Check prompt against injection attacks
+        is_attack, reason = PromptShield.check_prompt(base_prompt)
+        if is_attack:
+            get_audit_logger().record_event(
+                event_type="SECURITY_PROMPT_INJECTION_INTERCEPTED",
+                actor_id="narration_service",
+                details={"reason": reason},
+                status="BLOCKED",
+            )
+            return fallback_text
+
+        # 2. Check if an API key is available
         if not self.gemini_api_key and not self.openai_api_key:
             logger.debug("No external LLM API key detected; using canned prescriptive guidance.")
             return fallback_text
 
-        # 2. Call external LLM with strict timeout
-        try:
-            if self.gemini_api_key:
-                return self._call_gemini(prompt)
-            elif self.openai_api_key:
-                return self._call_openai(prompt)
-        except Exception as e:
-            logger.warning(f"External LLM call failed ({e}); gracefully falling back to canned guidance.")
+        # 3. Dynamic cryptographic canary honeytoken insertion
+        canary = CanaryTrap.generate_canary()
+        prompt_with_canary = base_prompt + CanaryTrap.format_canary_instruction(canary)
 
-        return fallback_text
+        # 4. Zero-PII Redaction before transmission
+        sanitized_prompt, pii_mapping = PIISanitizer.redact_sensitive_data(prompt_with_canary)
+
+        raw_response: Optional[str] = None
+        used_provider = "unknown"
+
+        # 5. Call external LLM with circuit breaker enforcement
+        try:
+            gemini_breaker = get_circuit_breaker("gemini")
+            openai_breaker = get_circuit_breaker("openai")
+
+            if self.gemini_api_key and gemini_breaker.can_execute():
+                used_provider = "gemini"
+                raw_response = self._call_gemini(sanitized_prompt)
+                gemini_breaker.record_success()
+            elif self.openai_api_key and openai_breaker.can_execute():
+                used_provider = "openai"
+                raw_response = self._call_openai(sanitized_prompt)
+                openai_breaker.record_success()
+            elif self.gemini_api_key:
+                # Probe primary if no other provider
+                used_provider = "gemini"
+                raw_response = self._call_gemini(sanitized_prompt)
+                gemini_breaker.record_success()
+            elif self.openai_api_key:
+                used_provider = "openai"
+                raw_response = self._call_openai(sanitized_prompt)
+                openai_breaker.record_success()
+        except Exception as e:
+            if used_provider == "gemini":
+                get_circuit_breaker("gemini").record_failure()
+            elif used_provider == "openai":
+                get_circuit_breaker("openai").record_failure()
+            logger.warning(f"External LLM call failed ({e}); gracefully falling back to canned guidance.")
+            return fallback_text
+
+        if not raw_response:
+            return fallback_text
+
+        # 6. Egress Canary Leak Detection
+        is_leak, suppressed_text = CanaryTrap.detect_and_suppress_leak(raw_response, canary)
+        if is_leak:
+            get_audit_logger().record_event(
+                event_type="SECURITY_CANARY_LEAK_SUPPRESSED",
+                actor_id=used_provider,
+                details={"canary": canary[:12] + "...", "provider": used_provider},
+                status="INTERCEPTED",
+            )
+            return suppressed_text
+
+        # 7. Restore PII tokens on clean boundary
+        final_narrative = PIISanitizer.restore_sensitive_data(suppressed_text, pii_mapping)
+
+        # 8. Record audit trail event
+        get_audit_logger().record_event(
+            event_type="AI_NARRATION_GENERATED",
+            actor_id=used_provider,
+            details={"provider": used_provider, "risk_level": prediction.get("failure_risk")},
+            status="SUCCESS",
+        )
+        return final_narrative
 
     def _call_gemini(self, prompt: str) -> str:
         """Calls Google Gemini API via REST using httpx."""
         model = self.model_name if "gemini" in self.model_name else "gemini-1.5-flash"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.gemini_api_key}"
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.gemini_api_key}"
+        )
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": 200
-            }
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 200},
         }
         with httpx.Client(timeout=self.timeout_seconds) as client:
             resp = client.post(url, json=payload)
@@ -339,16 +426,19 @@ STRICT INSTRUCTIONS:
         url = f"{self.openai_base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.openai_api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "You are a machinery reliability diagnostic engine."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": "You are a machinery reliability diagnostic engine.",
+                },
+                {"role": "user", "content": prompt},
             ],
             "temperature": 0.2,
-            "max_tokens": 200
+            "max_tokens": 200,
         }
         with httpx.Client(timeout=self.timeout_seconds) as client:
             resp = client.post(url, headers=headers, json=payload)
@@ -368,11 +458,12 @@ llm_client = LLMNarrationClient()
 # Component 3: Orchestration Function
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def orchestrate_predict_and_narrate(
-    input_dict: Dict[str, Any],
-    threshold: Optional[float] = None,
-    include_counterfactual: bool = False
-) -> Dict[str, Any]:
+    input_dict: dict[str, Any],
+    threshold: float | None = None,
+    include_counterfactual: bool = False,
+) -> dict[str, Any]:
     """
     Linear function composition that executes:
     1. Core Prediction: calls predictor.predict (unchanged)
@@ -397,7 +488,7 @@ def orchestrate_predict_and_narrate(
                 scaler,
                 input_dict,
                 FEATURE_ORDER,
-                threshold=active_threshold
+                threshold=active_threshold,
             )
         except Exception as cf_err:
             logger.warning(f"Counterfactual calculation failed in orchestration: {cf_err}")
@@ -411,7 +502,7 @@ def orchestrate_predict_and_narrate(
         narrative = llm_client.generate_narrative(
             prediction=pred_result,
             retrieved_chunks=retrieved_sources,
-            counterfactual=cf_result
+            counterfactual=cf_result,
         )
     except Exception as llm_err:
         logger.warning(f"LLM narration call failed ({llm_err}); silently falling back to canned guidance.")

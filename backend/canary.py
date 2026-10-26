@@ -4,12 +4,12 @@ Validates newly retrained candidate models by executing side-by-side dual-scorin
 for the first 50 live inference requests before safely promoting to production.
 """
 
-import os
 import json
 import logging
+import os
 import threading
-from typing import Dict, Any, Optional, List
-import numpy as np
+from typing import Any
+
 import joblib
 
 from .logging_config import get_request_id
@@ -20,8 +20,10 @@ ML_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 PRIMARY_MODEL_PATH = os.path.join(ML_DIR, "model.pkl")
 INFO_PATH = os.path.join(ML_DIR, "model_info.json")
 
+
 class CanaryManager:
     """Manages dual-model shadow evaluation and canary rollouts."""
+
     def __init__(self):
         self._lock = threading.Lock()
         self.is_active: bool = False
@@ -29,23 +31,23 @@ class CanaryManager:
         self.canary_version: str = "v2"
         self.canary_model: Any = None
         self.canary_threshold: float = 0.50
-        
+
         self.evaluation_window: int = 50
         self.remaining_requests: int = 50
         self.evaluated_requests: int = 0
         self.agreements: int = 0
         self.disagreements: int = 0
-        
-        self.side_by_side_logs: List[Dict[str, Any]] = []
+
+        self.side_by_side_logs: list[dict[str, Any]] = []
         self.ready_for_promotion: bool = False
         self.auto_switch_completed: bool = False
 
     def start_canary(
         self,
-        candidate_model_path: Optional[str] = None,
-        candidate_version: Optional[str] = None,
-        candidate_threshold: Optional[float] = None
-    ) -> Dict[str, Any]:
+        candidate_model_path: str | None = None,
+        candidate_version: str | None = None,
+        candidate_threshold: float | None = None,
+    ) -> dict[str, Any]:
         """
         Activates canary rollout mode for the next 50 incoming requests.
         Loads the candidate model into memory alongside the primary model.
@@ -94,9 +96,9 @@ class CanaryManager:
     def evaluate_request(
         self,
         features_df: Any,
-        primary_result: Dict[str, Any],
-        request_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        primary_result: dict[str, Any],
+        request_id: str | None = None,
+    ) -> dict[str, Any] | None:
         """
         Scores input with canary model in shadow mode and logs side-by-side comparison.
         """
@@ -113,7 +115,7 @@ class CanaryManager:
             primary_risk = primary_result.get("failure_risk", "UNKNOWN")
             primary_prob = float(primary_result.get("probability", 0.0))
 
-            is_match = (primary_risk == canary_risk)
+            is_match = primary_risk == canary_risk
             prob_delta = round(canary_prob - primary_prob, 4)
 
             with self._lock:
@@ -130,16 +132,16 @@ class CanaryManager:
                     "primary": {
                         "version": self.primary_version,
                         "risk": primary_risk,
-                        "probability": round(primary_prob, 4)
+                        "probability": round(primary_prob, 4),
                     },
                     "canary": {
                         "version": self.canary_version,
                         "risk": canary_risk,
-                        "probability": round(canary_prob, 4)
+                        "probability": round(canary_prob, 4),
                     },
                     "agreement": is_match,
                     "probability_delta": prob_delta,
-                    "remaining": self.remaining_requests
+                    "remaining": self.remaining_requests,
                 }
                 self.side_by_side_logs.append(log_entry)
                 if len(self.side_by_side_logs) > 50:
@@ -167,35 +169,37 @@ class CanaryManager:
             logger.warning(f"[CANARY ERROR] Failed to evaluate shadow prediction: {err}")
             return None
 
-    def promote_canary(self) -> Dict[str, Any]:
+    def promote_canary(self) -> dict[str, Any]:
         """Promotes canary model to primary production model."""
         with self._lock:
             if not self.is_active or self.canary_model is None:
-                return {"status": "ERROR", "message": "No active canary rollout to promote"}
+                return {
+                    "status": "ERROR",
+                    "message": "No active canary rollout to promote",
+                }
 
             self.primary_version = self.canary_version
             self.is_active = False
             self.auto_switch_completed = True
-            logger.info(f"[CANARY PROMOTED] Successfully promoted {self.canary_version} to active production primary model.")
+            logger.info(
+                f"[CANARY PROMOTED] Successfully promoted {self.canary_version} to active production primary model."
+            )
             return {
                 "status": "PROMOTED",
                 "new_primary_version": self.primary_version,
                 "total_shadow_evaluated": self.evaluated_requests,
-                "final_agreement_rate": round(self.agreements / max(1, self.evaluated_requests), 4)
+                "final_agreement_rate": round(self.agreements / max(1, self.evaluated_requests), 4),
             }
 
-    def abort_canary(self) -> Dict[str, Any]:
+    def abort_canary(self) -> dict[str, Any]:
         """Aborts canary rollout and unloads candidate model."""
         with self._lock:
             self.is_active = False
             self.canary_model = None
             logger.warning("[CANARY ABORTED] Canary rollout aborted. Reverting exclusively to primary model.")
-            return {
-                "status": "ABORTED",
-                "active_primary_version": self.primary_version
-            }
+            return {"status": "ABORTED", "active_primary_version": self.primary_version}
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Returns current canary state and progress."""
         with self._lock:
             rate = round(self.agreements / max(1, self.evaluated_requests), 4) if self.evaluated_requests > 0 else 1.0
@@ -210,7 +214,8 @@ class CanaryManager:
                 "agreement_rate": rate,
                 "ready_for_promotion": self.ready_for_promotion,
                 "auto_switch_completed": self.auto_switch_completed,
-                "recent_evaluations": self.side_by_side_logs[-10:]
+                "recent_evaluations": self.side_by_side_logs[-10:],
             }
+
 
 canary_manager = CanaryManager()

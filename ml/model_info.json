@@ -64,6 +64,45 @@
         "recall": 0.9265,
         "brier_score": 0.112
       }
+    },
+    "f1_score_ci95": [
+      0.3239,
+      0.5091
+    ],
+    "roc_auc_ci95": [
+      0.907,
+      0.9551
+    ],
+    "brier_score_ci95": [
+      0.0215,
+      0.0313
+    ],
+    "bootstrap_95ci": {
+      "n_bootstraps": 1000,
+      "f1_score": {
+        "point": 0.4177,
+        "ci_95": [
+          0.3239,
+          0.5091
+        ],
+        "std_error": 0.0479
+      },
+      "roc_auc": {
+        "point": 0.9336,
+        "ci_95": [
+          0.907,
+          0.9551
+        ],
+        "std_error": 0.0125
+      },
+      "brier_score": {
+        "point": 0.0263,
+        "ci_95": [
+          0.0215,
+          0.0313
+        ],
+        "std_error": 0.0024
+      }
     }
   },
   "best_params": {

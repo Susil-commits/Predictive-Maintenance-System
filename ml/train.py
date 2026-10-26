@@ -1,39 +1,42 @@
-import os
 import json
+import os
+
 import joblib
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 try:
     import seaborn as sns  # type: ignore
 except ImportError:
     sns = None
 
 
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, StackingClassifier
-from sklearn.calibration import CalibratedClassifierCV
+import mlflow
+import mlflow.sklearn
+import mlflow.xgboost
+import shap
+from lightgbm import LGBMClassifier
 from scipy.fft import rfft, rfftfreq  # type: ignore
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
+    brier_score_loss,
     classification_report,
-    roc_auc_score,
     f1_score,
+    precision_recall_curve,
     precision_score,
     recall_score,
-    confusion_matrix,
-    precision_recall_curve,
-    brier_score_loss
+    roc_auc_score,
 )
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
+from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
-import shap
-import mlflow
-import mlflow.xgboost
-import mlflow.sklearn
+
 
 def determine_next_version(metadata_path: str) -> str:
     """
@@ -54,8 +57,10 @@ def determine_next_version(metadata_path: str) -> str:
     except Exception:
         return "v1"
 
+
 ML_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(os.path.dirname(ML_DIR), "data", "equipment_maintenance_data.csv")
+
 
 def feature_engineering(df, seed=42):
     """
@@ -72,20 +77,20 @@ def feature_engineering(df, seed=42):
     10. vib_spectral_centroid: Spectral center-of-mass in frequency space
     """
     df = df.copy()
-    df['temp_pressure_index'] = (df['temperature'] * df['pressure']) / 100.0
-    df['vibration_wear_index'] = df['vibration'] * (df['operating_hours'] / 1000.0)
-    df['rpm_vibration_ratio'] = (df['rpm'] * df['vibration']) / 1000.0
-    df['thermal_excess'] = np.maximum(0.0, df['temperature'] - 86.0)
-    df['overstrain_index'] = (df['pressure'] / 25.0) * np.maximum(0.0, df['vibration'] - 0.35)
-    df['mechanical_power'] = (df['rpm'] * df['pressure']) / 1000.0
+    df["temp_pressure_index"] = (df["temperature"] * df["pressure"]) / 100.0
+    df["vibration_wear_index"] = df["vibration"] * (df["operating_hours"] / 1000.0)
+    df["rpm_vibration_ratio"] = (df["rpm"] * df["vibration"]) / 1000.0
+    df["thermal_excess"] = np.maximum(0.0, df["temperature"] - 86.0)
+    df["overstrain_index"] = (df["pressure"] / 25.0) * np.maximum(0.0, df["vibration"] - 0.35)
+    df["mechanical_power"] = (df["rpm"] * df["pressure"]) / 1000.0
 
     # Frequency-domain spectral feature extraction via scipy.fft
     M = len(df)
     fs, N = 2048, 512
-    rpm_arr = np.asarray(df['rpm'], dtype=float).reshape(M, 1)
-    vib_arr = np.asarray(df['vibration'], dtype=float).reshape(M, 1)
-    press_arr = np.asarray(df['pressure'], dtype=float).reshape(M, 1)
-    hours_arr = np.asarray(df['operating_hours'], dtype=float).reshape(M, 1)
+    rpm_arr = np.asarray(df["rpm"], dtype=float).reshape(M, 1)
+    vib_arr = np.asarray(df["vibration"], dtype=float).reshape(M, 1)
+    press_arr = np.asarray(df["pressure"], dtype=float).reshape(M, 1)
+    hours_arr = np.asarray(df["operating_hours"], dtype=float).reshape(M, 1)
 
     f0 = np.maximum(10.0, rpm_arr / 60.0)
     t = np.arange(N) / float(fs)
@@ -96,10 +101,12 @@ def feature_engineering(df, seed=42):
     a_hf = vib_arr * 0.35 * np.clip(hours_arr / 3000.0, 0.0, 1.5)
 
     rng = np.random.default_rng(seed)
-    signal = (a1 * np.sin(2.0 * np.pi * f0 * t) +
-              a2 * np.sin(2.0 * np.pi * 2.0 * f0 * t) +
-              a_hf * np.sin(2.0 * np.pi * f_res * t) +
-              rng.normal(0.0, 0.03, (M, N)))
+    signal = (
+        a1 * np.sin(2.0 * np.pi * f0 * t)
+        + a2 * np.sin(2.0 * np.pi * 2.0 * f0 * t)
+        + a_hf * np.sin(2.0 * np.pi * f_res * t)
+        + rng.normal(0.0, 0.03, (M, N))
+    )
 
     freqs = np.asarray(rfftfreq(N, 1.0 / fs))
     fft_power = np.abs(np.asarray(rfft(signal, axis=1))) ** 2 / float(N)
@@ -116,17 +123,18 @@ def feature_engineering(df, seed=42):
     total_power = np.sum(fft_power, axis=1) + 1e-8
     centroid = np.sum(fft_power * freqs, axis=1) / total_power
 
-    df['vib_dominant_freq'] = dom_freq.round(1)
-    df['vib_spectral_energy_low'] = low_band.round(2)
-    df['vib_spectral_energy_high'] = high_band.round(2)
-    df['vib_spectral_centroid'] = centroid.round(1)
+    df["vib_dominant_freq"] = dom_freq.round(1)
+    df["vib_spectral_energy_low"] = low_band.round(2)
+    df["vib_spectral_energy_high"] = high_band.round(2)
+    df["vib_spectral_centroid"] = centroid.round(1)
     return df
+
 
 def run_pipeline():
     print("=" * 60)
     print("PREDICTIVE MAINTENANCE ML TRAINING PIPELINE")
     print("=" * 60)
-    
+
     # 1. Load Data
     if not os.path.exists(DATA_PATH):
         try:
@@ -136,103 +144,112 @@ def run_pipeline():
         df = download_and_prepare_dataset()
     else:
         df = pd.read_csv(DATA_PATH)
-        
+
     print(f"Loaded {len(df)} records. Features: {list(df.columns)}")
-    
+
     # 2. EDA & Visualizations
     print("\n[EDA] Class distribution:")
-    failure_counts = df['failure'].value_counts()
+    failure_counts = df["failure"].value_counts()
     print(failure_counts)
     print(f"Failure percentage: {df['failure'].mean() * 100:.2f}%")
-    
+
     plt.figure(figsize=(12, 8))
     plt.subplot(2, 2, 1)
     if sns is not None:
-        sns.countplot(x='failure', data=df, hue='failure', palette='Blues', legend=False)  # type: ignore
+        sns.countplot(x="failure", data=df, hue="failure", palette="Blues", legend=False)  # type: ignore
     else:
-        counts = df['failure'].value_counts()
+        counts = df["failure"].value_counts()
         x_labels = [str(i) for i in counts.index]
         y_values = [int(v) for v in counts.values]
-        plt.bar(x_labels, y_values, color=['#3b82f6', '#ef4444'])
+        plt.bar(x_labels, y_values, color=["#3b82f6", "#ef4444"])
     plt.title("Class Distribution (0 = Normal, 1 = Risk)")
-    
+
     plt.subplot(2, 2, 2)
     if sns is not None:
-        sns.boxplot(x='failure', y='temperature', data=df, hue='failure', palette='OrRd', legend=False)  # type: ignore
+        sns.boxplot(x="failure", y="temperature", data=df, hue="failure", palette="OrRd", legend=False)  # type: ignore
     else:
-        norm_temp = df.loc[df['failure'] == 0, 'temperature'].dropna()
-        fail_temp = df.loc[df['failure'] == 1, 'temperature'].dropna()
-        plt.boxplot([norm_temp, fail_temp], tick_labels=['0', '1'])
+        norm_temp = df.loc[df["failure"] == 0, "temperature"].dropna()
+        fail_temp = df.loc[df["failure"] == 1, "temperature"].dropna()
+        plt.boxplot([norm_temp, fail_temp], tick_labels=["0", "1"])
     plt.title("Temperature vs Failure")
-    
+
     plt.subplot(2, 2, 3)
     if sns is not None:
-        sns.boxplot(x='failure', y='vibration', data=df, hue='failure', palette='Purples', legend=False)  # type: ignore
+        sns.boxplot(x="failure", y="vibration", data=df, hue="failure", palette="Purples", legend=False)  # type: ignore
     else:
-        norm_vib = df.loc[df['failure'] == 0, 'vibration'].dropna()
-        fail_vib = df.loc[df['failure'] == 1, 'vibration'].dropna()
-        plt.boxplot([norm_vib, fail_vib], tick_labels=['0', '1'])
+        norm_vib = df.loc[df["failure"] == 0, "vibration"].dropna()
+        fail_vib = df.loc[df["failure"] == 1, "vibration"].dropna()
+        plt.boxplot([norm_vib, fail_vib], tick_labels=["0", "1"])
     plt.title("Vibration vs Failure")
-    
+
     plt.subplot(2, 2, 4)
-    numeric_cols = [c for c in ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours', 'failure'] if c in df.columns]
+    numeric_cols = [
+        c
+        for c in [
+            "temperature",
+            "rpm",
+            "pressure",
+            "vibration",
+            "operating_hours",
+            "failure",
+        ]
+        if c in df.columns
+    ]
     corr = pd.DataFrame(df[numeric_cols]).corr()
     if sns is not None:
-        sns.heatmap(corr, annot=True, cmap='coolwarm', fmt=".2f")
+        sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f")
     else:
-        im = plt.imshow(corr.values, cmap='coolwarm', aspect='auto')
+        im = plt.imshow(corr.values, cmap="coolwarm", aspect="auto")
         plt.colorbar(im)
-        plt.xticks(range(len(numeric_cols)), numeric_cols, rotation=45, ha='right', fontsize=8)
+        plt.xticks(range(len(numeric_cols)), numeric_cols, rotation=45, ha="right", fontsize=8)
         plt.yticks(range(len(numeric_cols)), numeric_cols, fontsize=8)
     plt.title("Correlation Matrix")
-    
+
     plt.tight_layout()
     eda_plot_path = os.path.join(ML_DIR, "eda_summary.png")
     plt.savefig(eda_plot_path, dpi=150)
     plt.close()
     print(f"[EDA] Saved plot to {eda_plot_path}")
-    
+
     # 3. Feature Engineering
     df_fe = feature_engineering(df)
-    
+
     feature_cols = [
-        'temperature',
-        'rpm',
-        'pressure',
-        'vibration',
-        'operating_hours',
-        'temp_pressure_index',
-        'vibration_wear_index',
-        'rpm_vibration_ratio',
-        'thermal_excess',
-        'overstrain_index',
-        'mechanical_power',
-        'vib_dominant_freq',
-        'vib_spectral_energy_low',
-        'vib_spectral_energy_high',
-        'vib_spectral_centroid'
+        "temperature",
+        "rpm",
+        "pressure",
+        "vibration",
+        "operating_hours",
+        "temp_pressure_index",
+        "vibration_wear_index",
+        "rpm_vibration_ratio",
+        "thermal_excess",
+        "overstrain_index",
+        "mechanical_power",
+        "vib_dominant_freq",
+        "vib_spectral_energy_low",
+        "vib_spectral_energy_high",
+        "vib_spectral_centroid",
     ]
-    
+
     X = df_fe[feature_cols]
-    y = df_fe['failure']
-    
+    y = df_fe["failure"]
+
     # Train / Test split (stratified)
     indices = np.arange(len(df_fe))
-    train_idx, test_idx = train_test_split(
-        indices, test_size=0.2, random_state=42, stratify=y
-    )
+    train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42, stratify=y)
     X_train, X_test = X.iloc[train_idx].reset_index(drop=True), X.iloc[test_idx].reset_index(drop=True)
     y_train, y_test = y.iloc[train_idx].reset_index(drop=True), y.iloc[test_idx].reset_index(drop=True)
     failure_type_test = (
-        df_fe['failure_type'].iloc[test_idx].values
-        if 'failure_type' in df_fe.columns
-        else np.array(['Normal'] * len(y_test))
+        df_fe["failure_type"].iloc[test_idx].values
+        if "failure_type" in df_fe.columns
+        else np.array(["Normal"] * len(y_test))
     )
-    
+
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
-    
+
     # Calculate scale_pos_weight for XGBoost to address class imbalance
     neg_count = int((y_train == 0).sum())
     pos_count = int((y_train == 1).sum())
@@ -241,18 +258,20 @@ def run_pipeline():
 
     # Class-weighted sample weighting to address severe data scarcity for Tool Wear Failures (<0.45% of data)
     failure_type_train = (
-        df_fe['failure_type'].iloc[train_idx].values
-        if 'failure_type' in df_fe.columns
-        else np.array(['Normal'] * len(y_train))
+        df_fe["failure_type"].iloc[train_idx].values
+        if "failure_type" in df_fe.columns
+        else np.array(["Normal"] * len(y_train))
     )
     sample_weight = np.ones(len(y_train), dtype=np.float32)
-    sample_weight[failure_type_train == 'Tool Wear Failure'] = np.float32(3.0)
-    print(f"[Class Weighting] Applied failure-mode sample weighting: Tool Wear Failure x3.0 ({int((failure_type_train == 'Tool Wear Failure').sum())} training samples)")
-    
+    sample_weight[failure_type_train == "Tool Wear Failure"] = np.float32(3.0)
+    print(
+        f"[Class Weighting] Applied failure-mode sample weighting: Tool Wear Failure x3.0 ({int((failure_type_train == 'Tool Wear Failure').sum())} training samples)"
+    )
+
     # 4. Model Training Sequence
     # Baseline: Logistic Regression
     print("\n--- Training Model 1: Logistic Regression (Baseline) ---")
-    lr = LogisticRegression(max_iter=1000, class_weight='balanced', random_state=42)
+    lr = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
     lr.fit(X_train_scaled, y_train)
     y_pred_lr = lr.predict(X_test_scaled)
     y_prob_lr = np.asarray(lr.predict_proba(X_test_scaled))[:, 1]
@@ -260,16 +279,16 @@ def run_pipeline():
     lr_f1 = f1_score(y_test, y_pred_lr)
     lr_brier = brier_score_loss(y_test, y_prob_lr)
     print(f"Logistic Regression -> ROC-AUC: {lr_roc:.4f}, F1: {lr_f1:.4f}, Brier Loss: {lr_brier:.4f}")
-    
+
     # Model 2: Random Forest
     print("\n--- Training Model 2: Random Forest ---")
     rf = RandomForestClassifier(
         n_estimators=150,
         max_depth=8,
         min_samples_split=4,
-        class_weight='balanced',
+        class_weight="balanced",
         random_state=42,
-        n_jobs=-1
+        n_jobs=-1,
     )
     rf.fit(X_train, y_train)
     y_pred_rf = rf.predict(X_test)
@@ -286,7 +305,7 @@ def run_pipeline():
         learning_rate=0.05,
         scale_pos_weight=scale_pos_weight * 0.7,
         random_state=42,
-        verbose=-1
+        verbose=-1,
     )
     lgb_model.fit(X_train, y_train)
     y_pred_lgb = np.asarray(lgb_model.predict(X_test))
@@ -295,13 +314,13 @@ def run_pipeline():
     lgb_f1 = f1_score(y_test, y_pred_lgb)
     lgb_brier = brier_score_loss(y_test, y_prob_lgb)
     print(f"LightGBM -> ROC-AUC: {lgb_roc:.4f}, F1: {lgb_f1:.4f}, Brier Loss: {lgb_brier:.4f}")
-    
+
     # Model 4: XGBoost with Hyperparameter Tuning and Regularization
     print("\n--- Training Model 4: XGBoost with Regularization & GridSearchCV ---")
     param_grid = {
-        'n_estimators': [150, 180, 200],
-        'max_depth': [3, 4],
-        'learning_rate': [0.03, 0.04, 0.06]
+        "n_estimators": [150, 180, 200],
+        "max_depth": [3, 4],
+        "learning_rate": [0.03, 0.04, 0.06],
     }
     base_xgb = XGBClassifier(
         scale_pos_weight=scale_pos_weight * 0.7,
@@ -312,22 +331,22 @@ def run_pipeline():
         reg_alpha=0.1,
         reg_lambda=1.0,
         random_state=42,
-        eval_metric='logloss'
+        eval_metric="logloss",
     )
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
     grid_search = GridSearchCV(
         estimator=base_xgb,
         param_grid=param_grid,
-        scoring='roc_auc',
+        scoring="roc_auc",
         cv=cv,
         n_jobs=-1,
-        verbose=1
+        verbose=1,
     )
     grid_search.fit(X_train, y_train, sample_weight=sample_weight)
     xgb = grid_search.best_estimator_
     best_params = grid_search.best_params_
     print(f"GridSearchCV best params: {best_params} (best CV ROC-AUC: {grid_search.best_score_:.4f})")
-    
+
     y_prob_xgb = xgb.predict_proba(X_test)[:, 1]
     xgb_roc_raw = roc_auc_score(y_test, y_prob_xgb)
     xgb_brier_uncalibrated = brier_score_loss(y_test, y_prob_xgb)
@@ -335,37 +354,43 @@ def run_pipeline():
 
     # Model Calibration: Platt Sigmoid Calibration via CalibratedClassifierCV
     print("\n--- Applying Platt Sigmoid Calibration (CalibratedClassifierCV) ---")
-    calibrated_xgb = CalibratedClassifierCV(estimator=xgb, method='sigmoid', cv=3)
+    calibrated_xgb = CalibratedClassifierCV(estimator=xgb, method="sigmoid", cv=3)
     calibrated_xgb.fit(X_train, y_train, sample_weight=sample_weight)
     y_prob_calibrated = calibrated_xgb.predict_proba(X_test)[:, 1]
     calibrated_roc = roc_auc_score(y_test, y_prob_calibrated)
     calibrated_brier = brier_score_loss(y_test, y_prob_calibrated)
     error_reduction = (xgb_brier_uncalibrated - calibrated_brier) / xgb_brier_uncalibrated * 100.0
-    print(f"Calibrated XGBoost -> ROC-AUC: {calibrated_roc:.4f}, Brier Loss: {calibrated_brier:.4f} ({error_reduction:.1f}% error reduction)")
-    
+    print(
+        f"Calibrated XGBoost -> ROC-AUC: {calibrated_roc:.4f}, Brier Loss: {calibrated_brier:.4f} ({error_reduction:.1f}% error reduction)"
+    )
+
     # Baseline 0.50 cutoff evaluation on calibrated probabilities
     y_pred_calibrated_default = (y_prob_calibrated >= 0.50).astype(int)
     def_f1 = f1_score(y_test, y_pred_calibrated_default)
     def_prec = precision_score(y_test, y_pred_calibrated_default)
     def_rec = recall_score(y_test, y_pred_calibrated_default)
-    print(f"Calibrated XGBoost (Default 0.50 cutoff) -> F1: {def_f1:.4f}, Precision: {def_prec:.4f}, Recall: {def_rec:.4f}")
-    
+    print(
+        f"Calibrated XGBoost (Default 0.50 cutoff) -> F1: {def_f1:.4f}, Precision: {def_prec:.4f}, Recall: {def_rec:.4f}"
+    )
+
     # Precision-Recall Curve & Decision Threshold Tuning
     print("\n--- Tuning Decision Threshold via Precision-Recall Curve ---")
     precisions, recalls, pr_thresholds = precision_recall_curve(y_test, y_prob_calibrated)
     f1_scores = 2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1] + 1e-10)
     best_idx = int(np.argmax(f1_scores))
     optimal_threshold = float(pr_thresholds[best_idx])
-    
+
     y_pred_optimal = (y_prob_calibrated >= optimal_threshold).astype(int)
     opt_f1 = float(f1_score(y_test, y_pred_optimal))
     opt_prec = float(precision_score(y_test, y_pred_optimal))
     opt_rec = float(recall_score(y_test, y_pred_optimal))
-    
+
     print(f"Optimal PR-Tuned Decision Threshold: {optimal_threshold:.4f}")
-    print(f"Tuned Calibrated XGBoost (PR Threshold {optimal_threshold:.4f}) -> ROC-AUC: {calibrated_roc:.4f}, F1: {opt_f1:.4f}, Precision: {opt_prec:.4f}, Recall: {opt_rec:.4f}")
+    print(
+        f"Tuned Calibrated XGBoost (PR Threshold {optimal_threshold:.4f}) -> ROC-AUC: {calibrated_roc:.4f}, F1: {opt_f1:.4f}, Precision: {opt_prec:.4f}, Recall: {opt_rec:.4f}"
+    )
     print("\nCalibrated XGBoost Detailed Classification Report (Tuned PR Threshold):")
-    print(classification_report(y_test, y_pred_optimal, target_names=['Normal', 'Failure Risk']))
+    print(classification_report(y_test, y_pred_optimal, target_names=["Normal", "Failure Risk"]))
 
     # Stratified 5-Fold Cross-Validation on Calibrated XGBoost (Leakage-free generalizability assessment)
     print("\n--- 5-Fold Stratified Cross-Validation (Calibrated XGBoost) ---")
@@ -380,12 +405,12 @@ def run_pipeline():
         f_spw = float(f_neg / max(f_pos, 1)) * 0.7
 
         f_ft = (
-            df_fe['failure_type'].iloc[tr_idx].values
-            if 'failure_type' in df_fe.columns
-            else np.array(['Normal'] * len(y_fold_tr))
+            df_fe["failure_type"].iloc[tr_idx].values
+            if "failure_type" in df_fe.columns
+            else np.array(["Normal"] * len(y_fold_tr))
         )
         f_sw = np.ones(len(y_fold_tr), dtype=np.float32)
-        f_sw[f_ft == 'Tool Wear Failure'] = np.float32(3.0)
+        f_sw[f_ft == "Tool Wear Failure"] = np.float32(3.0)
 
         f_xgb = XGBClassifier(
             **best_params,
@@ -397,9 +422,9 @@ def run_pipeline():
             reg_alpha=0.1,
             reg_lambda=1.0,
             random_state=42,
-            eval_metric='logloss'
+            eval_metric="logloss",
         )
-        f_cal = CalibratedClassifierCV(estimator=f_xgb, method='sigmoid', cv=3)
+        f_cal = CalibratedClassifierCV(estimator=f_xgb, method="sigmoid", cv=3)
         f_cal.fit(X_fold_tr, y_fold_tr, sample_weight=f_sw)
         f_prob = f_cal.predict_proba(X_fold_val)[:, 1]
         f_auc = float(roc_auc_score(y_fold_val, f_prob))
@@ -409,19 +434,15 @@ def run_pipeline():
     cv_roc_mean = float(np.mean(cv_auc_scores))
     cv_roc_std = float(np.std(cv_auc_scores))
     print(f"Stratified 5-Fold CV ROC-AUC: {cv_roc_mean:.4f} ± {cv_roc_std:.4f}")
-    
+
     # Model 5: StackingClassifier Ensemble (XGBoost + LightGBM + Random Forest with Logistic Regression meta-learner)
     print("\n--- Training Model 5: StackingClassifier Ensemble (XGBoost + LightGBM + RF) ---")
-    stacking_base_estimators = [
-        ('xgb', xgb),
-        ('lgb', lgb_model),
-        ('rf', rf)
-    ]
+    stacking_base_estimators = [("xgb", xgb), ("lgb", lgb_model), ("rf", rf)]
     stack_clf = StackingClassifier(
         estimators=stacking_base_estimators,
-        final_estimator=LogisticRegression(class_weight='balanced', max_iter=1000, random_state=42),
+        final_estimator=LogisticRegression(class_weight="balanced", max_iter=1000, random_state=42),
         cv=3,
-        n_jobs=-1
+        n_jobs=-1,
     )
     stack_clf.fit(X_train, y_train)
     y_pred_stack = stack_clf.predict(X_test)
@@ -431,7 +452,9 @@ def run_pipeline():
     stack_prec = precision_score(y_test, y_pred_stack)
     stack_rec = recall_score(y_test, y_pred_stack)
     stack_brier = brier_score_loss(y_test, y_prob_stack)
-    print(f"Stacking Ensemble -> ROC-AUC: {stack_roc:.4f}, F1: {stack_f1:.4f}, Precision: {stack_prec:.4f}, Recall: {stack_rec:.4f}, Brier Loss: {stack_brier:.4f}")
+    print(
+        f"Stacking Ensemble -> ROC-AUC: {stack_roc:.4f}, F1: {stack_f1:.4f}, Precision: {stack_prec:.4f}, Recall: {stack_rec:.4f}, Brier Loss: {stack_brier:.4f}"
+    )
     print(f"[Model Comparison] Calibrated XGBoost F1: {opt_f1:.4f} vs Stacking Ensemble F1: {stack_f1:.4f}")
 
     # Segmented Model Performance Evaluation Across Failure Modes
@@ -447,35 +470,54 @@ def run_pipeline():
         np.asarray(y_test),
         np.asarray(y_pred_optimal),
         np.asarray(y_prob_calibrated),
-        np.asarray(failure_type_test)
+        np.asarray(failure_type_test),
     )
     print(format_segmented_table(segmented_results))
 
     # Generate and save Precision-Recall curve plot
     plt.figure(figsize=(8, 6))
-    plt.plot(recalls, precisions, color='#0284c7', lw=2.5, label='Calibrated Precision-Recall Curve')
-    plt.scatter(
-        [recalls[best_idx]], [precisions[best_idx]],
-        color='#e11d48', s=120, zorder=5,
-        label=f'Optimal Threshold = {optimal_threshold:.4f}\n(F1={opt_f1:.4f}, Prec={opt_prec:.4f}, Rec={opt_rec:.4f})'
+    plt.plot(
+        recalls,
+        precisions,
+        color="#0284c7",
+        lw=2.5,
+        label="Calibrated Precision-Recall Curve",
     )
-    plt.axhline(y=float(def_prec), color='#94a3b8', linestyle='--', alpha=0.7, label=f'Default 0.50 Precision ({def_prec:.4f})')
-    plt.title("Precision-Recall Curve & Optimal Decision Threshold", fontsize=12, fontweight='bold')
+    plt.scatter(
+        [recalls[best_idx]],
+        [precisions[best_idx]],
+        color="#e11d48",
+        s=120,
+        zorder=5,
+        label=f"Optimal Threshold = {optimal_threshold:.4f}\n(F1={opt_f1:.4f}, Prec={opt_prec:.4f}, Rec={opt_rec:.4f})",
+    )
+    plt.axhline(
+        y=float(def_prec),
+        color="#94a3b8",
+        linestyle="--",
+        alpha=0.7,
+        label=f"Default 0.50 Precision ({def_prec:.4f})",
+    )
+    plt.title(
+        "Precision-Recall Curve & Optimal Decision Threshold",
+        fontsize=12,
+        fontweight="bold",
+    )
     plt.xlabel("Recall (True Positive Rate)", fontsize=11)
     plt.ylabel("Precision (Positive Predictive Value)", fontsize=11)
-    plt.grid(True, linestyle=':', alpha=0.6)
-    plt.legend(loc='lower left', frameon=True)
+    plt.grid(True, linestyle=":", alpha=0.6)
+    plt.legend(loc="lower left", frameon=True)
     plt.tight_layout()
     pr_plot_path = os.path.join(ML_DIR, "pr_curve.png")
     plt.savefig(pr_plot_path, dpi=150)
     plt.close()
     print(f"Saved Precision-Recall curve plot to {pr_plot_path}")
-    
+
     # 5. SHAP Explainer
     print("\n--- Initializing SHAP TreeExplainer ---")
     explainer = shap.TreeExplainer(xgb)
     shap_values = explainer.shap_values(X_test)
-    
+
     plt.figure(figsize=(10, 6))
     shap.summary_plot(shap_values, X_test, feature_names=feature_cols, show=False)
     shap_plot_path = os.path.join(ML_DIR, "shap_summary.png")
@@ -483,109 +525,169 @@ def run_pipeline():
     plt.savefig(shap_plot_path, dpi=150)
     plt.close()
     print(f"Saved SHAP summary plot to {shap_plot_path}")
-    
+
     # 6. Multi-Scenario Slice Validation Across All Operational Profiles
     print("\n" + "=" * 70)
     print("MULTI-SCENARIO SLICE VALIDATION (9 OPERATIONAL PROFILES)")
     print("=" * 70)
     validation_scenarios = {
-        'Target Sample [High-Risk]': {
-            'inputs': {'temperature': 92.4, 'rpm': 2800, 'pressure': 31.5, 'vibration': 0.64, 'operating_hours': 4820},
-            'expected': 'HIGH'
+        "Target Sample [High-Risk]": {
+            "inputs": {
+                "temperature": 92.4,
+                "rpm": 2800,
+                "pressure": 31.5,
+                "vibration": 0.64,
+                "operating_hours": 4820,
+            },
+            "expected": "HIGH",
         },
-        'Nominal Baseline': {
-            'inputs': {'temperature': 68.0, 'rpm': 1500, 'pressure': 21.0, 'vibration': 0.22, 'operating_hours': 950},
-            'expected': 'LOW'
+        "Nominal Baseline": {
+            "inputs": {
+                "temperature": 68.0,
+                "rpm": 1500,
+                "pressure": 21.0,
+                "vibration": 0.22,
+                "operating_hours": 950,
+            },
+            "expected": "LOW",
         },
-        'Thermal Overheat': {
-            'inputs': {'temperature': 97.2, 'rpm': 2300, 'pressure': 27.8, 'vibration': 0.42, 'operating_hours': 3100},
-            'expected': 'HIGH'
+        "Thermal Overheat": {
+            "inputs": {
+                "temperature": 97.2,
+                "rpm": 2300,
+                "pressure": 27.8,
+                "vibration": 0.42,
+                "operating_hours": 3100,
+            },
+            "expected": "HIGH",
         },
-        'Vibration & Fatigue': {
-            'inputs': {'temperature': 79.5, 'rpm': 3100, 'pressure': 33.0, 'vibration': 0.72, 'operating_hours': 5300},
-            'expected': 'HIGH'
+        "Vibration & Fatigue": {
+            "inputs": {
+                "temperature": 79.5,
+                "rpm": 3100,
+                "pressure": 33.0,
+                "vibration": 0.72,
+                "operating_hours": 5300,
+            },
+            "expected": "HIGH",
         },
-        'Cold Idle Normal': {
-            'inputs': {'temperature': 65.0, 'rpm': 1200, 'pressure': 20.0, 'vibration': 0.18, 'operating_hours': 500},
-            'expected': 'LOW'
+        "Cold Idle Normal": {
+            "inputs": {
+                "temperature": 65.0,
+                "rpm": 1200,
+                "pressure": 20.0,
+                "vibration": 0.18,
+                "operating_hours": 500,
+            },
+            "expected": "LOW",
         },
-        'Overstrain Pressure Surge': {
-            'inputs': {'temperature': 85.0, 'rpm': 2900, 'pressure': 38.0, 'vibration': 0.58, 'operating_hours': 4200},
-            'expected': 'HIGH'
+        "Overstrain Pressure Surge": {
+            "inputs": {
+                "temperature": 85.0,
+                "rpm": 2900,
+                "pressure": 38.0,
+                "vibration": 0.58,
+                "operating_hours": 4200,
+            },
+            "expected": "HIGH",
         },
-        'Extreme Breakdown (All High)': {
-            'inputs': {'temperature': 105.0, 'rpm': 3300, 'pressure': 42.0, 'vibration': 0.95, 'operating_hours': 5800},
-            'expected': 'HIGH'
+        "Extreme Breakdown (All High)": {
+            "inputs": {
+                "temperature": 105.0,
+                "rpm": 3300,
+                "pressure": 42.0,
+                "vibration": 0.95,
+                "operating_hours": 5800,
+            },
+            "expected": "HIGH",
         },
-        'Low RPM Heavy Strain': {
-            'inputs': {'temperature': 88.0, 'rpm': 1100, 'pressure': 39.0, 'vibration': 0.70, 'operating_hours': 4900},
-            'expected': 'HIGH'
+        "Low RPM Heavy Strain": {
+            "inputs": {
+                "temperature": 88.0,
+                "rpm": 1100,
+                "pressure": 39.0,
+                "vibration": 0.70,
+                "operating_hours": 4900,
+            },
+            "expected": "HIGH",
         },
-        'High Speed Light Load (Normal)': {
-            'inputs': {'temperature': 72.0, 'rpm': 3200, 'pressure': 19.5, 'vibration': 0.28, 'operating_hours': 1100},
-            'expected': 'LOW'
-        }
+        "High Speed Light Load (Normal)": {
+            "inputs": {
+                "temperature": 72.0,
+                "rpm": 3200,
+                "pressure": 19.5,
+                "vibration": 0.28,
+                "operating_hours": 1100,
+            },
+            "expected": "LOW",
+        },
     }
-    
+
     print(f"{'Scenario Name':32s} | {'Exp':4s} | {'Pred':4s} | {'Prob':7s} | {'Status':6s}")
     print("-" * 65)
     scenario_results = {}
     all_scenarios_passed = True
     for sname, sinfo in validation_scenarios.items():
-        s_input = pd.DataFrame([sinfo['inputs']])
+        s_input = pd.DataFrame([sinfo["inputs"]])
         s_fe = feature_engineering(s_input)[feature_cols]
         s_prob = float(calibrated_xgb.predict_proba(s_fe)[0, 1])
         s_pred = "HIGH" if s_prob >= optimal_threshold else "LOW"
-        is_correct = (s_pred == sinfo['expected'])
+        is_correct = s_pred == sinfo["expected"]
         status_str = "PASS" if is_correct else "FAIL"
         if not is_correct:
             all_scenarios_passed = False
         print(f"{sname:32s} | {sinfo['expected']:4s} | {s_pred:4s} | {s_prob*100:5.1f}% | {status_str:6s}")
         scenario_results[sname] = {
-            "inputs": sinfo['inputs'],
-            "expected_risk": sinfo['expected'],
+            "inputs": sinfo["inputs"],
+            "expected_risk": sinfo["expected"],
             "predicted_risk": s_pred,
             "probability": round(s_prob, 4),
-            "passed": is_correct
+            "passed": is_correct,
         }
     print("-" * 65)
     print(f"Scenario Slices Check: {'ALL 9 PASSED' if all_scenarios_passed else 'SOME FAILED'}\n")
-    
+
     # 6. Test sample prediction verification
-    sample_input = pd.DataFrame([{
-        "temperature": 92.4,
-        "rpm": 2800,
-        "pressure": 31.5,
-        "vibration": 0.64,
-        "operating_hours": 4820
-    }])
+    sample_input = pd.DataFrame(
+        [
+            {
+                "temperature": 92.4,
+                "rpm": 2800,
+                "pressure": 31.5,
+                "vibration": 0.64,
+                "operating_hours": 4820,
+            }
+        ]
+    )
     sample_fe = feature_engineering(sample_input)[feature_cols]
     sample_prob = float(calibrated_xgb.predict_proba(sample_fe)[0, 1])
     sample_risk = "HIGH" if sample_prob >= optimal_threshold else "LOW"
     sample_shap = explainer.shap_values(sample_fe)[0]
-    
+
     factors = sorted(
         [{"feature": f, "impact": float(val)} for f, val in zip(feature_cols, sample_shap)],
         key=lambda x: abs(x["impact"]),
-        reverse=True
+        reverse=True,
     )
-    
+
     print("\n[VERIFICATION] Target Test Input:")
-    print(sample_input.to_dict(orient='records')[0])
-    print(f"Result -> Risk: {sample_risk}, Calibrated Probability: {sample_prob:.2%} (Decision Threshold: {optimal_threshold:.4f})")
+    print(sample_input.to_dict(orient="records")[0])
+    print(
+        f"Result -> Risk: {sample_risk}, Calibrated Probability: {sample_prob:.2%} (Decision Threshold: {optimal_threshold:.4f})"
+    )
     print("Top factors from SHAP:")
     for i, factor in enumerate(factors[:4], 1):
         print(f"  {i}. {factor['feature']}: {factor['impact']:+.3f}")
-    
+
     # 7. Save Model Artifacts, Reference Stats, and Log with MLflow
     model_file = os.path.join(ML_DIR, "model.pkl")
     scaler_file = os.path.join(ML_DIR, "scaler.pkl")
     metadata_file = os.path.join(ML_DIR, "model_info.json")
     ref_stats_file = os.path.join(ML_DIR, "reference_stats.json")
-    
+
     next_version = determine_next_version(metadata_file)
     print(f"\n[Versioning] Promoting model version to: {next_version}")
-    
+
     # Save local joblib files for low-latency production fallback
     joblib.dump(calibrated_xgb, model_file)
     joblib.dump(scaler, scaler_file)
@@ -595,10 +697,11 @@ def run_pipeline():
     try:
         import onnxmltools
         from onnxmltools.convert.common.data_types import FloatTensorType
+
         booster = xgb.get_booster()
         original_names = booster.feature_names
         booster.feature_names = [f"f{i}" for i in range(len(feature_cols))]
-        initial_type = [('float_input', FloatTensorType([None, len(feature_cols)]))]
+        initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
         onnx_model = onnxmltools.convert_xgboost(xgb, initial_types=initial_type)
         booster.feature_names = original_names
         with open(onnx_file, "wb") as f:
@@ -606,9 +709,9 @@ def run_pipeline():
         print(f"Saved ONNX model to {onnx_file} ({os.path.getsize(onnx_file):,} bytes)")
     except Exception as onnx_err:
         print(f"[ONNX Export Note] {onnx_err}")
-    
+
     # Compute baseline reference distribution for production drift detection
-    base_features = ['temperature', 'rpm', 'pressure', 'vibration', 'operating_hours']
+    base_features = ["temperature", "rpm", "pressure", "vibration", "operating_hours"]
     features_stats = {}
     for feat in base_features:
         series = df[feat]
@@ -623,14 +726,14 @@ def run_pipeline():
             "min": round(float(series.min()), 4),
             "max": round(float(series.max()), 4),
             "bin_edges": [round(float(b), 4) for b in bin_edges],
-            "expected_pct": [round(float(p), 4) for p in expected_pct]
+            "expected_pct": [round(float(p), 4) for p in expected_pct],
         }
-    
+
     reference_stats = {
         "model_version": next_version,
         "generated_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         "sample_count": len(df),
-        "features": features_stats
+        "features": features_stats,
     }
     with open(ref_stats_file, "w") as f:
         json.dump(reference_stats, f, indent=2)
@@ -653,7 +756,7 @@ def run_pipeline():
         mlflow_run_id = run.info.run_id
         print(f"[MLflow] Active Run ID: {mlflow_run_id}")
         print(f"[MLflow] Tracking URI: {tracking_uri}")
-        
+
         # A. Log Parameters
         mlflow_params = {
             "model_type": "CalibratedClassifierCV(XGBoost)",
@@ -671,41 +774,43 @@ def run_pipeline():
             "lgb_n_estimators": 150,
             "lr_max_iter": 1000,
             "training_samples": len(X_train),
-            "test_samples": len(X_test)
+            "test_samples": len(X_test),
         }
         mlflow_params.update(best_params)
         mlflow.log_params(mlflow_params)
-        
+
         # B. Log Metrics (Including Calibrated and baseline metrics)
-        mlflow.log_metrics({
-            "calibrated_xgb_roc_auc": round(float(calibrated_roc), 4),
-            "cv_roc_auc_mean": round(float(cv_roc_mean), 4),
-            "cv_roc_auc_std": round(float(cv_roc_std), 4),
-            "calibrated_xgb_f1_score": round(float(opt_f1), 4),
-            "calibrated_xgb_precision": round(float(opt_prec), 4),
-            "calibrated_xgb_recall": round(float(opt_rec), 4),
-            "calibrated_brier_score": round(float(calibrated_brier), 4),
-            "uncalibrated_xgb_brier_score": round(float(xgb_brier_uncalibrated), 4),
-            "decision_threshold": round(float(optimal_threshold), 4),
-            "default_0_5_f1": round(float(def_f1), 4),
-            "default_0_5_precision": round(float(def_prec), 4),
-            "default_0_5_recall": round(float(def_rec), 4),
-            "baseline_lr_roc": round(float(lr_roc), 4),
-            "baseline_lr_f1": round(float(lr_f1), 4),
-            "baseline_lr_brier": round(float(lr_brier), 4),
-            "random_forest_roc": round(float(rf_roc), 4),
-            "random_forest_f1": round(float(rf_f1), 4),
-            "random_forest_brier": round(float(rf_brier), 4),
-            "lightgbm_roc": round(float(lgb_roc), 4),
-            "lightgbm_f1": round(float(lgb_f1), 4),
-            "lightgbm_brier": round(float(lgb_brier), 4),
-            "stacking_ensemble_roc": round(float(stack_roc), 4),
-            "stacking_ensemble_f1": round(float(stack_f1), 4),
-            "stacking_ensemble_precision": round(float(stack_prec), 4),
-            "stacking_ensemble_recall": round(float(stack_rec), 4),
-            "stacking_ensemble_brier": round(float(stack_brier), 4)
-        })
-        
+        mlflow.log_metrics(
+            {
+                "calibrated_xgb_roc_auc": round(float(calibrated_roc), 4),
+                "cv_roc_auc_mean": round(float(cv_roc_mean), 4),
+                "cv_roc_auc_std": round(float(cv_roc_std), 4),
+                "calibrated_xgb_f1_score": round(float(opt_f1), 4),
+                "calibrated_xgb_precision": round(float(opt_prec), 4),
+                "calibrated_xgb_recall": round(float(opt_rec), 4),
+                "calibrated_brier_score": round(float(calibrated_brier), 4),
+                "uncalibrated_xgb_brier_score": round(float(xgb_brier_uncalibrated), 4),
+                "decision_threshold": round(float(optimal_threshold), 4),
+                "default_0_5_f1": round(float(def_f1), 4),
+                "default_0_5_precision": round(float(def_prec), 4),
+                "default_0_5_recall": round(float(def_rec), 4),
+                "baseline_lr_roc": round(float(lr_roc), 4),
+                "baseline_lr_f1": round(float(lr_f1), 4),
+                "baseline_lr_brier": round(float(lr_brier), 4),
+                "random_forest_roc": round(float(rf_roc), 4),
+                "random_forest_f1": round(float(rf_f1), 4),
+                "random_forest_brier": round(float(rf_brier), 4),
+                "lightgbm_roc": round(float(lgb_roc), 4),
+                "lightgbm_f1": round(float(lgb_f1), 4),
+                "lightgbm_brier": round(float(lgb_brier), 4),
+                "stacking_ensemble_roc": round(float(stack_roc), 4),
+                "stacking_ensemble_f1": round(float(stack_f1), 4),
+                "stacking_ensemble_precision": round(float(stack_prec), 4),
+                "stacking_ensemble_recall": round(float(stack_rec), 4),
+                "stacking_ensemble_brier": round(float(stack_brier), 4),
+            }
+        )
+
         # C. Log Artifacts
         if os.path.exists(eda_plot_path):
             mlflow.log_artifact(eda_plot_path, artifact_path="eda")
@@ -719,13 +824,13 @@ def run_pipeline():
             mlflow.log_artifact(ref_stats_file, artifact_path="drift_baseline")
         if os.path.exists(onnx_file):
             mlflow.log_artifact(onnx_file, artifact_path="onnx")
-            
+
         # D. Log Model and Register with MLflow Model Registry
         try:
             mlflow.sklearn.log_model(
                 sk_model=calibrated_xgb,
                 artifact_path="model",
-                registered_model_name="PMS-XGBoost"
+                registered_model_name="PMS-XGBoost",
             )
             print("[MLflow] Calibrated model registered as 'PMS-XGBoost' in Model Registry")
         except Exception as reg_err:
@@ -740,7 +845,7 @@ def run_pipeline():
             "cv": 3,
             "brier_score_uncalibrated": round(float(xgb_brier_uncalibrated), 4),
             "brier_score_calibrated": round(float(calibrated_brier), 4),
-            "brier_reduction_pct": round(float(error_reduction), 2)
+            "brier_reduction_pct": round(float(error_reduction), 2),
         },
         "mlflow_run_id": mlflow_run_id,
         "mlflow_experiment": experiment_name,
@@ -753,7 +858,7 @@ def run_pipeline():
             "roc_auc": round(float(calibrated_roc), 4),
             "stratified_5fold_cv": {
                 "roc_auc_mean": round(float(cv_roc_mean), 4),
-                "roc_auc_std": round(float(cv_roc_std), 4)
+                "roc_auc_std": round(float(cv_roc_std), 4),
             },
             "f1_score": round(float(opt_f1), 4),
             "precision": round(float(opt_prec), 4),
@@ -764,56 +869,57 @@ def run_pipeline():
                 "threshold": 0.50,
                 "f1_score": round(float(def_f1), 4),
                 "precision": round(float(def_prec), 4),
-                "recall": round(float(def_rec), 4)
+                "recall": round(float(def_rec), 4),
             },
             "comparison": {
                 "logistic_regression": {
                     "roc_auc": round(float(lr_roc), 4),
                     "f1_score": round(float(lr_f1), 4),
-                    "brier_score": round(float(lr_brier), 4)
+                    "brier_score": round(float(lr_brier), 4),
                 },
                 "random_forest": {
                     "roc_auc": round(float(rf_roc), 4),
                     "f1_score": round(float(rf_f1), 4),
-                    "brier_score": round(float(rf_brier), 4)
+                    "brier_score": round(float(rf_brier), 4),
                 },
                 "lightgbm": {
                     "roc_auc": round(float(lgb_roc), 4),
                     "f1_score": round(float(lgb_f1), 4),
-                    "brier_score": round(float(lgb_brier), 4)
+                    "brier_score": round(float(lgb_brier), 4),
                 },
                 "xgboost_uncalibrated": {
                     "roc_auc": round(float(xgb_roc_raw), 4),
-                    "brier_score": round(float(xgb_brier_uncalibrated), 4)
+                    "brier_score": round(float(xgb_brier_uncalibrated), 4),
                 },
                 "xgboost_calibrated": {
                     "roc_auc": round(float(calibrated_roc), 4),
                     "f1_score": round(float(opt_f1), 4),
-                    "brier_score": round(float(calibrated_brier), 4)
+                    "brier_score": round(float(calibrated_brier), 4),
                 },
                 "stacking_ensemble": {
                     "roc_auc": round(float(stack_roc), 4),
                     "f1_score": round(float(stack_f1), 4),
                     "precision": round(float(stack_prec), 4),
                     "recall": round(float(stack_rec), 4),
-                    "brier_score": round(float(stack_brier), 4)
-                }
-            }
+                    "brier_score": round(float(stack_brier), 4),
+                },
+            },
         },
         "best_params": best_params,
         "feature_names": feature_cols,
         "base_features": base_features,
         "segmented_performance": segmented_results,
-        "scenario_validation": scenario_results
+        "scenario_validation": scenario_results,
     }
-    
+
     with open(metadata_file, "w") as f:
         json.dump(model_metadata, f, indent=2)
-        
+
     print(f"\nSaved model to {model_file}")
     print(f"Saved scaler to {scaler_file}")
     print(f"Saved metadata to {metadata_file}")
     print("Training pipeline and MLOps tracking completed successfully!")
+
 
 if __name__ == "__main__":
     run_pipeline()

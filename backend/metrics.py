@@ -7,31 +7,43 @@ Tracks:
 """
 
 import threading
-from typing import Dict, List, Optional
 
 # Standard latency buckets for HTTP REST endpoints (in seconds)
-LATENCY_BUCKETS: List[float] = [0.005, 0.010, 0.025, 0.050, 0.075, 0.100, 0.250, 0.500, 1.000, 2.500]
+LATENCY_BUCKETS: list[float] = [
+    0.005,
+    0.010,
+    0.025,
+    0.050,
+    0.075,
+    0.100,
+    0.250,
+    0.500,
+    1.000,
+    2.500,
+]
+
 
 class MetricsRegistry:
     """Thread-safe Prometheus metrics registry."""
+
     def __init__(self):
         self._lock = threading.Lock()
-        
+
         # Counters
         self.total_predictions = 0
         self.high_risk_predictions = 0
         self.low_risk_predictions = 0
-        self.http_requests_total: Dict[str, int] = {}
-        
+        self.http_requests_total: dict[str, int] = {}
+
         # Latency Histogram for /predict
         self.histogram_buckets = {b: 0 for b in LATENCY_BUCKETS}
         self.histogram_sum = 0.0
         self.histogram_count = 0
-        
+
         # Gauges
         self.drift_detected = 0
         self.max_psi = 0.0
-        self.feature_psi: Dict[str, float] = {}
+        self.feature_psi: dict[str, float] = {}
 
     def record_predict_latency(self, duration_seconds: float) -> None:
         """Records a single /predict execution duration into the Prometheus histogram."""
@@ -57,7 +69,12 @@ class MetricsRegistry:
         with self._lock:
             self.http_requests_total[key] = self.http_requests_total.get(key, 0) + 1
 
-    def update_drift(self, drift_detected: bool, max_psi: float, feature_psis: Optional[Dict[str, float]] = None) -> None:
+    def update_drift(
+        self,
+        drift_detected: bool,
+        max_psi: float,
+        feature_psis: dict[str, float] | None = None,
+    ) -> None:
         """Updates drift gauges."""
         with self._lock:
             self.drift_detected = 1 if drift_detected else 0
@@ -86,7 +103,7 @@ class MetricsRegistry:
                 "# HELP pms_predict_latency_seconds Latency histogram for equipment risk prediction /predict endpoint",
                 "# TYPE pms_predict_latency_seconds histogram",
             ]
-            
+
             # Histogram bucket lines
             for b in LATENCY_BUCKETS:
                 count = self.histogram_buckets[b]
@@ -95,18 +112,20 @@ class MetricsRegistry:
             lines.append(f"pms_predict_latency_seconds_sum {self.histogram_sum:.6f}")
             lines.append(f"pms_predict_latency_seconds_count {self.histogram_count}")
             lines.append("")
-            
+
             # Drift Gauges
-            lines.extend([
-                "# HELP pms_drift_detected Flag indicating whether data drift is detected (1=Drift, 0=Stable)",
-                "# TYPE pms_drift_detected gauge",
-                f"pms_drift_detected {self.drift_detected}",
-                "",
-                "# HELP pms_drift_max_psi Maximum Population Stability Index (PSI) observed across features",
-                "# TYPE pms_drift_max_psi gauge",
-                f"pms_drift_max_psi {self.max_psi:.4f}",
-            ])
-            
+            lines.extend(
+                [
+                    "# HELP pms_drift_detected Flag indicating whether data drift is detected (1=Drift, 0=Stable)",
+                    "# TYPE pms_drift_detected gauge",
+                    f"pms_drift_detected {self.drift_detected}",
+                    "",
+                    "# HELP pms_drift_max_psi Maximum Population Stability Index (PSI) observed across features",
+                    "# TYPE pms_drift_max_psi gauge",
+                    f"pms_drift_max_psi {self.max_psi:.4f}",
+                ]
+            )
+
             # Feature PSI breakdowns if present
             if self.feature_psi:
                 lines.append("")
@@ -114,9 +133,10 @@ class MetricsRegistry:
                 lines.append("# TYPE pms_feature_psi gauge")
                 for feat, psi_val in sorted(self.feature_psi.items()):
                     lines.append(f'pms_feature_psi{{feature="{feat}"}} {psi_val:.4f}')
-                    
+
             lines.append("")
             return "\n".join(lines)
+
 
 # Singleton metrics instance
 metrics = MetricsRegistry()

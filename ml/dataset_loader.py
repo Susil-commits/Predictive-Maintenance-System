@@ -1,7 +1,8 @@
-import os
 import io
-import zipfile
+import os
 import urllib.request
+import zipfile
+
 import numpy as np
 import pandas as pd
 
@@ -10,6 +11,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 RAW_CSV = os.path.join(DATA_DIR, "ai4i2020.csv")
 PROCESSED_CSV = os.path.join(DATA_DIR, "equipment_maintenance_data.csv")
 UCI_URL = "https://archive.ics.uci.edu/static/public/601/ai4i+2020+predictive+maintenance+dataset.zip"
+
 
 def download_and_prepare_dataset():
     """
@@ -24,13 +26,13 @@ def download_and_prepare_dataset():
     """
     print("Fetching UCI AI4I 2020 Predictive Maintenance Dataset...")
     df_raw = None
-    
+
     if os.path.exists(RAW_CSV):
         print(f"Using local cached dataset: {RAW_CSV}")
         df_raw = pd.read_csv(RAW_CSV)
     else:
         try:
-            req = urllib.request.Request(UCI_URL, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(UCI_URL, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 zip_bytes = resp.read()
                 with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
@@ -43,7 +45,7 @@ def download_and_prepare_dataset():
                                 break
         except Exception as e:
             print(f"Warning: Could not download from UCI ({e}). Synthesizing based on AI4I distribution...")
-            
+
     if df_raw is None or len(df_raw) == 0:
         # High fidelity synthesis conforming to AI4I 2020 distribution
         np.random.seed(42)
@@ -53,45 +55,47 @@ def download_and_prepare_dataset():
         rpm = np.random.normal(1538, 179, n)
         torque = np.random.normal(40, 10, n)
         tool_wear = np.random.uniform(0, 250, n)
-        
+
         # Physics-based failure criteria
         pwf = (torque * rpm * (2 * np.pi / 60) < 3500) | (torque * rpm * (2 * np.pi / 60) > 9000)
         hdf = (proc_temp - air_temp < 8.6) & (rpm < 1380)
-        osf = (tool_wear * torque > 11000)
+        osf = tool_wear * torque > 11000
         failure = (pwf | hdf | osf | (np.random.rand(n) < 0.01)).astype(int)
-        
-        df_raw = pd.DataFrame({
-            "Air temperature [K]": air_temp,
-            "Process temperature [K]": proc_temp,
-            "Rotational speed [rpm]": rpm,
-            "Torque [Nm]": torque,
-            "Tool wear [min]": tool_wear,
-            "Machine failure": failure
-        })
+
+        df_raw = pd.DataFrame(
+            {
+                "Air temperature [K]": air_temp,
+                "Process temperature [K]": proc_temp,
+                "Rotational speed [rpm]": rpm,
+                "Torque [Nm]": torque,
+                "Tool wear [min]": tool_wear,
+                "Machine failure": failure,
+            }
+        )
         df_raw.to_csv(RAW_CSV, index=False)
         print(f"Created dataset at {RAW_CSV}")
 
     # Standardize column names if needed
     col_map = {
-        'Air temperature [K]': 'air_temp',
-        'Process temperature [K]': 'process_temp',
-        'Rotational speed [rpm]': 'rotational_speed',
-        'Torque [Nm]': 'torque',
-        'Tool wear [min]': 'tool_wear',
-        'Machine failure': 'failure'
+        "Air temperature [K]": "air_temp",
+        "Process temperature [K]": "process_temp",
+        "Rotational speed [rpm]": "rotational_speed",
+        "Torque [Nm]": "torque",
+        "Tool wear [min]": "tool_wear",
+        "Machine failure": "failure",
     }
     df = df_raw.rename(columns=col_map)
-    
+
     np.random.seed(42)
     n = len(df)
 
     # Convert to typed float64 numpy arrays to ensure type safety and avoid pandas Series/Categorical conflicts
-    air_temp_arr = np.asarray(df['air_temp'], dtype=np.float64)
-    proc_temp_arr = np.asarray(df['process_temp'], dtype=np.float64)
-    rpm_raw_arr = np.asarray(df['rotational_speed'], dtype=np.float64)
-    torque_raw_arr = np.asarray(df['torque'], dtype=np.float64)
-    wear_raw_arr = np.asarray(df['tool_wear'], dtype=np.float64)
-    failure_arr = np.asarray(df['failure'], dtype=np.int32)
+    air_temp_arr = np.asarray(df["air_temp"], dtype=np.float64)
+    proc_temp_arr = np.asarray(df["process_temp"], dtype=np.float64)
+    rpm_raw_arr = np.asarray(df["rotational_speed"], dtype=np.float64)
+    torque_raw_arr = np.asarray(df["torque"], dtype=np.float64)
+    wear_raw_arr = np.asarray(df["tool_wear"], dtype=np.float64)
+    failure_arr = np.asarray(df["failure"], dtype=np.int32)
 
     # Feature mapping to equipment telemetry (independent noise, no label leakage):
     # 1. Temperature (°C): Add independent noise, not failure-conditional
@@ -122,50 +126,55 @@ def download_and_prepare_dataset():
 
     # 5. Operating Hours: 200 - 6000 hrs (derived from tool wear accumulation)
     operating_hours = np.clip(200.0 + wear_norm * 4800.0 + np.random.normal(0, 50, n), 100.0, 6500.0).round()
-    
+
     # Extract failure mode flags for segmented performance analysis
-    hdf = df_raw['HDF'].fillna(0).astype(int) if 'HDF' in df_raw.columns else pd.Series(0, index=df.index)
-    osf = df_raw['OSF'].fillna(0).astype(int) if 'OSF' in df_raw.columns else pd.Series(0, index=df.index)
-    twf = df_raw['TWF'].fillna(0).astype(int) if 'TWF' in df_raw.columns else pd.Series(0, index=df.index)
-    pwf = df_raw['PWF'].fillna(0).astype(int) if 'PWF' in df_raw.columns else pd.Series(0, index=df.index)
-    rnf = df_raw['RNF'].fillna(0).astype(int) if 'RNF' in df_raw.columns else pd.Series(0, index=df.index)
+    hdf = df_raw["HDF"].fillna(0).astype(int) if "HDF" in df_raw.columns else pd.Series(0, index=df.index)
+    osf = df_raw["OSF"].fillna(0).astype(int) if "OSF" in df_raw.columns else pd.Series(0, index=df.index)
+    twf = df_raw["TWF"].fillna(0).astype(int) if "TWF" in df_raw.columns else pd.Series(0, index=df.index)
+    pwf = df_raw["PWF"].fillna(0).astype(int) if "PWF" in df_raw.columns else pd.Series(0, index=df.index)
+    rnf = df_raw["RNF"].fillna(0).astype(int) if "RNF" in df_raw.columns else pd.Series(0, index=df.index)
 
     def determine_failure_type(row):
-        if row['failure'] == 0:
-            return 'Normal'
+        if row["failure"] == 0:
+            return "Normal"
         types = []
-        if row['hdf'] == 1:
-            types.append('Thermal Failure')
-        if row['osf'] == 1:
-            types.append('Overstrain Failure')
-        if row['twf'] == 1:
-            types.append('Tool Wear Failure')
-        if row['pwf'] == 1:
-            types.append('Power Failure')
-        if row['rnf'] == 1:
-            types.append('Random Failure')
-        return types[0] if types else 'Other Failure'
+        if row["hdf"] == 1:
+            types.append("Thermal Failure")
+        if row["osf"] == 1:
+            types.append("Overstrain Failure")
+        if row["twf"] == 1:
+            types.append("Tool Wear Failure")
+        if row["pwf"] == 1:
+            types.append("Power Failure")
+        if row["rnf"] == 1:
+            types.append("Random Failure")
+        return types[0] if types else "Other Failure"
 
-    clean_df = pd.DataFrame({
-        "temperature": temperature.round(1),
-        "rpm": rpm.astype(int),
-        "pressure": pressure.round(1),
-        "vibration": vibration.round(2),
-        "operating_hours": operating_hours.astype(int),
-        "failure": df['failure'].astype(int),
-        "hdf": hdf,
-        "osf": osf,
-        "twf": twf,
-        "pwf": pwf,
-        "rnf": rnf
-    })
-    clean_df['failure_type'] = clean_df.apply(determine_failure_type, axis=1)
-    
+    clean_df = pd.DataFrame(
+        {
+            "temperature": temperature.round(1),
+            "rpm": rpm.astype(int),
+            "pressure": pressure.round(1),
+            "vibration": vibration.round(2),
+            "operating_hours": operating_hours.astype(int),
+            "failure": df["failure"].astype(int),
+            "hdf": hdf,
+            "osf": osf,
+            "twf": twf,
+            "pwf": pwf,
+            "rnf": rnf,
+        }
+    )
+    clean_df["failure_type"] = clean_df.apply(determine_failure_type, axis=1)
+
     clean_df.to_csv(PROCESSED_CSV, index=False)
-    print(f"Processed dataset saved to {PROCESSED_CSV} (Total rows: {len(clean_df)}, Failure rate: {clean_df['failure'].mean():.2%})")
+    print(
+        f"Processed dataset saved to {PROCESSED_CSV} (Total rows: {len(clean_df)}, Failure rate: {clean_df['failure'].mean():.2%})"
+    )
     print("Failure Mode Breakdown in dataset:")
-    print(clean_df['failure_type'].value_counts())
+    print(clean_df["failure_type"].value_counts())
     return clean_df
+
 
 if __name__ == "__main__":
     download_and_prepare_dataset()

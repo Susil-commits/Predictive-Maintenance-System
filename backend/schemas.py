@@ -1,12 +1,45 @@
-from typing import List, Dict, Optional, Any
+from typing import Any
+
 from pydantic import BaseModel, Field
 
+
 class PredictionInput(BaseModel):
-    temperature: float = Field(..., ge=-20.0, le=250.0, description="Operating temperature in Celsius (°C)", json_schema_extra={"example": 92.4})
-    rpm: float = Field(..., ge=100.0, le=6000.0, description="Rotational speed in RPM", json_schema_extra={"example": 2800})
-    pressure: float = Field(..., ge=1.0, le=100.0, description="Hydraulic / operating pressure in bar", json_schema_extra={"example": 31.5})
-    vibration: float = Field(..., ge=0.01, le=5.0, description="Vibration amplitude in g / mm/s", json_schema_extra={"example": 0.64})
-    operating_hours: float = Field(..., ge=0.0, le=50000.0, description="Cumulative equipment operating hours", json_schema_extra={"example": 4820})
+    temperature: float = Field(
+        ...,
+        ge=-20.0,
+        le=250.0,
+        description="Operating temperature in Celsius (°C)",
+        json_schema_extra={"example": 92.4},
+    )
+    rpm: float = Field(
+        ...,
+        ge=100.0,
+        le=6000.0,
+        description="Rotational speed in RPM",
+        json_schema_extra={"example": 2800},
+    )
+    pressure: float = Field(
+        ...,
+        ge=1.0,
+        le=100.0,
+        description="Hydraulic / operating pressure in bar",
+        json_schema_extra={"example": 31.5},
+    )
+    vibration: float = Field(
+        ...,
+        ge=0.01,
+        le=5.0,
+        description="Vibration amplitude in g / mm/s",
+        json_schema_extra={"example": 0.64},
+    )
+    operating_hours: float = Field(
+        ...,
+        ge=0.0,
+        le=50000.0,
+        description="Cumulative equipment operating hours",
+        json_schema_extra={"example": 4820},
+    )
+
 
 class ContributingFactor(BaseModel):
     factor: str
@@ -14,40 +47,108 @@ class ContributingFactor(BaseModel):
     importance: float
     description: str
 
+
 class PredictionOutput(BaseModel):
     failure_risk: str = Field(..., description="'HIGH' or 'LOW'", json_schema_extra={"example": "HIGH"})
-    probability: float = Field(..., description="Failure probability [0.0 - 1.0]", json_schema_extra={"example": 0.87})
-    maintenance_required: bool = Field(..., description="Whether maintenance is immediately recommended", json_schema_extra={"example": True})
-    confidence: Optional[str] = Field(None, description="Prediction certainty ('HIGH' or 'LOW')", json_schema_extra={"example": "HIGH"})
-    recommendation: Optional[str] = Field(None, description="Actionable recommendation based on risk and uncertainty", json_schema_extra={"example": "🔴 HIGH RISK — Schedule maintenance"})
-    contributing_factors: List[ContributingFactor] = []
-    shap_values: Dict[str, float] = {}
-    top_risk_factor: Optional[str] = Field(None, description="The single feature contributing most to this risk score", json_schema_extra={"example": "vibration"})
-    contribution_pct: Optional[float] = Field(None, description="Percentage of total risk attributable to top_risk_factor", json_schema_extra={"example": 42.5})
-    suggested_action: Optional[str] = Field(None, description="Human-readable recommended action based on root cause", json_schema_extra={"example": "Vibration is elevated above baseline — recommend vibration analysis."})
-    prediction_id: Optional[str] = None
-    timestamp: Optional[str] = None
-    model_version: Optional[str] = None
-    decision_threshold: Optional[float] = Field(None, description="Optimal decision threshold tuned via Precision-Recall curve", json_schema_extra={"example": 0.84})
+    probability: float = Field(
+        ...,
+        description="Failure probability [0.0 - 1.0]",
+        json_schema_extra={"example": 0.87},
+    )
+    maintenance_required: bool = Field(
+        ...,
+        description="Whether maintenance is immediately recommended",
+        json_schema_extra={"example": True},
+    )
+    confidence: str | None = Field(
+        None,
+        description="Prediction certainty ('HIGH' or 'LOW')",
+        json_schema_extra={"example": "HIGH"},
+    )
+    recommendation: str | None = Field(
+        None,
+        description="Actionable recommendation based on risk and uncertainty",
+        json_schema_extra={"example": "🔴 HIGH RISK — Schedule maintenance"},
+    )
+    contributing_factors: list[ContributingFactor] = []
+    shap_values: dict[str, float] = {}
+    top_risk_factor: str | None = Field(
+        None,
+        description="The single feature contributing most to this risk score",
+        json_schema_extra={"example": "vibration"},
+    )
+    contribution_pct: float | None = Field(
+        None,
+        description="Percentage of total risk attributable to top_risk_factor",
+        json_schema_extra={"example": 42.5},
+    )
+    suggested_action: str | None = Field(
+        None,
+        description="Human-readable recommended action based on root cause",
+        json_schema_extra={"example": "Vibration is elevated above baseline — recommend vibration analysis."},
+    )
+    prediction_id: str | None = None
+    timestamp: str | None = None
+    model_version: str | None = None
+    decision_threshold: float | None = Field(
+        None,
+        description="Optimal decision threshold tuned via Precision-Recall curve",
+        json_schema_extra={"example": 0.84},
+    )
+
 
 class CounterfactualOutput(BaseModel):
-    already_safe: bool = Field(..., description="Whether equipment telemetry is already below the risk threshold", json_schema_extra={"example": False})
-    feature_to_change: Optional[str] = Field(None, description="Primary parameter identified for intervention", json_schema_extra={"example": "vibration"})
-    current_value: Optional[float] = Field(None, description="Current telemetry reading", json_schema_extra={"example": 0.65})
-    target_value: Optional[float] = Field(None, description="Target reading required to remediate risk", json_schema_extra={"example": 0.52})
-    reduction_needed_pct: Optional[int] = Field(None, description="Percentage reduction required", json_schema_extra={"example": 20})
-    risk_before: Optional[float] = Field(None, description="Risk percentage before remediation", json_schema_extra={"example": 41.3})
-    risk_after: Optional[float] = Field(None, description="Risk percentage after remediation", json_schema_extra={"example": 20.4})
-    note: Optional[str] = Field(None, description="Actionable note or operational guidance", json_schema_extra={"example": "Reducing vibration by 20% restores safe operating status."})
+    already_safe: bool = Field(
+        ...,
+        description="Whether equipment telemetry is already below the risk threshold",
+        json_schema_extra={"example": False},
+    )
+    feature_to_change: str | None = Field(
+        None,
+        description="Primary parameter identified for intervention",
+        json_schema_extra={"example": "vibration"},
+    )
+    current_value: float | None = Field(
+        None,
+        description="Current telemetry reading",
+        json_schema_extra={"example": 0.65},
+    )
+    target_value: float | None = Field(
+        None,
+        description="Target reading required to remediate risk",
+        json_schema_extra={"example": 0.52},
+    )
+    reduction_needed_pct: int | None = Field(
+        None,
+        description="Percentage reduction required",
+        json_schema_extra={"example": 20},
+    )
+    risk_before: float | None = Field(
+        None,
+        description="Risk percentage before remediation",
+        json_schema_extra={"example": 41.3},
+    )
+    risk_after: float | None = Field(
+        None,
+        description="Risk percentage after remediation",
+        json_schema_extra={"example": 20.4},
+    )
+    note: str | None = Field(
+        None,
+        description="Actionable note or operational guidance",
+        json_schema_extra={"example": "Reducing vibration by 20% restores safe operating status."},
+    )
+
 
 class RULReadingInput(BaseModel):
     temperature: float = Field(..., description="Temperature in °C")
     rpm: float = Field(..., description="Rotational speed")
     pressure: float = Field(..., description="Pressure in bar")
     vibration: float = Field(..., description="Vibration amplitude in g")
-    operating_hours: Optional[float] = Field(None, description="Operating hours")
-    cycle: Optional[int] = Field(None, description="Cycle index")
-    timestamp: Optional[str] = Field(None, description="Reading timestamp")
+    operating_hours: float | None = Field(None, description="Operating hours")
+    cycle: int | None = Field(None, description="Cycle index")
+    timestamp: str | None = Field(None, description="Reading timestamp")
+
 
 class RULOutput(BaseModel):
     estimated_rul_cycles: int = Field(..., description="Estimated remaining cycles before failure")
@@ -55,61 +156,81 @@ class RULOutput(BaseModel):
     confidence: float = Field(..., description="Model confidence score [0.0 - 1.0]")
     recommendation: str = Field(..., description="Operational recommendation based on RUL")
 
+
 class ModelInfoResponse(BaseModel):
     model_name: str
     version: str
-    calibration: Optional[Dict[str, Any]] = None
-    mlflow_run_id: Optional[str] = None
-    mlflow_experiment: Optional[str] = None
+    calibration: dict[str, Any] | None = None
+    mlflow_run_id: str | None = None
+    mlflow_experiment: str | None = None
     trained_date: str
     dataset_source: str
     total_training_samples: int
     total_test_samples: int
-    decision_threshold: Optional[float] = None
-    metrics: Dict[str, Any]
-    feature_names: List[str]
-    base_features: List[str]
-    segmented_performance: Optional[Dict[str, Any]] = None
-    cv_failure_mode_performance: Optional[Dict[str, Any]] = None
-    stratified_5fold_cv_per_mode: Optional[Dict[str, Any]] = None
-    scenario_validation: Optional[Dict[str, Any]] = None
+    decision_threshold: float | None = None
+    metrics: dict[str, Any]
+    feature_names: list[str]
+    base_features: list[str]
+    segmented_performance: dict[str, Any] | None = None
+    cv_failure_mode_performance: dict[str, Any] | None = None
+    stratified_5fold_cv_per_mode: dict[str, Any] | None = None
+    scenario_validation: dict[str, Any] | None = None
+
 
 class HealthResponse(BaseModel):
     status: str
     database: str
     model_loaded: bool
-    model_version: Optional[str] = None
+    model_version: str | None = None
+
 
 class FeatureDriftMetric(BaseModel):
     feature: str
     psi: float
     status: str
     severity: str
-    reference_mean: Optional[float] = None
-    production_mean: Optional[float] = None
-    mean_shift: Optional[float] = None
-    message: Optional[str] = None
+    reference_mean: float | None = None
+    production_mean: float | None = None
+    mean_shift: float | None = None
+    message: str | None = None
+
 
 class DriftStatusResponse(BaseModel):
     status: str
     drift_detected: bool
     retrain_recommended: bool
-    max_psi: Optional[float] = None
-    drifted_features: List[str] = []
+    max_psi: float | None = None
+    drifted_features: list[str] = []
     analyzed_samples: int
-    reference_version: Optional[str] = None
-    message: Optional[str] = None
-    feature_metrics: List[FeatureDriftMetric] = []
+    reference_version: str | None = None
+    message: str | None = None
+    feature_metrics: list[FeatureDriftMetric] = []
+
 
 class RetrievedSourceChunk(BaseModel):
-    failure_mode: str = Field(..., description="Failure mode category (Thermal, Overstrain, Tool Wear, Power, Vibration)")
+    failure_mode: str = Field(
+        ...,
+        description="Failure mode category (Thermal, Overstrain, Tool Wear, Power, Vibration)",
+    )
     title: str = Field(..., description="Document title of the standard operating procedure")
-    section: str = Field(..., description="Specific procedure section (e.g. Diagnostic Protocol, Remediation)")
+    section: str = Field(
+        ...,
+        description="Specific procedure section (e.g. Diagnostic Protocol, Remediation)",
+    )
     content: str = Field(..., description="Verifiable industrial procedure text chunk")
-    relevance_score: Optional[float] = Field(None, description="Retrieval similarity score / distance")
+    relevance_score: float | None = Field(None, description="Retrieval similarity score / distance")
+
 
 class NarrationOutput(PredictionOutput):
-    narrative: str = Field(..., description="Fluent, context-specific LLM narration strictly grounded in the prediction and retrieved procedures")
-    retrieved_sources: List[RetrievedSourceChunk] = Field(default_factory=list, description="Auditable procedure source chunks grounding the recommendation")
-    counterfactual: Optional[CounterfactualOutput] = Field(None, description="Counterfactual minimal-fix remediation analysis if requested or computed")
-
+    narrative: str = Field(
+        ...,
+        description="Fluent, context-specific LLM narration strictly grounded in the prediction and retrieved procedures",
+    )
+    retrieved_sources: list[RetrievedSourceChunk] = Field(
+        default_factory=list,
+        description="Auditable procedure source chunks grounding the recommendation",
+    )
+    counterfactual: CounterfactualOutput | None = Field(
+        None,
+        description="Counterfactual minimal-fix remediation analysis if requested or computed",
+    )

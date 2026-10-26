@@ -11,24 +11,23 @@ and returns per-row results including SHAP feature contributions.
 Errors are reported row-by-row (bad rows are skipped, not fail-all).
 """
 
-import io
 import csv
+import io
 import json
-from typing import Optional, List
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from starlette.concurrency import run_in_threadpool
-from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from .auth import require_admin_auth as require_admin_api_key
 from .database import get_db
+from .limiter import limiter
 from .models import PredictionRecord
 from .predictor import predictor
-from .limiter import limiter
-from .auth import require_admin_auth as require_admin_api_key
 
 router = APIRouter(tags=["Batch"])
 
@@ -38,11 +37,39 @@ router = APIRouter(tags=["Batch"])
 
 # Expected canonical names → acceptable variants (case-insensitive, stripped)
 COLUMN_ALIASES: dict[str, list[str]] = {
-    "temperature":     ["temperature", "temp", "temperature_c", "temp_c", "operating_temp", "engine_temp"],
-    "rpm":             ["rpm", "rotational_speed", "rotation_speed", "rot_speed", "speed_rpm", "rev_per_min"],
-    "pressure":        ["pressure", "hydraulic_pressure", "press", "bar", "pressure_bar", "sys_pressure"],
-    "vibration":       ["vibration", "vib", "vibration_amplitude", "vibration_g", "vib_rms"],
-    "operating_hours": ["operating_hours", "op_hours", "hours", "service_hours", "cumulative_hours", "total_hours"],
+    "temperature": [
+        "temperature",
+        "temp",
+        "temperature_c",
+        "temp_c",
+        "operating_temp",
+        "engine_temp",
+    ],
+    "rpm": [
+        "rpm",
+        "rotational_speed",
+        "rotation_speed",
+        "rot_speed",
+        "speed_rpm",
+        "rev_per_min",
+    ],
+    "pressure": [
+        "pressure",
+        "hydraulic_pressure",
+        "press",
+        "bar",
+        "pressure_bar",
+        "sys_pressure",
+    ],
+    "vibration": ["vibration", "vib", "vibration_amplitude", "vibration_g", "vib_rms"],
+    "operating_hours": [
+        "operating_hours",
+        "op_hours",
+        "hours",
+        "service_hours",
+        "cumulative_hours",
+        "total_hours",
+    ],
 }
 
 
@@ -64,10 +91,7 @@ def _fuzzy_match_columns(df: pd.DataFrame) -> dict[str, str]:
                 matched = df_cols_lower[norm]
                 break
         if matched is None:
-            missing_fields.append({
-                "canonical": canonical,
-                "aliases": aliases
-            })
+            missing_fields.append({"canonical": canonical, "aliases": aliases})
         else:
             mapping[canonical] = matched
 
@@ -88,6 +112,7 @@ def _fuzzy_match_columns(df: pd.DataFrame) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # File parsers ---------------------------------------------------------------
 # ---------------------------------------------------------------------------
+
 
 def _parse_file(content: bytes, filename: str) -> pd.DataFrame:
     """Detect file format from filename extension and parse into a DataFrame."""
@@ -112,8 +137,7 @@ def _parse_file(content: bytes, filename: str) -> pd.DataFrame:
             return pd.read_csv(io.BytesIO(content))
         except Exception:
             raise ValueError(
-                f"Unsupported file format: '{filename}'. "
-                "Supported formats: .csv, .json, .xlsx, .parquet"
+                f"Unsupported file format: '{filename}'. " "Supported formats: .csv, .json, .xlsx, .parquet"
             )
 
 
@@ -122,11 +146,11 @@ def _parse_file(content: bytes, filename: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 FIELD_RANGES = {
-    "temperature":     (-20.0, 250.0),
-    "rpm":             (100.0, 6000.0),
-    "pressure":        (1.0,   100.0),
-    "vibration":       (0.01,  5.0),
-    "operating_hours": (0.0,   50000.0),
+    "temperature": (-20.0, 250.0),
+    "rpm": (100.0, 6000.0),
+    "pressure": (1.0, 100.0),
+    "vibration": (0.01, 5.0),
+    "operating_hours": (0.0, 50000.0),
 }
 
 
@@ -149,9 +173,7 @@ def _coerce_and_validate_row(row: dict) -> tuple[dict | None, str | None]:
             return None, f"Field '{field}' is NaN or Inf: {raw!r}"
 
         if not (lo <= val <= hi):
-            return None, (
-                f"Field '{field}' value {val} is out of range [{lo}, {hi}]"
-            )
+            return None, (f"Field '{field}' value {val} is out of range [{lo}, {hi}]")
         result[field] = val
 
     return result, None
@@ -184,10 +206,10 @@ def _run_batch_inference(df_norm: pd.DataFrame, threshold: float) -> list[dict]:
             results.append(row_result)
             continue
 
-        row_result["prediction"]   = pred["failure_risk"]
-        row_result["probability"]  = pred["probability"]
+        row_result["prediction"] = pred["failure_risk"]
+        row_result["probability"] = pred["probability"]
         row_result["maintenance_required"] = pred["maintenance_required"]
-        row_result["shap_values"]  = pred["shap_values"]
+        row_result["shap_values"] = pred["shap_values"]
         row_result["contributing_factors"] = pred["contributing_factors"]
         row_result["decision_threshold"] = pred["decision_threshold"]
         results.append(row_result)
@@ -199,11 +221,12 @@ def _run_batch_inference(df_norm: pd.DataFrame, threshold: float) -> list[dict]:
 # POST /batch-predict --------------------------------------------------------
 # ---------------------------------------------------------------------------
 
+
 @router.post(
     "/batch-predict",
     tags=["Batch Operations"],
     summary="Batch telemetry prediction from uploaded file",
-    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]}
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
 )
 @limiter.limit("10/minute")
 async def batch_predict(
@@ -257,18 +280,18 @@ async def batch_predict(
     results = await run_in_threadpool(_run_batch_inference, df_norm, threshold)
 
     # --- Summary statistics ---
-    valid_rows   = [r for r in results if "error" not in r]
-    error_rows   = [r for r in results if "error" in r]
-    high_risk    = sum(1 for r in valid_rows if r.get("prediction") == "HIGH")
-    low_risk     = len(valid_rows) - high_risk
+    valid_rows = [r for r in results if "error" not in r]
+    error_rows = [r for r in results if "error" in r]
+    high_risk = sum(1 for r in valid_rows if r.get("prediction") == "HIGH")
+    low_risk = len(valid_rows) - high_risk
 
     return {
-        "total_rows":     len(results),
+        "total_rows": len(results),
         "processed_rows": len(valid_rows),
-        "error_rows":     len(error_rows),
+        "error_rows": len(error_rows),
         "high_risk_count": high_risk,
-        "low_risk_count":  low_risk,
-        "results":        results,
+        "low_risk_count": low_risk,
+        "results": results,
     }
 
 
@@ -276,16 +299,17 @@ async def batch_predict(
 # GET /export ----------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
+
 @router.get(
     "/export",
     tags=["Batch Operations"],
     summary="Export prediction history as CSV",
-    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]}
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
 )
 def export_history(
     limit: int = Query(500, ge=1, le=5000, description="Max rows to export"),
-    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD or ISO format)"),
-    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD or ISO format)"),
+    start_date: str | None = Query(None, description="Start date (YYYY-MM-DD or ISO format)"),
+    end_date: str | None = Query(None, description="End date (YYYY-MM-DD or ISO format)"),
     db: Session = Depends(get_db),
     api_key: str = Depends(require_admin_api_key),
 ):
@@ -303,7 +327,7 @@ def export_history(
         except ValueError:
             raise HTTPException(
                 status_code=422,
-                detail=f"Invalid start_date format: '{start_date}'. Use YYYY-MM-DD or ISO 8601 format."
+                detail=f"Invalid start_date format: '{start_date}'. Use YYYY-MM-DD or ISO 8601 format.",
             )
         query = query.filter(PredictionRecord.timestamp >= start_dt)
 
@@ -314,15 +338,12 @@ def export_history(
         except ValueError:
             raise HTTPException(
                 status_code=422,
-                detail=f"Invalid end_date format: '{end_date}'. Use YYYY-MM-DD or ISO 8601 format."
+                detail=f"Invalid end_date format: '{end_date}'. Use YYYY-MM-DD or ISO 8601 format.",
             )
         query = query.filter(PredictionRecord.timestamp <= end_dt)
 
     if start_dt and end_dt and start_dt > end_dt:
-        raise HTTPException(
-            status_code=422,
-            detail="start_date cannot be greater than end_date."
-        )
+        raise HTTPException(status_code=422, detail="start_date cannot be greater than end_date.")
 
     try:
         records = query.order_by(desc(PredictionRecord.timestamp)).limit(limit).all()
@@ -334,25 +355,34 @@ def export_history(
 
     output = io.StringIO()
     fieldnames = [
-        "prediction_id", "timestamp", "temperature", "rpm",
-        "pressure", "vibration", "operating_hours",
-        "failure_risk", "probability", "maintenance_required",
+        "prediction_id",
+        "timestamp",
+        "temperature",
+        "rpm",
+        "pressure",
+        "vibration",
+        "operating_hours",
+        "failure_risk",
+        "probability",
+        "maintenance_required",
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
     for rec in records:
-        writer.writerow({
-            "prediction_id": rec.prediction_id,
-            "timestamp": rec.timestamp.isoformat() if rec.timestamp is not None else "",
-            "temperature": rec.temperature,
-            "rpm": rec.rpm,
-            "pressure": rec.pressure,
-            "vibration": rec.vibration,
-            "operating_hours": rec.operating_hours,
-            "failure_risk": rec.failure_risk,
-            "probability": rec.probability,
-            "maintenance_required": rec.maintenance_required,
-        })
+        writer.writerow(
+            {
+                "prediction_id": rec.prediction_id,
+                "timestamp": (rec.timestamp.isoformat() if rec.timestamp is not None else ""),
+                "temperature": rec.temperature,
+                "rpm": rec.rpm,
+                "pressure": rec.pressure,
+                "vibration": rec.vibration,
+                "operating_hours": rec.operating_hours,
+                "failure_risk": rec.failure_risk,
+                "probability": rec.probability,
+                "maintenance_required": rec.maintenance_required,
+            }
+        )
 
     output.seek(0)
 

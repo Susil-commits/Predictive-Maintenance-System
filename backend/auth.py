@@ -9,15 +9,15 @@ Authentication module for PMS:
 - POST /auth/login, GET/POST/DELETE /auth/users
 """
 
+import logging
 import os
 import secrets
-import logging
-from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Any
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
-import jwt
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+import jwt
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -51,6 +51,7 @@ PMS_API_KEY: str = _raw_pms_api_key.strip()
 # Password utilities (bcrypt)
 # ---------------------------------------------------------------------------
 
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password using bcrypt with automatic salt."""
     salt = bcrypt.gensalt()
@@ -60,10 +61,7 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plaintext password against a bcrypt hash."""
     try:
-        return bcrypt.checkpw(
-            plain_password.encode("utf-8"),
-            hashed_password.encode("utf-8")
-        )
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
     except Exception as exc:
         logger.warning(f"Password verification error: {exc}")
         return False
@@ -73,11 +71,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 # JWT utilities (pyjwt)
 # ---------------------------------------------------------------------------
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Generate a signed JWT token."""
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=JWT_EXPIRATION_DAYS))
-    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc)})
+    expire = datetime.now(UTC) + (expires_delta or timedelta(days=JWT_EXPIRATION_DAYS))
+    to_encode.update({"exp": expire, "iat": datetime.now(UTC)})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
@@ -90,8 +89,9 @@ def decode_access_token(token: str) -> dict:
 # FastApi Dependencies
 # ---------------------------------------------------------------------------
 
+
 def require_admin_jwt(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
+    authorization: str | None = Header(None, alias="Authorization"),
 ) -> dict:
     """
     Dependency that decodes the JWT and checks role == 'admin'.
@@ -100,7 +100,7 @@ def require_admin_jwt(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header. Expected 'Bearer <token>'."
+            detail="Missing or invalid Authorization header. Expected 'Bearer <token>'.",
         )
     token = authorization.split(" ", 1)[1].strip()
     try:
@@ -108,26 +108,23 @@ def require_admin_jwt(
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired. Please log in again."
+            detail="Token has expired. Please log in again.",
         )
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token."
+            detail="Invalid authentication token.",
         )
 
     role = payload.get("role")
     if role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privilege required."
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privilege required.")
     return payload
 
 
 def require_admin_auth(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: str | None = Header(None, alias="Authorization"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
 ) -> dict:
     """
     Hybrid admin dependency: accepts either a valid admin API key ('X-API-Key')
@@ -144,20 +141,21 @@ def require_admin_auth(
                 return {"auth_type": "jwt", "role": "admin", **payload}
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin privilege required."
+                detail="Admin privilege required.",
             )
         except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
             pass
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or missing API key. Provide a valid 'X-API-Key' header."
+        detail="Invalid or missing API key. Provide a valid 'X-API-Key' header.",
     )
 
 
 # ---------------------------------------------------------------------------
 # Admin User Seeding
 # ---------------------------------------------------------------------------
+
 
 def seed_initial_admin(db: Session):
     """Ensure at least one admin user exists in the database on startup and credentials match config."""
@@ -187,7 +185,7 @@ def seed_initial_admin(db: Session):
             if admin_obj.username != admin_username:
                 admin_obj.username = admin_username
                 needs_update = True
-            if not getattr(admin_obj, "designation", None) or getattr(admin_obj, "designation") == "Maintenance Specialist":
+            if not getattr(admin_obj, "designation", None) or admin_obj.designation == "Maintenance Specialist":
                 admin_obj.designation = "System Administrator"
                 needs_update = True
             if not verify_password(admin_password, str(admin_obj.password_hash)):
@@ -205,6 +203,7 @@ def seed_initial_admin(db: Session):
 # Schemas
 # ---------------------------------------------------------------------------
 
+
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=1)
@@ -219,13 +218,14 @@ class LoginResponse(BaseModel):
 class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=4)
-    role: Optional[str] = "employee"
-    designation: Optional[str] = Field(None, max_length=128)
+    role: str | None = "employee"
+    designation: str | None = Field(None, max_length=128)
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
 
 @router.post("/login", response_model=LoginResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
@@ -237,7 +237,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not registered.",
-            headers={"X-Auth-Reason": "user_not_found"}
+            headers={"X-Auth-Reason": "user_not_found"},
         )
 
     user_obj: Any = user
@@ -245,40 +245,41 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect password.",
-            headers={"X-Auth-Reason": "wrong_password"}
+            headers={"X-Auth-Reason": "wrong_password"},
         )
 
-    user_designation = getattr(user_obj, "designation", None) or ("System Administrator" if user_obj.role == "admin" else "Maintenance Specialist")
+    user_designation = getattr(user_obj, "designation", None) or (
+        "System Administrator" if user_obj.role == "admin" else "Maintenance Specialist"
+    )
 
-    token = create_access_token({
-        "sub": user_obj.username,
-        "user_id": user_obj.id,
-        "role": user_obj.role,
-        "designation": user_designation,
-    })
+    token = create_access_token(
+        {
+            "sub": user_obj.username,
+            "user_id": user_obj.id,
+            "role": user_obj.role,
+            "designation": user_designation,
+        }
+    )
 
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": user.to_dict()
-    }
+    return {"access_token": token, "token_type": "bearer", "user": user.to_dict()}
 
 
 @router.get("/users", openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
-def list_users(
-    db: Session = Depends(get_db),
-    admin_auth: dict = Depends(require_admin_auth)
-):
+def list_users(db: Session = Depends(get_db), admin_auth: dict = Depends(require_admin_auth)):
     """List all registered users. Requires admin authorization."""
     users = db.query(User).order_by(User.created_at.desc()).all()
     return [u.to_dict() for u in users]
 
 
-@router.post("/users", status_code=status.HTTP_201_CREATED, openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
+@router.post(
+    "/users",
+    status_code=status.HTTP_201_CREATED,
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
 def create_user(
     req: UserCreateRequest,
     db: Session = Depends(get_db),
-    admin_auth: dict = Depends(require_admin_auth)
+    admin_auth: dict = Depends(require_admin_auth),
 ):
     """Create a new user. Requires admin authorization."""
     clean_username = req.username.strip()
@@ -286,7 +287,7 @@ def create_user(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Username '{clean_username}' already exists."
+            detail=f"Username '{clean_username}' already exists.",
         )
 
     new_user = User(
@@ -301,11 +302,14 @@ def create_user(
     return new_user.to_dict()
 
 
-@router.delete("/users/{user_id}", openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
+@router.delete(
+    "/users/{user_id}",
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
 def delete_user(
     user_id: str,
     db: Session = Depends(get_db),
-    admin_auth: dict = Depends(require_admin_auth)
+    admin_auth: dict = Depends(require_admin_auth),
 ):
     """Delete a user. Cannot delete an admin user."""
     target = db.query(User).filter(User.id == user_id).first()

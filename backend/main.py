@@ -1,16 +1,18 @@
+import logging
 import os
-import uuid
 import subprocess
 import sys
-import time
-import logging
 import threading
-from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+import time
+import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from typing import Any
 
 from dotenv import load_dotenv
+
 load_dotenv()
+
 
 def validate_startup_env():
     required_vars = ["DATABASE_URL", "PMS_API_KEY", "JWT_SECRET", "ADMIN_PASSWORD"]
@@ -18,45 +20,72 @@ def validate_startup_env():
     if missing:
         raise RuntimeError(f"Missing required environment variables at startup: {', '.join(missing)}")
 
+
 validate_startup_env()
 
-from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, status, Request, Header, Body
+from fastapi import (
+    BackgroundTasks,
+    Body,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, text
-
-from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from sqlalchemy import desc, text
+from sqlalchemy.orm import Session
 
-from .database import engine, Base, get_db, SessionLocal
-from .models import PredictionRecord, User
+from .auth import (
+    require_admin_auth,
+    seed_initial_admin,
+)
+from .auth import (
+    router as auth_router,
+)
+from .batch import router as batch_router
+from .canary import canary_manager
+from .database import Base, SessionLocal, engine, get_db
+from .docs_theme import (
+    API_DESCRIPTION,
+    TAGS_METADATA,
+    get_pms_redoc_html,
+    get_pms_swagger_html,
+)
+from .drift_detector import drift_detector
+from .limiter import limiter
+from .logging_config import set_request_id
+from .metrics import metrics
+from .models import PredictionRecord
+from .narration_service import orchestrate_predict_and_narrate
+from .predictor import (
+    FEATURE_ORDER,
+    calibrated_model,
+    find_minimal_fix,
+    predictor,
+    scaler,
+)
+from .rul_engine import predict_rul
+from .scheduler import drift_scheduler
 from .schemas import (
+    CounterfactualOutput,
+    DriftStatusResponse,
+    HealthResponse,
+    ModelInfoResponse,
+    NarrationOutput,
     PredictionInput,
     PredictionOutput,
-    CounterfactualOutput,
-    ModelInfoResponse,
-    HealthResponse,
-    DriftStatusResponse,
     RULOutput,
-    NarrationOutput
 )
-from .predictor import predictor, find_minimal_fix, FEATURE_ORDER, calibrated_model, scaler
-from .narration_service import orchestrate_predict_and_narrate
-from .rul_engine import predict_rul
-from .drift_detector import drift_detector
-from .batch import router as batch_router
-from .limiter import limiter
-from .auth import router as auth_router, seed_initial_admin, require_admin_auth, require_admin_jwt
-from .docs_theme import API_DESCRIPTION, TAGS_METADATA, get_pms_swagger_html, get_pms_redoc_html
-from .logging_config import set_request_id, get_request_id, setup_logging
-from .metrics import metrics
-from .scheduler import drift_scheduler
-from .canary import canary_manager
 
 logger = logging.getLogger("pms.api")
+
 
 def init_db():
     """Ensure tables are created and default admin is seeded."""
@@ -66,7 +95,11 @@ def init_db():
             # Ensure designation column exists on existing user tables
             try:
                 with engine.connect() as conn:
-                    conn.execute(text("ALTER TABLE pms_users ADD COLUMN IF NOT EXISTS designation VARCHAR(128) DEFAULT 'Maintenance Specialist';"))
+                    conn.execute(
+                        text(
+                            "ALTER TABLE pms_users ADD COLUMN IF NOT EXISTS designation VARCHAR(128) DEFAULT 'Maintenance Specialist';"
+                        )
+                    )
                     conn.commit()
             except Exception:
                 pass
@@ -77,7 +110,9 @@ def init_db():
     except Exception as e:
         logger.info(f"Table creation/admin seed note: {e}")
 
+
 init_db()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -87,6 +122,7 @@ async def lifespan(app: FastAPI):
     yield
     drift_scheduler.shutdown()
 
+
 app = FastAPI(
     title="Predictive Maintenance System API",
     description=API_DESCRIPTION,
@@ -95,10 +131,22 @@ app = FastAPI(
     redoc_url=None,
     openapi_url="/openapi.json",
     openapi_tags=TAGS_METADATA,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+from backend.security import (
+    EnterpriseSecurityHeadersMiddleware,
+    configure_enterprise_cors,
+    get_audit_logger,
+    get_failover_manager,
+)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+# Enterprise Security: Hardened CORS & Security Headers Middleware
+configure_enterprise_cors(app)
+app.add_middleware(EnterpriseSecurityHeadersMiddleware)
+
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -109,11 +157,13 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = req_id
     return response
 
+
 def predict_rate_limit() -> str:
     """Dynamic rate limiter supporting load test mode via LOAD_TEST_MODE env var."""
     if os.getenv("LOAD_TEST_MODE") == "1":
         return "1000000/minute"
     return "60/minute"
+
 
 def custom_openapi():
     if app.openapi_schema:
@@ -131,37 +181,42 @@ def custom_openapi():
             "type": "apiKey",
             "in": "header",
             "name": "X-API-Key",
-            "description": "Administrative API Key matching PMS_API_KEY environment variable"
+            "description": "Administrative API Key matching PMS_API_KEY environment variable",
         },
         "BearerAuth": {
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JWT",
-            "description": "Signed JWT token from `POST /auth/login`. Enter your token directly."
-        }
+            "description": "Signed JWT token from `POST /auth/login`. Enter your token directly.",
+        },
     }
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
+
 app.openapi = custom_openapi  # type: ignore
+
 
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_docs():
     """Interactive Swagger UI documentation with custom dark theme, brand navigation and live status."""
     return HTMLResponse(get_pms_swagger_html(openapi_url=app.openapi_url or "/openapi.json"))
 
+
 @app.get("/redoc", include_in_schema=False)
 async def custom_redoc_docs():
     """Clean ReDoc technical reference documentation."""
     return HTMLResponse(get_pms_redoc_html(openapi_url=app.openapi_url or "/openapi.json"))
 
+
 # Register authentication & batch routes
 app.include_router(auth_router)
 app.include_router(batch_router)
 
+
 def require_admin_api_key(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+    authorization: str | None = Header(None, alias="Authorization"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
 ):
     """
     Administrative check supporting both 'X-API-Key' header and 'Authorization: Bearer <jwt>'
@@ -169,14 +224,16 @@ def require_admin_api_key(
     """
     return require_admin_auth(authorization=authorization, x_api_key=x_api_key)
 
+
 # Operational & Drift metrics
 METRICS = {
     "total_predictions": 0,
     "high_risk_predictions": 0,
     "low_risk_predictions": 0,
     "drift_detected": 0,
-    "max_psi": 0.0
+    "max_psi": 0.0,
 }
+
 
 @app.get("/metrics", tags=["Metrics"])
 def get_metrics():
@@ -184,6 +241,7 @@ def get_metrics():
     Exposes Prometheus format system, prediction latency histogram, risk counters, and MLOps drift metrics.
     """
     return PlainTextResponse(metrics.generate_prometheus_text(), media_type="text/plain; version=0.0.4")
+
 
 # Enable CORS for frontend
 app.add_middleware(
@@ -193,6 +251,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # OWASP Security Headers Middleware
 @app.middleware("http")
@@ -204,6 +263,7 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     return response
+
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 def health_check(request: Request, db: Session = Depends(get_db)):
@@ -221,8 +281,9 @@ def health_check(request: Request, db: Session = Depends(get_db)):
         "status": "healthy",
         "database": db_status,
         "model_loaded": predictor.model is not None,
-        "model_version": predictor.version
+        "model_version": predictor.version,
     }
+
 
 @app.get("/model-info", response_model=ModelInfoResponse, tags=["Model"])
 def get_model_info():
@@ -233,17 +294,14 @@ def get_model_info():
     if not metadata:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Model metadata is currently unavailable"
+            detail="Model metadata is currently unavailable",
         )
     return metadata
 
+
 @app.post("/predict", response_model=PredictionOutput, tags=["Prediction"])
 @limiter.limit(predict_rate_limit)
-def predict_maintenance(
-    request: Request,
-    input_data: PredictionInput,
-    db: Session = Depends(get_db)
-):
+def predict_maintenance(request: Request, input_data: PredictionInput, db: Session = Depends(get_db)):
     """
     Given vehicle/equipment telemetry, predicts failure risk, probability,
     and computes SHAP-based feature contributions. Logs result to PostgreSQL/database.
@@ -258,13 +316,13 @@ def predict_maintenance(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Inference error: {str(e)}"
+            detail=f"Inference error: {e!s}",
         )
 
     # Explicitly enforce PR-tuned decision threshold in prediction classification logic
     failure_risk = "HIGH" if pred_result["probability"] >= threshold else "LOW"
     pred_result["failure_risk"] = failure_risk
-    pred_result["maintenance_required"] = (pred_result["probability"] >= threshold)
+    pred_result["maintenance_required"] = pred_result["probability"] >= threshold
     pred_result["decision_threshold"] = threshold
 
     # Update Prometheus counters and backward-compatible METRICS dict
@@ -278,7 +336,7 @@ def predict_maintenance(
 
     # Generate unique ID and timestamp
     pred_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Canary shadow evaluation if active
     if canary_manager.is_active:
@@ -306,7 +364,7 @@ def predict_maintenance(
             probability=pred_result["probability"],
             maintenance_required=pred_result["maintenance_required"],
             shap_values=pred_result["shap_values"],
-            contributing_factors=pred_result["contributing_factors"]
+            contributing_factors=pred_result["contributing_factors"],
         )
         db.add(db_record)
         db.commit()
@@ -318,13 +376,16 @@ def predict_maintenance(
     pred_result["timestamp"] = now.isoformat()
     return pred_result
 
+
 @app.post("/predict/narrate", response_model=NarrationOutput, tags=["Prediction"])
 @limiter.limit(predict_rate_limit)
 def predict_with_narration(
     request: Request,
     input_data: PredictionInput,
-    include_counterfactual: bool = Query(False, description="Whether to include counterfactual remediation in response"),
-    db: Session = Depends(get_db)
+    include_counterfactual: bool = Query(
+        False, description="Whether to include counterfactual remediation in response"
+    ),
+    db: Session = Depends(get_db),
 ):
     """
     Given vehicle/equipment telemetry:
@@ -340,13 +401,13 @@ def predict_with_narration(
         result = orchestrate_predict_and_narrate(
             input_data.model_dump(),
             threshold=threshold,
-            include_counterfactual=include_counterfactual
+            include_counterfactual=include_counterfactual,
         )
     except Exception as e:
         logger.error(f"Narration inference error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Inference error: {str(e)}"
+            detail=f"Inference error: {e!s}",
         )
 
     # Metrics & Prometheus recording
@@ -359,7 +420,7 @@ def predict_with_narration(
     metrics.record_prediction(failure_risk)
 
     pred_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Canary shadow evaluation if active
     if canary_manager.is_active:
@@ -387,7 +448,7 @@ def predict_with_narration(
             probability=result["probability"],
             maintenance_required=result["maintenance_required"],
             shap_values=result["shap_values"],
-            contributing_factors=result["contributing_factors"]
+            contributing_factors=result["contributing_factors"],
         )
         db.add(db_record)
         db.commit()
@@ -399,12 +460,10 @@ def predict_with_narration(
     result["timestamp"] = now.isoformat()
     return result
 
+
 @app.post("/predict-counterfactual", response_model=CounterfactualOutput, tags=["Prediction"])
 @limiter.limit(predict_rate_limit)
-def predict_counterfactual(
-    request: Request,
-    input_data: PredictionInput
-):
+def predict_counterfactual(request: Request, input_data: PredictionInput):
     """
     Given vehicle/equipment telemetry, calculates counterfactual remediation:
     finds the minimal change in the dominant risk-driving parameter that brings
@@ -419,12 +478,13 @@ def predict_counterfactual(
         logger.error(f"Counterfactual calculation error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Counterfactual calculation error: {str(e)}"
+            detail=f"Counterfactual calculation error: {e!s}",
         )
+
 
 @app.post("/predict-rul", response_model=RULOutput, tags=["RUL"])
 def predict_remaining_useful_life(
-    equipment_history: List[dict] = Body(...)  # Time series sensor readings
+    equipment_history: list[dict] = Body(...),  # Time series sensor readings
 ):
     """
     Predict cycles and operating hours remaining before equipment failure.
@@ -437,38 +497,33 @@ def predict_remaining_useful_life(
             "estimated_rul_cycles": round(rul_cycles),
             "estimated_rul_hours": round(rul_cycles * 0.5, 1),
             "confidence": confidence,
-            "recommendation": "Schedule maintenance" if rul_cycles < 50 else "Continue monitoring"
+            "recommendation": ("Schedule maintenance" if rul_cycles < 50 else "Continue monitoring"),
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @app.get("/history", tags=["Audit & History"])
-def get_prediction_history(
-    limit: int = Query(25, ge=1, le=100),
-    db: Session = Depends(get_db)
-):
+def get_prediction_history(limit: int = Query(25, ge=1, le=100), db: Session = Depends(get_db)):
     """
     Retrieves the most recent predictions logged in the database.
     """
     try:
-        records = (
-            db.query(PredictionRecord)
-            .order_by(desc(PredictionRecord.timestamp))
-            .limit(limit)
-            .all()
-        )
+        records = db.query(PredictionRecord).order_by(desc(PredictionRecord.timestamp)).limit(limit).all()
         return [r.to_dict() for r in records]
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database query error: {str(e)}"
+            detail=f"Database query error: {e!s}",
         )
 
-@app.delete("/history", tags=["Audit & History"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
-def clear_prediction_history(
-    db: Session = Depends(get_db),
-    api_key: str = Depends(require_admin_api_key)
-):
+
+@app.delete(
+    "/history",
+    tags=["Audit & History"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+def clear_prediction_history(db: Session = Depends(get_db), api_key: str = Depends(require_admin_api_key)):
     """
     Clears logged history (useful for dashboard resetting).
     Requires administrative authorization ('X-API-Key' header or admin JWT).
@@ -481,21 +536,27 @@ def clear_prediction_history(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database clear error: {str(e)}"
+            detail=f"Database clear error: {e!s}",
         )
 
-@app.post("/history/prune", tags=["Audit & History"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
+
+@app.post(
+    "/history/prune",
+    tags=["Audit & History"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
 def prune_prediction_history(
     days: int = Query(30, ge=1, le=365, description="Prune records older than this many days"),
     db: Session = Depends(get_db),
-    api_key: str = Depends(require_admin_api_key)
+    api_key: str = Depends(require_admin_api_key),
 ):
     """
     Prunes prediction records older than specified retention days (default: 30 days).
     Requires administrative authorization ('X-API-Key' or admin JWT).
     """
     from datetime import timedelta
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     try:
         num_deleted = db.query(PredictionRecord).filter(PredictionRecord.timestamp < cutoff).delete()
         db.commit()
@@ -504,32 +565,35 @@ def prune_prediction_history(
             "status": "success",
             "pruned_count": num_deleted,
             "cutoff_timestamp": cutoff.isoformat(),
-            "retention_days": days
+            "retention_days": days,
         }
     except Exception as e:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database prune error: {str(e)}"
+            detail=f"Database prune error: {e!s}",
         )
+
 
 # ==================== MLOps: Drift Detection & Retraining ====================
 
 # In-memory TTL cache for drift evaluation to prevent database table scan storms
-_drift_cache: Dict[str, Any] = {
-    "timestamp": 0.0,
-    "window": 0,
-    "report": None
-}
+_drift_cache: dict[str, Any] = {"timestamp": 0.0, "window": 0, "report": None}
 
 # Retraining concurrency lock to prevent parallel pipeline execution collisions
 _retrain_lock = threading.Lock()
 _retraining_active = False
 
+
 @app.get("/drift-status", response_model=DriftStatusResponse, tags=["MLOps"])
 def get_drift_status(
-    window: int = Query(100, ge=5, le=1000, description="Number of recent production predictions to evaluate"),
-    db: Session = Depends(get_db)
+    window: int = Query(
+        100,
+        ge=5,
+        le=1000,
+        description="Number of recent production predictions to evaluate",
+    ),
+    db: Session = Depends(get_db),
 ):
     """
     Calculates Population Stability Index (PSI) drift across telemetry features
@@ -541,12 +605,7 @@ def get_drift_status(
         return _drift_cache["report"]
 
     try:
-        records = (
-            db.query(PredictionRecord)
-            .order_by(desc(PredictionRecord.timestamp))
-            .limit(window)
-            .all()
-        )
+        records = db.query(PredictionRecord).order_by(desc(PredictionRecord.timestamp)).limit(window).all()
         formatted_records = [r.to_dict() for r in records]
         report = drift_detector.evaluate_production_data(formatted_records)
 
@@ -563,13 +622,16 @@ def get_drift_status(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Drift detection error: {str(e)}"
+            detail=f"Drift detection error: {e!s}",
         )
 
-@app.post("/drift-status/reset", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
-def reset_drift_detector(
-    api_key: str = Depends(require_admin_api_key)
-):
+
+@app.post(
+    "/drift-status/reset",
+    tags=["MLOps"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+def reset_drift_detector(api_key: str = Depends(require_admin_api_key)):
     """
     Reloads baseline reference statistics from the ML directory and clears cache.
     Requires administrative API key ('X-API-Key' header or JWT with role == 'admin').
@@ -581,8 +643,9 @@ def reset_drift_detector(
     return {
         "status": "reset_successful" if loaded else "baseline_missing",
         "reference_version": drift_detector.reference_stats.get("model_version"),
-        "message": "Baseline statistics reloaded successfully."
+        "message": "Baseline statistics reloaded successfully.",
     }
+
 
 def execute_retraining():
     """
@@ -606,11 +669,13 @@ def execute_retraining():
         with _retrain_lock:
             _retraining_active = False
 
-@app.post("/retrain", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
-def trigger_retraining(
-    background_tasks: BackgroundTasks,
-    api_key: str = Depends(require_admin_api_key)
-):
+
+@app.post(
+    "/retrain",
+    tags=["MLOps"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+def trigger_retraining(background_tasks: BackgroundTasks, api_key: str = Depends(require_admin_api_key)):
     """
     Triggers the training pipeline in the background to address data/model drift.
     Requires administrative API key ('X-API-Key' header or JWT with role == 'admin').
@@ -622,7 +687,7 @@ def trigger_retraining(
         if _retraining_active:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="A model retraining pipeline job is already in progress. Please wait for completion."
+                detail="A model retraining pipeline job is already in progress. Please wait for completion.",
             )
         _retraining_active = True
 
@@ -630,57 +695,135 @@ def trigger_retraining(
     return {
         "status": "retraining_initiated",
         "current_version": predictor.version,
-        "message": "Retraining job queued in background. Model will be auto-promoted upon completion."
+        "message": "Retraining job queued in background. Model will be auto-promoted upon completion.",
     }
 
+
 # ==================== MLOps: Canary Rollout ====================
+
 
 @app.get("/canary/status", tags=["MLOps"])
 def get_canary_status():
     """Returns the current status of dual-model canary rollout."""
     return canary_manager.get_status()
 
-@app.post("/canary/start", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
-def start_canary_rollout(
-    api_key: str = Depends(require_admin_api_key)
-):
+
+@app.post(
+    "/canary/start",
+    tags=["MLOps"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+def start_canary_rollout(api_key: str = Depends(require_admin_api_key)):
     """
     Activates canary evaluation mode for the next 50 live inference requests.
     Scores requests with both primary and candidate models in shadow mode.
     """
     return canary_manager.start_canary()
 
-@app.post("/canary/promote", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
-def promote_canary_model(
-    api_key: str = Depends(require_admin_api_key)
-):
+
+@app.post(
+    "/canary/promote",
+    tags=["MLOps"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+def promote_canary_model(api_key: str = Depends(require_admin_api_key)):
     """
     Promotes the evaluated canary model to primary production model.
     """
     return canary_manager.promote_canary()
 
-@app.post("/canary/abort", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
-def abort_canary_rollout(
-    api_key: str = Depends(require_admin_api_key)
-):
+
+@app.post(
+    "/canary/abort",
+    tags=["MLOps"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+def abort_canary_rollout(api_key: str = Depends(require_admin_api_key)):
     """
     Aborts active canary rollout and unloads candidate model.
     """
     return canary_manager.abort_canary()
 
+
 # ==================== MLOps: Scheduler ====================
+
 
 @app.get("/scheduler/jobs", tags=["MLOps"])
 def get_scheduler_jobs():
     """Returns active scheduled jobs and next trigger times."""
     return drift_scheduler.get_status()
 
-@app.post("/scheduler/run-drift-check", tags=["MLOps"], openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]})
-async def trigger_scheduler_drift_check(
-    api_key: str = Depends(require_admin_api_key)
-):
+
+@app.post(
+    "/scheduler/run-drift-check",
+    tags=["MLOps"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+async def trigger_scheduler_drift_check(api_key: str = Depends(require_admin_api_key)):
     """
     Manually triggers the daily scheduled drift check job on demand.
     Evaluates PSI and triggers candidate retraining if drift is detected.
     """
     return await drift_scheduler.run_drift_check()
+
+
+# ==================== Enterprise AI Security & Compliance ====================
+
+
+@app.get("/api/security/telemetry", tags=["Security & Compliance"])
+async def get_security_telemetry():
+    """Returns runtime telemetry for active enterprise security and AI guardrails."""
+    failover_mgr = get_failover_manager()
+    return {
+        "status": "operational",
+        "guardrails_active": True,
+        "anti_prompt_injection": True,
+        "canary_traps_enabled": True,
+        "pii_redaction_enabled": True,
+        "security_headers_enforced": True,
+        "circuit_breakers": failover_mgr.all_statuses(),
+    }
+
+
+@app.get(
+    "/api/security/audit-trail",
+    tags=["Security & Compliance"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+async def get_audit_trail(admin_auth: Any = Depends(require_admin_api_key)):
+    """Retrieves cryptographically chained audit events (SOC 2 / ISO 27001). Requires ADMIN auth."""
+    audit_logger = get_audit_logger()
+    return {
+        "events": audit_logger.get_recent_events(limit=50),
+        "chain_verified": audit_logger.verify_chain()[0],
+    }
+
+
+@app.get(
+    "/api/security/verify-chain",
+    tags=["Security & Compliance"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+async def verify_audit_chain(admin_auth: Any = Depends(require_admin_api_key)):
+    """Cryptographically verifies tamper evidence across the audit hash chain."""
+    audit_logger = get_audit_logger()
+    is_valid, error = audit_logger.verify_chain()
+    return {
+        "is_valid": is_valid,
+        "error": error,
+        "algorithm": "SHA-256",
+    }
+
+
+@app.get(
+    "/api/security/circuit-status",
+    tags=["Security & Compliance"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+async def get_circuit_status(admin_auth: Any = Depends(require_admin_api_key)):
+    """Returns AI provider circuit breaker operational states."""
+    failover_mgr = get_failover_manager()
+    return {
+        "providers": failover_mgr.all_statuses(),
+    }
+

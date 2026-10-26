@@ -12,21 +12,28 @@
 - **Deployment Formats**: Python (`ml/model.pkl`), ONNX Edge Runtime (`ml/model.onnx`)
 
 ## Intended Use
-- Real-time operational failure risk assessment for heavy industrial machinery, motors, and hydraulic powertrains.
-- Decision support for maintenance engineers and dispatch prioritization.
-- **NOT suitable for**: Autonomous control shutdown or life-critical safety shutdown systems without human-in-the-loop validation.
+- **Primary Operational Domain**: Real-time operational failure risk assessment and degradation scoring for industrial machinery, rotational motors, CNC milling spindles, and hydraulic powertrains.
+- **Workflow Integration**: Decision-support copilot for plant reliability engineers, technician work-order prioritization, and condition-based monitoring dashboards.
+- **Inference Environments**: Edge telemetry gateway processing via ONNX Runtime (`ml/model.onnx`) or centralized cloud API batch/streaming ingestion (`ml/model.pkl`).
+
+## Out-of-Scope Use
+- **Autonomous Plant Shutdowns**: Autonomous emergency stop (E-stop) or safety-instrumented system (SIS) triggers without human-in-the-loop engineering validation.
+- **Life-Safety and Mission-Critical Infrastructure**: Life-safety equipment, nuclear facility controls, aviation flight avionics, or clinical life-support machinery.
+- **Uncalibrated Sensor Drift & Novel Hardware**: Turbines, non-reciprocating compressors, or novel machine architectures without baseline telemetry recalibration.
+- **Standalone Cutting Tool Life Assurance**: Sole reliance on the binary classification model for cutting blade tool wear monitoring without dedicated acoustic sensor heads (due to empirical Tool Wear class scarcity).
 
 ## Performance
 - **Stratified 5-Fold Cross-Validation**:
-  - **ROC-AUC (CV)**: **0.9348 ± 0.0087** across 5 stratified folds (replaces stale uncalibrated estimate)
+  - **ROC-AUC (CV)**: **0.9348 ± 0.0087** across 5 stratified folds
+  - **F1-Score (CV)**: **0.3466 ± 0.0212** (Range: `[0.3191, 0.3846]`)
 - **Held-Out Test Set Evaluation** (Total test samples = 2,000; Test positives count = 68, Normal = 1,932):
-  - **ROC-AUC**: **0.9336**
+  - **ROC-AUC**: **0.9336** (95% Bootstrap CI: `[0.9070, 0.9551]`, SE: `0.0125`)
   - **Brier Score Loss & Probability Calibration**:
     - Uncalibrated XGBoost: **0.0887**
-    - Calibrated XGBoost (Platt Sigmoid): **0.0263** (70.38% probabilistic error reduction)
-    - *Methodology & Confirmation*: Both Brier scores (0.0887 uncalibrated to 0.0263 calibrated) were evaluated on the **exact same held-out test set** (N = 2,000; 68 positive failures) and derived from the **exact same underlying model family** (`XGBClassifier` with `learning_rate=0.03, max_depth=3, n_estimators=150`). Applying 3-fold Platt sigmoid calibration directly reduces probabilistic error on identical test data without changing model architecture or feature definitions.
+    - Calibrated XGBoost (Platt Sigmoid): **0.0263** (95% Bootstrap CI: `[0.0215, 0.0313]`, SE: `0.0024`, 70.38% error reduction)
+    - *Methodology & Confirmation*: Both Brier scores (0.0887 uncalibrated to 0.0263 calibrated) were evaluated on the **exact same held-out test set** (N = 2,000; 68 positive failures) and derived from the **exact same underlying model family** (`XGBClassifier` with `learning_rate=0.03, max_depth=3, n_estimators=150`). Applying 3-fold Platt sigmoid calibration directly reduces probabilistic error on identical test data without changing model architecture or feature definitions. Calibration reliability curve saved at `ml/calibration_reliability_diagram.png`.
   - **Threshold Performance Comparison**:
-    - **Tuned Threshold (`0.2849`)**: **F1: 0.4277** | Precision: 0.3736 | Recall: 0.5000
+    - **Tuned Threshold (`0.2849`)**: **F1: 0.4277** (95% Bootstrap CI: `[0.3239, 0.5091]`, SE: `0.0479`) | Precision: 0.3736 | Recall: 0.5000
     - **Default Threshold (`0.5000`)**: **F1: 0.0000** | Precision: 0.0000 | Recall: 0.0000 (highlights necessity of Precision-Recall threshold optimization under 28:1 class imbalance)
 - **Held-Out Slice Verification**:
   - Validated across operational slices (Thermal Overheat, Vibration Fatigue, Overstrain Surge, Tool Wear, Power Failure).

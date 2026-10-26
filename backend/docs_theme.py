@@ -6,7 +6,7 @@ Styled with Google Fonts Outfit & JetBrains Mono, glassmorphic top navigation ba
 live status indicator, and interactive OpenAPI security scheme configuration.
 """
 
-from typing import List, Dict, Any
+from typing import Any
 
 API_DESCRIPTION = """
 ### 🚀 Industrial Equipment & Fleet Failure Intelligence Platform
@@ -46,39 +46,39 @@ Endpoints marked with 🔒 require administrative privileges. You can authentica
 * **Continuous MLOps**: Mutex-guarded retraining pipeline (`/retrain`) with dynamic model reloading.
 """
 
-TAGS_METADATA: List[Dict[str, Any]] = [
+TAGS_METADATA: list[dict[str, Any]] = [
     {
         "name": "Prediction",
-        "description": "⚡ Real-time failure risk prediction, calibrated failure probability, and instant SHAP factor attribution."
+        "description": "⚡ Real-time failure risk prediction, calibrated failure probability, and instant SHAP factor attribution.",
     },
     {
         "name": "Batch Operations",
-        "description": "📦 High-throughput CSV, Excel, and JSON batch processing with fuzzy column matching and data export."
+        "description": "📦 High-throughput CSV, Excel, and JSON batch processing with fuzzy column matching and data export.",
     },
     {
         "name": "MLOps",
-        "description": "🔄 Population Stability Index (PSI) telemetry drift monitoring, reference baseline reload, and retraining."
+        "description": "🔄 Population Stability Index (PSI) telemetry drift monitoring, reference baseline reload, and retraining.",
     },
     {
         "name": "Authentication",
-        "description": "🛡️ User authentication, bcrypt verification, signed JWT issuance, and RBAC user provisioning."
+        "description": "🛡️ User authentication, bcrypt verification, signed JWT issuance, and RBAC user provisioning.",
     },
     {
         "name": "Audit & History",
-        "description": "📋 Historical prediction records, PostgreSQL-backed query filters, and data pruning."
+        "description": "📋 Historical prediction records, PostgreSQL-backed query filters, and data pruning.",
     },
     {
         "name": "Model",
-        "description": "ℹ️ Model architecture metadata, MLflow run lineage, decision thresholds, and feature rankings."
+        "description": "ℹ️ Model architecture metadata, MLflow run lineage, decision thresholds, and feature rankings.",
     },
     {
         "name": "Health",
-        "description": "💓 Un-throttled system uptime, database ping, and model verification for load balancers."
+        "description": "💓 Un-throttled system uptime, database ping, and model verification for load balancers.",
     },
     {
         "name": "Metrics",
-        "description": "📈 Prometheus-compatible operational counters and live drift metrics."
-    }
+        "description": "📈 Prometheus-compatible operational counters and live drift metrics.",
+    },
 ]
 
 SWAGGER_DARK_CSS = """
@@ -589,9 +589,10 @@ html, body {
 }
 """
 
+
 def get_pms_swagger_html(
     openapi_url: str = "/openapi.json",
-    title: str = "PMS API Explorer | Predictive Maintenance System"
+    title: str = "PMS API Explorer | Predictive Maintenance System",
 ) -> str:
     """Generates customized Swagger UI HTML with dark theme and brand header."""
     return f"""<!DOCTYPE html>
@@ -661,9 +662,10 @@ def get_pms_swagger_html(
 </html>
 """
 
+
 def get_pms_redoc_html(
     openapi_url: str = "/openapi.json",
-    title: str = "PMS API Reference | Predictive Maintenance System"
+    title: str = "PMS API Reference | Predictive Maintenance System",
 ) -> str:
     """Generates customized ReDoc documentation HTML with dark theme matching brand."""
     return f"""<!DOCTYPE html>

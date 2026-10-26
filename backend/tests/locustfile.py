@@ -5,7 +5,8 @@ Hits POST /predict with diverse operational telemetry profiles.
 """
 
 import random
-from locust import HttpUser, task, between
+
+from locust import HttpUser, between, task
 
 # Sample telemetry profiles matching diverse operating equipment
 TELEMETRY_PROFILES = [
@@ -15,7 +16,7 @@ TELEMETRY_PROFILES = [
         "rpm": 1500,
         "pressure": 21.0,
         "vibration": 0.22,
-        "operating_hours": 950
+        "operating_hours": 950,
     },
     # Moderate fatigue / wear
     {
@@ -23,7 +24,7 @@ TELEMETRY_PROFILES = [
         "rpm": 2100,
         "pressure": 26.0,
         "vibration": 0.42,
-        "operating_hours": 3200
+        "operating_hours": 3200,
     },
     # High thermal stress
     {
@@ -31,7 +32,7 @@ TELEMETRY_PROFILES = [
         "rpm": 2400,
         "pressure": 28.5,
         "vibration": 0.45,
-        "operating_hours": 3800
+        "operating_hours": 3800,
     },
     # Severe mechanical vibration & overstrain
     {
@@ -39,7 +40,7 @@ TELEMETRY_PROFILES = [
         "rpm": 2900,
         "pressure": 37.0,
         "vibration": 0.72,
-        "operating_hours": 5100
+        "operating_hours": 5100,
     },
     # Extreme imminent breakdown
     {
@@ -47,33 +48,32 @@ TELEMETRY_PROFILES = [
         "rpm": 3200,
         "pressure": 41.0,
         "vibration": 0.92,
-        "operating_hours": 5900
-    }
+        "operating_hours": 5900,
+    },
 ]
+
 
 class EquipmentTelemetryUser(HttpUser):
     """Simulates factory IoT gateway streaming edge telemetry to /predict."""
+
     wait_time = between(0.01, 0.05)  # Fast turnaround for stress testing
 
     @task(10)
     def predict_telemetry(self):
         """Dispatches realistic telemetry payload to /predict endpoint."""
         base_payload = random.choice(TELEMETRY_PROFILES)
-        
+
         # Inject realistic jitter (+/- 2%)
         payload = {
             "temperature": round(base_payload["temperature"] + random.uniform(-1.0, 1.0), 1),
             "rpm": int(base_payload["rpm"] + random.randint(-40, 40)),
             "pressure": round(base_payload["pressure"] + random.uniform(-0.5, 0.5), 1),
             "vibration": round(max(0.05, base_payload["vibration"] + random.uniform(-0.02, 0.02)), 2),
-            "operating_hours": int(base_payload["operating_hours"] + random.randint(0, 10))
+            "operating_hours": int(base_payload["operating_hours"] + random.randint(0, 10)),
         }
 
-        headers = {
-            "Content-Type": "application/json",
-            "X-Load-Test": "bypass"
-        }
-        
+        headers = {"Content-Type": "application/json", "X-Load-Test": "bypass"}
+
         with self.client.post("/predict", json=payload, headers=headers, catch_response=True) as response:
             if response.status_code == 200:
                 data = response.json()

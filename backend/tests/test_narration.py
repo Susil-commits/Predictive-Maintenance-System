@@ -1,7 +1,10 @@
-import pytest
 from starlette.testclient import TestClient
+
 from backend.main import app
-from backend.narration_service import rag_store, llm_client, orchestrate_predict_and_narrate
+from backend.narration_service import (
+    llm_client,
+    rag_store,
+)
 
 client = TestClient(app)
 
@@ -10,7 +13,7 @@ SAMPLE_HIGH_RISK = {
     "rpm": 2850.0,
     "pressure": 32.0,
     "vibration": 0.68,
-    "operating_hours": 4900.0
+    "operating_hours": 4900.0,
 }
 
 SAMPLE_LOW_RISK = {
@@ -18,7 +21,7 @@ SAMPLE_LOW_RISK = {
     "rpm": 1500.0,
     "pressure": 21.0,
     "vibration": 0.22,
-    "operating_hours": 950.0
+    "operating_hours": 950.0,
 }
 
 
@@ -29,7 +32,7 @@ def test_predict_narrate_endpoint_success():
     """
     response = client.post("/predict/narrate", json=SAMPLE_HIGH_RISK)
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
-    
+
     data = response.json()
     # 1. Existing prediction fields
     assert "failure_risk" in data
@@ -60,6 +63,7 @@ def test_narration_fallback_on_llm_failure(monkeypatch):
     Verifies that when the LLM call fails or times out, the endpoint silently
     falls back to the existing canned suggested_action string, never failing or degrading.
     """
+
     def mock_failing_llm(*args, **kwargs):
         raise TimeoutError("Simulated external LLM API gateway timeout (504)")
 
@@ -93,9 +97,21 @@ def test_rag_retrieval_matches_failure_mode():
     """
     test_cases = [
         ("temperature", "Thermal (HDF)", ["thermal", "heat", "coolant", "cooling"]),
-        ("pressure", "Overstrain (OSF)", ["pressure", "overstrain", "hydraulic", "valve"]),
-        ("vibration", "Vibration Fatigue (VIB)", ["vibration", "bearing", "imbalance", "shaft"]),
-        ("operating_hours", "Tool Wear (TWF)", ["tool wear", "wear", "insert", "operating hours"]),
+        (
+            "pressure",
+            "Overstrain (OSF)",
+            ["pressure", "overstrain", "hydraulic", "valve"],
+        ),
+        (
+            "vibration",
+            "Vibration Fatigue (VIB)",
+            ["vibration", "bearing", "imbalance", "shaft"],
+        ),
+        (
+            "operating_hours",
+            "Tool Wear (TWF)",
+            ["tool wear", "wear", "insert", "operating hours"],
+        ),
         ("rpm", "Power (PWF)", ["power", "motor", "drive", "rpm", "torque"]),
     ]
 

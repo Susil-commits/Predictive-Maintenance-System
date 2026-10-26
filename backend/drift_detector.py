@@ -1,14 +1,15 @@
-import os
 import json
 import logging
-from typing import Dict, List, Any, Optional
+import os
+from typing import Any
+
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 ML_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml")
 REFERENCE_STATS_PATH = os.path.join(ML_DIR, "reference_stats.json")
+
 
 class DriftDetector:
     """
@@ -21,17 +22,11 @@ class DriftDetector:
       - PSI >= 0.25: Significant Drift (Retraining recommended)
     """
 
-    FEATURE_NAMES = [
-        "temperature",
-        "rpm",
-        "pressure",
-        "vibration",
-        "operating_hours"
-    ]
+    FEATURE_NAMES = ["temperature", "rpm", "pressure", "vibration", "operating_hours"]
 
     def __init__(self, stats_path: str = REFERENCE_STATS_PATH):
         self.stats_path = stats_path
-        self.reference_stats: Dict[str, Any] = {}
+        self.reference_stats: dict[str, Any] = {}
         self.load_reference_stats()
 
     def load_reference_stats(self) -> bool:
@@ -46,7 +41,7 @@ class DriftDetector:
                 return False
         return False
 
-    def calculate_feature_psi(self, feature_name: str, current_values: List[float]) -> Dict[str, Any]:
+    def calculate_feature_psi(self, feature_name: str, current_values: list[float]) -> dict[str, Any]:
         """
         Calculates Population Stability Index (PSI) for a given numeric feature.
         """
@@ -58,8 +53,8 @@ class DriftDetector:
                 "status": "NO_BASELINE",
                 "severity": "LOW",
                 "reference_mean": None,
-                "production_mean": float(np.mean(current_values)) if current_values else None,
-                "message": "Baseline statistics not available for this feature"
+                "production_mean": (float(np.mean(current_values)) if current_values else None),
+                "message": "Baseline statistics not available for this feature",
             }
 
         bin_edges = np.array(feat_ref.get("bin_edges", []))
@@ -76,7 +71,7 @@ class DriftDetector:
                 "status": "INVALID_BINS",
                 "severity": "LOW",
                 "reference_mean": ref_mean,
-                "production_mean": prod_mean
+                "production_mean": prod_mean,
             }
 
         # Histogram counting into defined reference bins
@@ -120,10 +115,10 @@ class DriftDetector:
             "severity": severity,
             "reference_mean": round(float(ref_mean), 3),
             "production_mean": round(prod_mean, 3),
-            "mean_shift": round(prod_mean - float(ref_mean), 3)
+            "mean_shift": round(prod_mean - float(ref_mean), 3),
         }
 
-    def evaluate_production_data(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def evaluate_production_data(self, records: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Evaluates drift across all features for a list of recent prediction records.
         """
@@ -137,7 +132,7 @@ class DriftDetector:
                 "retrain_recommended": False,
                 "analyzed_samples": len(records),
                 "message": "Reference baseline has not been computed yet. Please run training pipeline.",
-                "feature_metrics": []
+                "feature_metrics": [],
             }
 
         min_samples = 5
@@ -149,11 +144,11 @@ class DriftDetector:
                 "analyzed_samples": len(records),
                 "min_samples_required": min_samples,
                 "message": f"Requires at least {min_samples} production records to compute statistical drift (currently {len(records)}).",
-                "feature_metrics": []
+                "feature_metrics": [],
             }
 
         # Extract feature arrays from prediction records
-        feature_data: Dict[str, List[float]] = {f: [] for f in self.FEATURE_NAMES}
+        feature_data: dict[str, list[float]] = {f: [] for f in self.FEATURE_NAMES}
         for r in records:
             inputs = r.get("input_features") or r
             for f in self.FEATURE_NAMES:
@@ -172,8 +167,7 @@ class DriftDetector:
             values = feature_data[f]
             metric = self.calculate_feature_psi(f, values)
             feature_metrics.append(metric)
-            if metric["psi"] > max_psi:
-                max_psi = metric["psi"]
+            max_psi = max(max_psi, metric["psi"])
             if metric["status"] == "SIGNIFICANT_DRIFT":
                 drifted_features.append(f)
 
@@ -195,8 +189,9 @@ class DriftDetector:
             "drifted_features": drifted_features,
             "analyzed_samples": len(records),
             "reference_version": self.reference_stats.get("model_version", "1.0.0"),
-            "feature_metrics": feature_metrics
+            "feature_metrics": feature_metrics,
         }
+
 
 # Global instance
 drift_detector = DriftDetector()
