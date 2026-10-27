@@ -218,8 +218,10 @@ def test_cors_preflight_headers():
     )
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") in ["http://localhost:5173", "*"]
-    assert response.headers.get("access-control-allow-credentials") != "true" or response.headers.get("access-control-allow-origin") != "*"
-
+    assert (
+        response.headers.get("access-control-allow-credentials") != "true"
+        or response.headers.get("access-control-allow-origin") != "*"
+    )
 
 
 def test_retrain_endpoint(monkeypatch):

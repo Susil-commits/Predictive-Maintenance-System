@@ -6,6 +6,7 @@ Guarantees:
    via SHA-256 before deserialization.
 2. Defends against model poisoning, unverified artifact substitution, and deserialization attacks.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -126,4 +127,3 @@ class ModelIntegrityVerifier:
         )
         logger.error(err_msg)
         return False, calculated_hash, err_msg
-

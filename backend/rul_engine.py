@@ -16,4 +16,3 @@ __all__ = [
     "predict_rul",
     "predict_rul_quantiles",
 ]
-

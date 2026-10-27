@@ -88,7 +88,6 @@ from .schemas import (
     WorkOrderDispatchOutput,
 )
 
-
 logger = logging.getLogger("pms.api")
 
 
@@ -266,9 +265,6 @@ def get_metrics():
     Exposes Prometheus format system, prediction latency histogram, risk counters, and MLOps drift metrics.
     """
     return PlainTextResponse(metrics.generate_prometheus_text(), media_type="text/plain; version=0.0.4")
-
-
-
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
@@ -614,13 +610,21 @@ def dispatch_cmms_work_order(
                 "description": "Hydraulic Proportional Relief Valve Cartridge",
                 "qty": "1",
             },
-            {"part_number": "SEAL-VITON-ORING-KIT", "description": "High-Pressure Viton Fluorocarbon O-Ring Kit", "qty": "1"},
+            {
+                "part_number": "SEAL-VITON-ORING-KIT",
+                "description": "High-Pressure Viton Fluorocarbon O-Ring Kit",
+                "qty": "1",
+            },
         ]
         duration = 6.0
         torque = 45.0
     elif "power" in mode or "rpm" in mode:
         bom = [
-            {"part_number": "VFD-STATOR-MOD-22KW", "description": "Variable Frequency Inverter Stator Module", "qty": "1"},
+            {
+                "part_number": "VFD-STATOR-MOD-22KW",
+                "description": "Variable Frequency Inverter Stator Module",
+                "qty": "1",
+            },
             {"part_number": "COUPLING-FLEX-ROTOR", "description": "Dynamic Flexible Shaft Coupling", "qty": "1"},
         ]
         duration = 8.0
@@ -628,7 +632,11 @@ def dispatch_cmms_work_order(
     else:  # Vibration / Bearing / Wear
         bom = [
             {"part_number": "SKF-6208-2RS-C3", "description": "Deep Groove Ball Bearing 40x80x18mm", "qty": "2"},
-            {"part_number": "GREASE-MOBIL-POLYREX", "description": "Mobil Polyrex EM High-Temp Spindle Grease", "qty": "1"},
+            {
+                "part_number": "GREASE-MOBIL-POLYREX",
+                "description": "Mobil Polyrex EM High-Temp Spindle Grease",
+                "qty": "1",
+            },
         ]
         duration = 4.5
         torque = 45.0
@@ -1022,4 +1030,3 @@ async def get_circuit_status(admin_auth: Any = Depends(require_admin_api_key)):
     return {
         "providers": failover_mgr.all_statuses(),
     }
-

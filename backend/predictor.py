@@ -343,9 +343,7 @@ class MaintenancePredictor:
         financial_var = round(failure_prob * unplanned_outage_loss, 2)
         planned_maintenance_cost = 2500.0
         potential_savings = (
-            round(max(0.0, financial_var - planned_maintenance_cost), 2)
-            if failure_prob >= active_threshold
-            else 0.0
+            round(max(0.0, financial_var - planned_maintenance_cost), 2) if failure_prob >= active_threshold else 0.0
         )
 
         prescriptive_info = {
@@ -411,9 +409,7 @@ class MaintenancePredictor:
 
         # Vibration typically decreases when speed and hydraulic strain are reduced
         vib_reduction = (
-            1.0
-            - (0.35 * abs(min(0.0, derate_rpm_pct)) / 100.0)
-            - (0.25 * abs(min(0.0, derate_pressure_pct)) / 100.0)
+            1.0 - (0.35 * abs(min(0.0, derate_rpm_pct)) / 100.0) - (0.25 * abs(min(0.0, derate_pressure_pct)) / 100.0)
         )
         sim_input["vibration"] = max(0.05, float(baseline_input.get("vibration", 0.3)) * vib_reduction)
 

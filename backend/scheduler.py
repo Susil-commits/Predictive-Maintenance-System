@@ -61,10 +61,10 @@ class DriftScheduler:
             self.state["is_running"] = True
             logger.info("APScheduler initialized with daily drift check (every 24 hours).")
 
-    def shutdown(self) -> None:
+    def shutdown(self, wait: bool = False) -> None:
         """Gracefully shuts down APScheduler."""
         if self.scheduler.running:
-            self.scheduler.shutdown(wait=False)
+            self.scheduler.shutdown(wait=wait)
             self.state["is_running"] = False
             logger.info("APScheduler successfully stopped.")
 

@@ -9,6 +9,7 @@ Guarantees:
 2. Cryptographic chaining: event_hash[N] = SHA-256(payload[N] + event_hash[N-1]).
 3. Tamper detection: Any modification, insertion, or deletion breaks the hash chain.
 """
+
 from __future__ import annotations
 
 import hashlib

@@ -6,6 +6,7 @@ Enforces:
 2. Tightened, environment-aware CORS policy (no wildcard origins with credentials).
 3. Transport-level body size protection against buffer exhaustion attacks.
 """
+
 from __future__ import annotations
 
 import os

@@ -291,4 +291,3 @@ def predict_rul_quantiles(
 
 if __name__ == "__main__":
     train_rul_model()
-

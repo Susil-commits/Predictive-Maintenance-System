@@ -10,6 +10,7 @@ Provides zero-trust defenses for LLM and predictive maintenance pipelines:
 4. PIISanitizer: Redacts confidential plant IP, engineer credentials, emails, and internal IPs
    before sending data to external AI providers.
 """
+
 from __future__ import annotations
 
 import html
@@ -22,9 +23,18 @@ class InputSanitizer:
     """Sanitizes user input strings to prevent control sequence abuse, unicode exploits, and buffer attacks."""
 
     ZERO_WIDTH_AND_BIDI: set[str] = {
-        "\u200b", "\u200c", "\u200d", "\u200e", "\u200f",
-        "\u202a", "\u202b", "\u202c", "\u202d", "\u202e",
-        "\u2060", "\ufeff",
+        "\u200b",
+        "\u200c",
+        "\u200d",
+        "\u200e",
+        "\u200f",
+        "\u202a",
+        "\u202b",
+        "\u202c",
+        "\u202d",
+        "\u202e",
+        "\u2060",
+        "\ufeff",
     }
 
     @classmethod
@@ -38,7 +48,8 @@ class InputSanitizer:
 
         # Strip dangerous zero-width and bidi characters
         cleaned = "".join(
-            ch for ch in truncated
+            ch
+            for ch in truncated
             if ch not in cls.ZERO_WIDTH_AND_BIDI
             and (ch in ("\n", "\t", " ") or not (0 <= ord(ch) <= 31 or 127 <= ord(ch) <= 159))
         )
@@ -58,20 +69,23 @@ class PromptShield:
     # High-confidence attack signatures (OWASP LLM01: Prompt Injection)
     ADVERSARIAL_PATTERNS: List[re.Pattern] = [
         # System Prompt Extraction / Leakage
-        re.compile(r"(?i)\b(ignore|disregard|forget|override)\s+(all\s+)?(previous|past|prior|system)\s+(instructions|rules|prompts|commands)"),
-        re.compile(r"(?i)\b(reveal|print|output|display|show|leak|echo)\s+(the\s+)?(system\s+prompt|initial\s+prompt|developer\s+mode|hidden\s+rules)"),
+        re.compile(
+            r"(?i)\b(ignore|disregard|forget|override)\s+(all\s+)?(previous|past|prior|system)\s+(instructions|rules|prompts|commands)"
+        ),
+        re.compile(
+            r"(?i)\b(reveal|print|output|display|show|leak|echo)\s+(the\s+)?(system\s+prompt|initial\s+prompt|developer\s+mode|hidden\s+rules)"
+        ),
         re.compile(r"(?i)\bwhat\s+(are\s+)?(your|the)\s+(system\s+instructions|system\s+prompt|core\s+directives)"),
-
         # Jailbreak Personas & DAN (Do Anything Now)
-        re.compile(r"(?i)\b(you\s+are\s+now|act\s+as|pretend\s+to\s+be)\s+(DAN|unfiltered|jailbroken|an\s+unrestricted)"),
+        re.compile(
+            r"(?i)\b(you\s+are\s+now|act\s+as|pretend\s+to\s+be)\s+(DAN|unfiltered|jailbroken|an\s+unrestricted)"
+        ),
         re.compile(r"(?i)\b(developer|maintenance)\s+mode\s+(enabled|activated|override)"),
         re.compile(r"(?i)\b(bypass|disable)\s+(safety|content|security)\s+(filters|rules|guardrails)"),
-
         # Delimiter & Markdown Escape Injections
         re.compile(r"(?i)```\s*(system|admin|root|instruction)"),
         re.compile(r"(?i)<\|im_start\|>|<\|im_end\|>|\[INST\]|\[/INST\]"),
         re.compile(r"(?i)---+\s*(START_SYSTEM|END_SYSTEM|BEGIN_OVERRIDE)"),
-
         # Malicious Instruction Prefixes
         re.compile(r"(?i)\b(new\s+rule|rule\s+change|updated\s+directive):\s*"),
         re.compile(r"(?i)\boutput\s+only\s+(the\s+following|this\s+text):"),
@@ -144,7 +158,9 @@ class PIISanitizer:
     # Detection patterns for industrial assets and personal data
     PATTERNS: Dict[str, re.Pattern] = {
         "EMAIL": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
-        "IPV4_PRIVATE": re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b"),
+        "IPV4_PRIVATE": re.compile(
+            r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b"
+        ),
         "MAC_ADDR": re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b"),
         "API_KEY": re.compile(r"\b(?:pms|sk|api)_[a-zA-Z0-9_-]{20,}\b"),
         "MACHINE_SERIAL": re.compile(r"\b(?:MCH|AI4I|PLANT|CNC)-\d{4,8}\b"),

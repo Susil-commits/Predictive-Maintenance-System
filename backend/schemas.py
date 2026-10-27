@@ -257,7 +257,6 @@ class WorkOrderDispatchOutput(BaseModel):
     estimated_duration_hours: float
 
 
-
 class ModelInfoResponse(BaseModel):
     model_name: str
     version: str

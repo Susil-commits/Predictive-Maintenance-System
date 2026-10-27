@@ -9,6 +9,7 @@ Finite State Machine:
 - OPEN: Failure threshold exceeded. All traffic immediately diverted to secondary/fallback provider.
 - HALF_OPEN: Recovery probe. Tests whether primary provider has recovered.
 """
+
 from __future__ import annotations
 
 import enum
@@ -112,9 +113,7 @@ class AIFailoverManager:
 
     def __init__(self, provider_names: Optional[List[str]] = None):
         names = provider_names or ["gemini", "openai"]
-        self.breakers: Dict[str, AICircuitBreaker] = {
-            name: AICircuitBreaker(provider_name=name) for name in names
-        }
+        self.breakers: Dict[str, AICircuitBreaker] = {name: AICircuitBreaker(provider_name=name) for name in names}
 
     def get_breaker(self, provider_name: str) -> AICircuitBreaker:
         """Retrieves or creates a circuit breaker for a given provider."""
