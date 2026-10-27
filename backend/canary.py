@@ -56,7 +56,15 @@ class CanaryManager:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Candidate model not found at {model_path}")
 
+        from backend.security import ModelIntegrityVerifier
+
+        is_valid, calc_hash, msg = ModelIntegrityVerifier.verify_model_file(model_path)
+        if not is_valid:
+            logger.error(f"Canary candidate model integrity failure: {msg}")
+            raise RuntimeError(f"Cryptographic verification of canary model failed: {msg}")
+
         try:
+            logger.info(f"Loading verified canary candidate model (SHA-256: {calc_hash[:16]}...) from {model_path}...")
             loaded_model = joblib.load(model_path)
         except Exception as e:
             raise RuntimeError(f"Failed to load canary candidate model: {e}")

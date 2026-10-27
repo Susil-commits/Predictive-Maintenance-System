@@ -95,6 +95,31 @@ class PredictionOutput(BaseModel):
         description="Optimal decision threshold tuned via Precision-Recall curve",
         json_schema_extra={"example": 0.84},
     )
+    # Quantitative Financial Risk & Asset Intelligence
+    financial_value_at_risk_usd: float | None = Field(
+        None,
+        description="Quantified financial value at risk ($VaR) based on downtime and secondary damage",
+        json_schema_extra={"example": 78500.0},
+    )
+    expected_downtime_hours: float | None = Field(
+        None,
+        description="Estimated MTTR downtime hours if failure occurs",
+        json_schema_extra={"example": 6.0},
+    )
+    hourly_downtime_rate_usd: float | None = Field(
+        12500.0,
+        description="Facility downtime cost per hour ($/hr)",
+        json_schema_extra={"example": 12500.0},
+    )
+    potential_savings_usd: float | None = Field(
+        None,
+        description="Projected capital cost avoidance if preventive maintenance is executed",
+        json_schema_extra={"example": 74500.0},
+    )
+    prescriptive_action: dict[str, Any] | None = Field(
+        None,
+        description="Detailed prescriptive mitigation guidance and spare parts BOM",
+    )
 
 
 class CounterfactualOutput(BaseModel):
@@ -152,9 +177,85 @@ class RULReadingInput(BaseModel):
 
 class RULOutput(BaseModel):
     estimated_rul_cycles: int = Field(..., description="Estimated remaining cycles before failure")
-    estimated_rul_hours: float = Field(..., description="Estimated remaining operating hours")
+    estimated_rul_hours: float = Field(..., description="Estimated remaining operating hours (P50 Median)")
+    rul_p10_hours: float | None = Field(None, description="Conservative 10th percentile lower bound in hours")
+    rul_p90_hours: float | None = Field(None, description="Optimistic 90th percentile upper bound in hours")
     confidence: float = Field(..., description="Model confidence score [0.0 - 1.0]")
+    confidence_interval_pct: int | None = Field(90, description="Confidence interval coverage percentage")
     recommendation: str = Field(..., description="Operational recommendation based on RUL")
+
+
+class SimulateDerateInput(BaseModel):
+    temperature: float = Field(..., ge=-20.0, le=250.0, description="Operating temperature in Celsius")
+    rpm: float = Field(..., ge=100.0, le=6000.0, description="Rotational speed in RPM")
+    pressure: float = Field(..., ge=1.0, le=100.0, description="Pressure in bar")
+    vibration: float = Field(..., ge=0.01, le=5.0, description="Vibration amplitude in g")
+    operating_hours: float = Field(..., ge=0.0, le=50000.0, description="Cumulative equipment operating hours")
+    derate_rpm_pct: float = Field(
+        0.0,
+        ge=-50.0,
+        le=50.0,
+        description="Percentage adjustment to rotational speed (e.g. -15.0%)",
+        json_schema_extra={"example": -15.0},
+    )
+    derate_pressure_pct: float = Field(
+        0.0,
+        ge=-50.0,
+        le=50.0,
+        description="Percentage adjustment to hydraulic pressure (e.g. -10.0%)",
+        json_schema_extra={"example": -10.0},
+    )
+    coolant_temp_delta_c: float = Field(
+        0.0,
+        ge=-30.0,
+        le=30.0,
+        description="Coolant temperature adjustment in Celsius (e.g. -5.0°C)",
+        json_schema_extra={"example": -5.0},
+    )
+
+
+class SimulateDerateOutput(BaseModel):
+    baseline_probability: float = Field(..., description="Calibrated failure risk before intervention")
+    simulated_probability: float = Field(..., description="Calibrated failure risk after prescriptive de-rating")
+    baseline_risk: str = Field(..., description="'HIGH' or 'LOW'")
+    simulated_risk: str = Field(..., description="'HIGH' or 'LOW'")
+    risk_delta_pct: float = Field(..., description="Percentage point drop in failure probability")
+    baseline_rul_hours: float = Field(..., description="Estimated RUL in hours before intervention (Median P50)")
+    baseline_rul_p10_hours: float | None = Field(None, description="Conservative P10 RUL before intervention")
+    baseline_rul_p90_hours: float | None = Field(None, description="Optimistic P90 RUL before intervention")
+    simulated_rul_hours: float = Field(..., description="Projected RUL in hours after de-rating (Median P50)")
+    simulated_rul_p10_hours: float | None = Field(None, description="Conservative P10 RUL after de-rating")
+    simulated_rul_p90_hours: float | None = Field(None, description="Optimistic P90 RUL after de-rating")
+    rul_extension_hours: float = Field(..., description="Reclaimed operational hours")
+    baseline_var_usd: float = Field(..., description="Downtime Value-at-Risk before intervention")
+    simulated_var_usd: float = Field(..., description="Downtime Value-at-Risk after de-rating")
+    capital_risk_mitigated_usd: float = Field(..., description="Net avoided capital risk in USD")
+    operating_recommendation: str = Field(..., description="Prescriptive guidance for plant supervisors")
+
+
+class WorkOrderDispatchInput(BaseModel):
+    prediction_id: str | None = Field(None, description="Linked prediction event ID")
+    asset_id: str = Field("CNC-SPINDLE-LINE-2", description="Asset Tag or Machine Identifier")
+    line_id: str = Field("Line 4 - Discrete Assembly", description="Plant Production Line")
+    plant_location: str = Field("Plant 1 - Bay C4", description="Physical shop floor location")
+    failure_mode: str = Field("Thermal / Overstrain", description="Identified failure classification")
+    priority: str = Field("HIGH", description="Work order priority ('CRITICAL', 'HIGH', 'MEDIUM')")
+    notes: str | None = Field(None, description="Technician dispatch notes")
+
+
+class WorkOrderDispatchOutput(BaseModel):
+    work_order_id: str
+    asset_id: str
+    line_id: str
+    dispatched_at: str
+    status: str
+    cmms_target: str
+    technician_qualification: str
+    required_bom_parts: list[dict[str, str]]
+    safety_interlocks: list[str]
+    torque_specs_nm: float
+    estimated_duration_hours: float
+
 
 
 class ModelInfoResponse(BaseModel):

@@ -101,6 +101,22 @@ export const predictRul = async (equipmentHistory) => {
   return response.data;
 };
 
+export const simulateDerate = async (payload) => {
+  const response = await api.post('/predict/simulate-derate', payload);
+  return response.data;
+};
+
+export const dispatchWorkOrder = async (payload) => {
+  const response = await api.post('/maintenance/dispatch-work-order', payload);
+  return response.data;
+};
+
+export const getFinancialRiskSummary = async (limit = 50) => {
+  const response = await api.get(`/financial/risk-summary?limit=${limit}`);
+  return response.data;
+};
+
+
 export const getHistory = async (limit = 20) => {
   const response = await api.get(`/history?limit=${limit}`);
   return response.data;

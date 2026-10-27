@@ -4,11 +4,12 @@ import {
   Terminal, ShieldAlert, Hash, Clock,
   Cloud, Eye, EyeOff, Save, ExternalLink,
   Loader2, Check, Trash2, X, FileText,
-  Wrench, Sparkles, ArrowRight
+  Wrench, Sparkles, ArrowRight, DollarSign, Send, CheckSquare, ShieldCheck
 } from 'lucide-react';
 import { uploadPredictionReport, isCloudinaryConfigured } from '../cloudinary';
 import { getSession, saveReport } from '../auth';
-import { predictCounterfactual } from '../api';
+import { predictCounterfactual, dispatchWorkOrder } from '../api';
+
 
 // ── Inline JSON viewer ────────────────────────────────────────────────────────
 // ── Inline Report viewer ────────────────────────────────────────────────────────
@@ -248,10 +249,36 @@ export default function PredictionResult({ result }) {
   const [showViewer,  setShowViewer]  = useState(false);
   const [savedEntry,  setSavedEntry]  = useState(null);
   const [cfData,      setCfData]      = useState(null);
-  const [cfLoading,   setCfLoading]   = useState(false);
   const [cfError,     setCfError]     = useState(null);
+  const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [dispatchResult, setDispatchResult] = useState(null);
+  const [showDispatchModal, setShowDispatchModal] = useState(false);
+
+  const handleDispatchWorkOrder = async () => {
+    if (!result) return;
+    setDispatchLoading(true);
+    try {
+      const payload = {
+        prediction_id: result.prediction_id || null,
+        asset_id: 'CNC-SPINDLE-LINE-2',
+        line_id: 'Line 4 - Discrete Powertrain',
+        plant_location: 'Bay C4 - Machining Center',
+        failure_mode: result.top_risk_factor ? `${result.top_risk_factor.toUpperCase()} Degradation` : 'Mechanical Degradation',
+        priority: result.failure_risk === 'HIGH' ? 'CRITICAL' : 'MEDIUM',
+        notes: result.suggested_action || 'Automated dispatch via PMS AI Condition Monitoring.'
+      };
+      const res = await dispatchWorkOrder(payload);
+      setDispatchResult(res);
+      setShowDispatchModal(true);
+    } catch (err) {
+      alert(`Work order dispatch error: ${err.message}`);
+    } finally {
+      setDispatchLoading(false);
+    }
+  };
 
   // When a new result comes in, automatically ask whether to View or Save and evaluate counterfactual if high risk
+
   React.useEffect(() => {
     if (result) {
       setShowPrompt(true);
@@ -348,6 +375,77 @@ export default function PredictionResult({ result }) {
         />
       )}
 
+      {/* SAP PM Work Order Confirmation Modal */}
+      {showDispatchModal && dispatchResult && (
+        <div className="report-viewer-overlay" onClick={() => setShowDispatchModal(false)}>
+          <div className="report-viewer-card" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+            <div className="report-viewer-bar">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CheckSquare size={16} style={{ color: '#34d399' }} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: '#ffffff', fontWeight: 700 }}>
+                  {dispatchResult.work_order_id}
+                </span>
+                <span className="badge-risk low" style={{ fontSize: '0.65rem' }}>
+                  {dispatchResult.status}
+                </span>
+              </div>
+              <button type="button" className="login-eye-btn" onClick={() => setShowDispatchModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, background: 'rgba(255,255,255,0.02)', padding: '10px 12px', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                <div>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Target Asset</span>
+                  <div style={{ fontWeight: 700, color: '#ffffff', fontFamily: 'var(--font-mono)' }}>{dispatchResult.asset_id}</div>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Plant Line &amp; Bay</span>
+                  <div style={{ fontWeight: 600, color: '#38bdf8' }}>{dispatchResult.line_id}</div>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>CMMS Target</span>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{dispatchResult.cmms_target}</div>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Technician Rating</span>
+                  <div style={{ color: '#fbbf24', fontSize: '0.78rem', fontWeight: 600 }}>{dispatchResult.technician_qualification}</div>
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.74rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 600 }}>Verified Bill of Materials (BOM)</span>
+                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {dispatchResult.required_bom_parts?.map((part, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 4, fontSize: '0.76rem', border: '1px solid var(--border-subtle)' }}>
+                      <span><strong style={{ color: '#38bdf8' }}>{part.part_number}</strong> — {part.description}</span>
+                      <span style={{ color: 'var(--text-dim)' }}>Qty: {part.qty}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.74rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 600 }}>ISO 13849 Safety Interlocks</span>
+                <ul style={{ margin: '6px 0 0 16px', padding: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  {dispatchResult.safety_interlocks?.map((lock, idx) => (
+                    <li key={idx}>{lock}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px solid var(--border-subtle)' }}>
+                <button type="button" className="preset-btn highlight" onClick={() => setShowDispatchModal(false)} style={{ padding: '4px 14px', fontSize: '0.75rem' }}>
+                  Acknowledge Dispatch
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       <div className="glass-panel">
         {/* Header */}
         <div className="panel-header">
@@ -437,6 +535,72 @@ export default function PredictionResult({ result }) {
             ) : (
               <><CheckCircle2 size={18} style={{ flexShrink: 0 }} /><span><strong>Operational Nominal:</strong> Sensor telemetry aligns with baseline healthy tolerances.</span></>
             )}
+          </div>
+
+          {/* Financial Value-at-Risk ($VaR) Card (Hardened Quants) */}
+          <div
+            style={{
+              marginTop: 10,
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: isHighRisk ? 'rgba(244, 63, 94, 0.05)' : 'rgba(16, 185, 129, 0.04)',
+              border: `1px solid ${isHighRisk ? 'rgba(244, 63, 94, 0.25)' : 'rgba(16, 185, 129, 0.2)'}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 700, color: isHighRisk ? '#fb7185' : '#34d399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                <DollarSign size={14} />
+                <span>Financial Impact &amp; Downtime Value at Risk ($VaR)</span>
+              </div>
+              <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                Cost Benchmark: $12,500/hr Downtime
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Financial Exposure ($VaR)</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, fontFamily: 'var(--font-mono)', color: isHighRisk ? '#fb7185' : '#ffffff' }}>
+                  ${(result.financial_value_at_risk_usd ?? (result.probability * 85000)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Expected Outage MTTR</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#e2e8f0' }}>
+                  {result.expected_downtime_hours ?? 6.0} hrs
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Avoidable Loss</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#34d399' }}>
+                  ${(result.potential_savings_usd ?? Math.max(0, (result.probability * 85000) - 2500)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </div>
+              </div>
+            </div>
+
+            {/* Prescriptive BOM & SAP Dispatch */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                <span>Prescriptive Parts: </span>
+                <strong style={{ color: '#ffffff' }}>{result.prescriptive_action?.recommended_bom_part || 'SKF 6208 Spindle Bearing Kit'}</strong>
+              </div>
+              <button
+                type="button"
+                className="preset-btn highlight"
+                onClick={handleDispatchWorkOrder}
+                disabled={dispatchLoading}
+                style={{ padding: '3px 10px', fontSize: '0.72rem', gap: 5 }}
+                title="Dispatch verified work order to plant SAP PM / Maximo CMMS"
+              >
+                {dispatchLoading ? <Loader2 size={11} className="batch-spin" /> : <Send size={11} />}
+                <span>Dispatch SAP PM Work Order</span>
+              </button>
+            </div>
           </div>
 
           {/* Root-Cause Prescriptive Action (Plan 1) */}

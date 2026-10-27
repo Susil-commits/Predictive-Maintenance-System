@@ -14,12 +14,13 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from starlette.types import ASGIApp
 
 
 class EnterpriseSecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Injects defense-in-depth security headers and validates request bounds."""
 
-    def __init__(self, app: FastAPI, max_content_length: int = 10 * 1024 * 1024):
+    def __init__(self, app: ASGIApp, max_content_length: int = 10 * 1024 * 1024):
         super().__init__(app)
         self.max_content_length = max_content_length
 

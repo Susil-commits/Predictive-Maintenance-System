@@ -225,5 +225,70 @@ def predict_rul(
     return pred_rul, confidence
 
 
+def predict_rul_quantiles(
+    equipment_history: list[dict[str, Any]] | pd.DataFrame,
+    confidence_level: float = 0.90,
+) -> dict[str, Any]:
+    """
+    Predict remaining useful life with hardened statistical quantiles (P10, P50, P90).
+    Employs heteroscedastic error variance scaling: uncertainty naturally expands
+    with longer forecast horizons and higher sensor degradation volatility.
+
+    Returns:
+        dict containing estimated_rul_cycles, estimated_rul_hours (P50 median),
+        rul_p10_hours (conservative lower bound), rul_p90_hours (optimistic upper bound),
+        confidence, and recommendation.
+    """
+    pred_rul, confidence = predict_rul(equipment_history)
+    artifact = get_rul_model()
+    rmse = float(artifact.get("rmse", 14.5))
+
+    # Standard normal quantile for requested confidence level
+    if confidence_level >= 0.99:
+        z_score = 2.326
+    elif confidence_level >= 0.95:
+        z_score = 1.645
+    else:
+        z_score = 1.28  # 90% default
+
+    # Heteroscedastic error variance scaling:
+    # Uncertainty expands with longer forecast horizons and lower telemetry stability
+    horizon_scaling = 1.0 + (pred_rul / 150.0) * 0.25
+    uncertainty_cycles = z_score * rmse * horizon_scaling * (1.45 - (confidence - 0.50))
+
+    rul_p10_cycles = max(1.0, pred_rul - uncertainty_cycles)
+    rul_p90_cycles = max(pred_rul + 1.0, pred_rul + uncertainty_cycles)
+
+    # 1 cycle represents approximately 0.5 operating hours
+    rul_hours = round(pred_rul * 0.5, 1)
+    rul_p10_hours = round(rul_p10_cycles * 0.5, 1)
+    rul_p90_hours = round(rul_p90_cycles * 0.5, 1)
+
+    # Strict mathematical ordering guarantee: P10 <= P50 <= P90
+    rul_p10_hours = min(rul_p10_hours, rul_hours)
+    rul_p90_hours = max(rul_p90_hours, rul_hours)
+
+    recommendation = (
+        "🔴 Immediate maintenance required (P10 < 15 hrs)"
+        if rul_p10_hours < 15.0
+        else (
+            "🟡 Schedule inspection within 48 hours"
+            if rul_hours < 50.0
+            else "🟢 Continue monitoring — nominal wear margins"
+        )
+    )
+
+    return {
+        "estimated_rul_cycles": round(pred_rul),
+        "estimated_rul_hours": rul_hours,
+        "rul_p10_hours": rul_p10_hours,
+        "rul_p90_hours": rul_p90_hours,
+        "confidence": confidence,
+        "confidence_interval_pct": int(confidence_level * 100),
+        "recommendation": recommendation,
+    }
+
+
 if __name__ == "__main__":
     train_rul_model()
+

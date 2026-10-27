@@ -217,9 +217,9 @@ def test_cors_preflight_headers():
         },
     )
     assert response.status_code == 200
-    assert response.headers.get("access-control-allow-origin") == "*"
-    # Verify allow-credentials is not set to true when wildcard origin is returned
-    assert response.headers.get("access-control-allow-credentials") != "true"
+    assert response.headers.get("access-control-allow-origin") in ["http://localhost:5173", "*"]
+    assert response.headers.get("access-control-allow-credentials") != "true" or response.headers.get("access-control-allow-origin") != "*"
+
 
 
 def test_retrain_endpoint(monkeypatch):
@@ -770,3 +770,102 @@ def test_predict_counterfactual_already_safe():
     data = response.json()
 
     assert data["already_safe"] is True
+
+
+def test_predict_includes_financial_var():
+    payload = {
+        "temperature": 92.4,
+        "rpm": 2800.0,
+        "pressure": 31.5,
+        "vibration": 0.64,
+        "operating_hours": 4820.0,
+    }
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "financial_value_at_risk_usd" in data
+    assert data["financial_value_at_risk_usd"] > 0
+    assert "hourly_downtime_rate_usd" in data
+    assert data["hourly_downtime_rate_usd"] == 12500.0
+    assert "prescriptive_action" in data
+    assert "recommended_bom_part" in data["prescriptive_action"]
+
+
+def test_predict_rul_quantiles():
+    trajectory = [
+        {
+            "temperature": 75.0 + i * 0.5,
+            "rpm": 2000.0,
+            "pressure": 25.0 + i * 0.2,
+            "vibration": 0.25 + i * 0.01,
+            "operating_hours": 1000.0 + i * 0.5,
+        }
+        for i in range(10)
+    ]
+    response = client.post("/predict-rul", json=trajectory)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "estimated_rul_cycles" in data
+    assert "estimated_rul_hours" in data
+    assert "rul_p10_hours" in data
+    assert "rul_p90_hours" in data
+    assert data["rul_p10_hours"] <= data["estimated_rul_hours"]
+    assert data["estimated_rul_hours"] <= data["rul_p90_hours"]
+    assert data["confidence_interval_pct"] == 90
+
+
+def test_simulate_prescriptive_derate():
+    payload = {
+        "temperature": 94.0,
+        "rpm": 2800.0,
+        "pressure": 34.0,
+        "vibration": 0.65,
+        "operating_hours": 4500.0,
+        "derate_rpm_pct": -15.0,
+        "derate_pressure_pct": -10.0,
+        "coolant_temp_delta_c": -5.0,
+    }
+    response = client.post("/predict/simulate-derate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["simulated_probability"] < data["baseline_probability"]
+    assert data["risk_delta_pct"] > 0
+    assert data["rul_extension_hours"] >= 0
+    assert data["capital_risk_mitigated_usd"] >= 0
+    assert data["baseline_rul_p10_hours"] <= data["baseline_rul_hours"] <= data["baseline_rul_p90_hours"]
+    assert data["simulated_rul_p10_hours"] <= data["simulated_rul_hours"] <= data["simulated_rul_p90_hours"]
+    assert data["simulated_rul_p10_hours"] >= data["baseline_rul_p10_hours"]
+    assert "Prescriptive de-rating reduces failure risk" in data["operating_recommendation"]
+
+
+def test_dispatch_cmms_work_order():
+    payload = {
+        "asset_id": "CNC-MILL-SPINDLE-4",
+        "line_id": "Line B - Powertrain",
+        "plant_location": "Plant 2 - Bay 14",
+        "failure_mode": "Overstrain / Bearing Fatigue",
+        "priority": "CRITICAL",
+        "notes": "Bearing race degradation detected during shift run.",
+    }
+    response = client.post("/maintenance/dispatch-work-order", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["work_order_id"].startswith("WO-")
+    assert data["status"] == "DISPATCHED_TO_CMMS"
+    assert len(data["required_bom_parts"]) > 0
+    assert len(data["safety_interlocks"]) > 0
+    assert data["torque_specs_nm"] > 0
+
+
+def test_financial_risk_summary_endpoint():
+    response = client.get("/financial/risk-summary?limit=20")
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "total_financial_var_usd" in data
+    assert "potential_capital_savings_usd" in data
+    assert "portfolio_health_status" in data

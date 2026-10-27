@@ -12,12 +12,13 @@ import HistoryTable from '../components/HistoryTable';
 import DriftMonitor from '../components/DriftMonitor';
 import BatchPredict from '../components/BatchPredict';
 import RULForecastCard from '../components/RULForecastCard';
+import DigitalTwinSimulator from '../components/DigitalTwinSimulator';
 import {
   getHealth, getModelInfo, predictMaintenance, predictRul,
   getHistory, clearHistory, getDriftStatus, exportHistory,
   API_BASE_URL
 } from '../api';
-import { Sliders, Layers, LayoutGrid, Upload } from 'lucide-react';
+import { Sliders, Layers, LayoutGrid, Upload, Cpu } from 'lucide-react';
 
 const DEFAULT_FORM_DATA = {
   temperature: 92.4,
@@ -258,6 +259,7 @@ export default function DashboardPage({ onLogout }) {
           {[
             { key: 'all',       icon: <LayoutGrid size={13} />, label: 'ALL MODULES' },
             { key: 'telemetry', icon: <Sliders size={13} />,    label: 'TELEMETRY & INFERENCE' },
+            { key: 'twin',      icon: <Cpu size={13} />,        label: 'DIGITAL TWIN' },
             { key: 'batch',     icon: <Upload size={13} />,     label: 'BATCH PREDICT' },
             { key: 'mlops',     icon: <Layers size={13} />,     label: 'STABILITY & AUDIT LOG' },
             { key: 'myreports', icon: <FileText size={13} />,   label: `MY REPORTS${myReports.length ? ` [${myReports.length}]` : ''}` },
@@ -310,6 +312,11 @@ export default function DashboardPage({ onLogout }) {
             onRefresh={() => fetchRulForecast(formData)}
           />
         </>
+      )}
+
+      {/* Prescriptive Digital Twin Simulator */}
+      {(activeTab === 'all' || activeTab === 'twin') && (
+        <DigitalTwinSimulator baselineTelemetry={formData} />
       )}
 
       {/* Batch */}

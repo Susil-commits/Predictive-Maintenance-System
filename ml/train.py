@@ -692,6 +692,31 @@ def run_pipeline():
     joblib.dump(calibrated_xgb, model_file)
     joblib.dump(scaler, scaler_file)
 
+    # Cryptographic model artifact manifest generation
+    try:
+        import hashlib
+        from datetime import UTC, datetime
+
+        hasher = hashlib.sha256()
+        with open(model_file, "rb") as f:
+            while chunk := f.read(65536):
+                hasher.update(chunk)
+        calc_sha256 = hasher.hexdigest()
+        manifest_file = os.path.join(ML_DIR, "model_manifest.json")
+        manifest_payload = {
+            "model_file": os.path.basename(model_file),
+            "sha256": calc_sha256,
+            "version": next_version,
+            "created_at": datetime.now(UTC).isoformat(),
+            "algorithm": "SHA-256",
+            "integrity_status": "verified_internal_build",
+        }
+        with open(manifest_file, "w", encoding="utf-8") as mf:
+            json.dump(manifest_payload, mf, indent=2)
+        print(f"Generated cryptographic model manifest at {manifest_file} (SHA-256: {calc_sha256[:16]}...)")
+    except Exception as man_err:
+        print(f"[Manifest Generation Note] {man_err}")
+
     # Export model to ONNX for cross-platform / edge deployment
     onnx_file = os.path.join(ML_DIR, "model.onnx")
     try:

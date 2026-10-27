@@ -113,6 +113,42 @@ export default function RULForecastCard({ rulData, loading, onRefresh }) {
           </div>
         </div>
 
+        {/* Statistical Quantile Horizon (Hardened Quants) */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+            background: 'rgba(56, 189, 248, 0.04)',
+            border: '1px solid rgba(56, 189, 248, 0.2)',
+            borderRadius: 6,
+            padding: '10px 14px',
+            fontSize: '0.76rem',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#38bdf8', fontWeight: 600 }}>
+            <Activity size={13} />
+            <span>Statistical 90% Confidence Horizon</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <span>
+              <span style={{ color: 'var(--text-dim)', marginRight: 4 }}>P10 (Worst-Case):</span>
+              <strong style={{ color: '#fb7185' }}>{rulData?.rul_p10_hours ?? (hours * 0.75).toFixed(1)}h</strong>
+            </span>
+            <span>
+              <span style={{ color: 'var(--text-dim)', marginRight: 4 }}>P50 (Median):</span>
+              <strong style={{ color: '#ffffff' }}>{hours.toFixed(1)}h</strong>
+            </span>
+            <span>
+              <span style={{ color: 'var(--text-dim)', marginRight: 4 }}>P90 (Best-Case):</span>
+              <strong style={{ color: '#34d399' }}>{rulData?.rul_p90_hours ?? (hours * 1.25).toFixed(1)}h</strong>
+            </span>
+          </div>
+        </div>
+
         {/* Action Recommendation Banner */}
         <div
           style={{
@@ -139,6 +175,7 @@ export default function RULForecastCard({ rulData, loading, onRefresh }) {
             </span>
           </div>
         </div>
+
 
         {/* Degradation Horizon Meter */}
         <div>

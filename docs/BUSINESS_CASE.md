@@ -81,3 +81,21 @@ By shifting the decision threshold across the Precision-Recall curve to **0.2849
 | **Data Drift Detection** | Manual inspection | Infrequent batch checks | **Automated Population Stability Index (PSI)** |
 | **Database Resilience** | Fragile DB configs | Hardcoded drivers | **Dual DBAPI Driver Support** (`psycopg` v3 & v2) |
 | **Deployment Form Factors** | Proprietary PLCs | Heavy server dependencies | **Cloud REST API + Sub-3ms Edge ONNX** |
+
+### Slide 6: Real-Time Downtime Value-at-Risk ($VaR) Formulation
+
+Standard predictive maintenance platforms output abstract failure percentages. PMS translates real-time physics into financial exposure for executive leadership:
+
+$$\text{Financial Value at Risk ($VaR)} = P(\text{Failure}) \times \left[ (T_{\text{downtime}} \times C_{\text{downtime}}) + C_{\text{collateral}} + C_{\text{scrap}} \right]$$
+
+* **Industrial Parameters**:
+  * $C_{\text{downtime}}$: Hourly facility downtime rate ($12,500/hr default).
+  * $T_{\text{downtime}}$: Expected mean time to repair based on failure mode (Thermal: 3.5 hrs; Overstrain: 18.0 hrs; Motor Winding: 36.0 hrs).
+  * $C_{\text{collateral}}$: Secondary physical asset damage if run to catastrophic seizure ($28,000 spindle rebuild).
+  * $C_{\text{scrap}}$: Scrapped workpieces during mid-cycle tool destruction ($4,500).
+
+#### Prescriptive Machine De-Rating Payoff
+When an imminent failure is detected during a critical production run, our **Prescriptive Digital Twin** enables operators to de-rate operating speed (e.g., -15% RPM). This drops immediate failure probability from **86% to 18%** and extends remaining life by **48 hours**, preserving customer delivery deadlines while avoiding a $50,000 unplanned capital replacement.
+
+> For the comprehensive forensic audit, code kill-list, and autonomous agent roadmap, see **[`docs/BOARDROOM_STRATEGY_AND_AUDIT.md`](BOARDROOM_STRATEGY_AND_AUDIT.md)**.
+

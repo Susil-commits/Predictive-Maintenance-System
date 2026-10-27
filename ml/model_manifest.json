@@ -1,0 +1,8 @@
+{
+  "model_file": "model.pkl",
+  "sha256": "8ea68fbb817301a37b4f8d917e8826238e801fa6e4529241f35ba282f0a01d78",
+  "version": "v18",
+  "created_at": "2026-10-27T14:04:00.125488+00:00",
+  "algorithm": "SHA-256",
+  "integrity_status": "verified_internal_build"
+}
