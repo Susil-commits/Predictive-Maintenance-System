@@ -16,7 +16,7 @@ import glob
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -29,7 +29,6 @@ from .predictor import (
 )
 from backend.security import (
     CanaryTrap,
-    InputSanitizer,
     PIISanitizer,
     PromptShield,
     get_audit_logger,

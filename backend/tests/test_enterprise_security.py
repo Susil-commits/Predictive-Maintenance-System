@@ -18,7 +18,6 @@ from starlette.testclient import TestClient
 
 from backend.main import app
 from backend.security import (
-    AuditEvent,
     AuditLogger,
     CanaryTrap,
     CircuitState,
@@ -27,7 +26,6 @@ from backend.security import (
     ModelIntegrityVerifier,
     PIISanitizer,
     PromptShield,
-    get_audit_logger,
     get_circuit_breaker,
 )
 
