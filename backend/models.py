@@ -1,13 +1,17 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Index, String
 
 from .database import Base
 
 
 class PredictionRecord(Base):
     __tablename__ = "predictions"
+    __table_args__ = (
+        Index("ix_predictions_ts_risk", "timestamp", "failure_risk"),
+        Index("ix_predictions_risk_prob", "failure_risk", "probability"),
+    )
 
     prediction_id = Column(String(64), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     timestamp = Column(DateTime, default=lambda: datetime.now(UTC), index=True)

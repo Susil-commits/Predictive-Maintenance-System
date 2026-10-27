@@ -32,6 +32,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     status,
 )
 from fastapi.openapi.utils import get_openapi
@@ -124,7 +125,14 @@ async def lifespan(app: FastAPI):
     init_db()
     drift_scheduler.start()
     yield
-    drift_scheduler.shutdown()
+    logger.info("Graceful shutdown triggered: draining background schedulers and connection pools...")
+    drift_scheduler.shutdown(wait=False)
+    if engine is not None:
+        try:
+            engine.dispose()
+        except Exception as e:
+            logger.warning(f"Error disposing database engine pool during shutdown: {e}")
+    logger.info("Graceful shutdown complete.")
 
 
 app = FastAPI(
@@ -142,6 +150,7 @@ from backend.security import (
     configure_enterprise_cors,
     get_audit_logger,
     get_failover_manager,
+    get_idempotency_manager,
 )
 
 app.state.limiter = limiter
@@ -154,11 +163,23 @@ app.add_middleware(EnterpriseSecurityHeadersMiddleware)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    """Binds or generates X-Request-ID for end-to-end distributed tracing across logs and responses."""
-    req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    """
+    Binds or generates X-Request-ID and standard W3C traceparent (Item 50: Distributed Tracing)
+    for distributed observability across gateways, services, and APM tools.
+    """
+    traceparent = request.headers.get("traceparent")
+    if traceparent and len(traceparent.split("-")) == 4:
+        parts = traceparent.split("-")
+        req_id = parts[1]
+    else:
+        req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        span_id = uuid.uuid4().hex[:16]
+        traceparent = f"00-{req_id.replace('-', ''):0>32}-{span_id}-01"
+
     set_request_id(req_id)
     response = await call_next(request)
     response.headers["X-Request-ID"] = req_id
+    response.headers["traceparent"] = traceparent
     return response
 
 
@@ -266,6 +287,43 @@ def health_check(request: Request, db: Session = Depends(get_db)):
         "status": "healthy",
         "database": db_status,
         "model_loaded": predictor.model is not None,
+        "model_version": predictor.version,
+    }
+
+
+@app.get("/health/live", tags=["Health"])
+def liveness_probe():
+    """
+    K8s / Container Liveness Probe: Fast, un-throttled heartbeat.
+    Returns 200 OK if process is running and responding.
+    """
+    return {"status": "alive"}
+
+
+@app.get("/health/ready", tags=["Health"])
+def readiness_probe(db: Session = Depends(get_db)):
+    """
+    K8s / Container Readiness Probe: Verifies database connectivity and model artifact readiness.
+    """
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as db_err:
+        logger.error(f"Readiness probe DB failure: {db_err}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connectivity unavailable",
+        )
+
+    if predictor.model is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Machine learning inference model not initialized",
+        )
+
+    return {
+        "status": "ready",
+        "database": "connected",
+        "model_loaded": True,
         "model_version": predictor.version,
     }
 
@@ -515,12 +573,28 @@ def simulate_prescriptive_derate(request: Request, payload: SimulateDerateInput)
 
 
 @app.post("/maintenance/dispatch-work-order", response_model=WorkOrderDispatchOutput, tags=["Maintenance & CMMS"])
-def dispatch_cmms_work_order(payload: WorkOrderDispatchInput):
+def dispatch_cmms_work_order(
+    payload: WorkOrderDispatchInput,
+    response: Response,
+    x_idempotency_key: str | None = Header(None, alias="X-Idempotency-Key"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+):
     """
     Closed-Loop CMMS/ERP Dispatch Integration:
     Compiles and dispatches an ISO-compliant, digitally signed work order payload formatted for
     enterprise maintenance systems (SAP Plant Maintenance / IBM Maximo).
+    Guarantees exact-once execution via Idempotency-Key header support (Item 25).
     """
+    idem_key = x_idempotency_key or idempotency_key
+    idempotency_mgr = get_idempotency_manager()
+
+    if idem_key:
+        cached = idempotency_mgr.get(idem_key)
+        if cached:
+            response.headers["X-Idempotent-Replay"] = "true"
+            response.headers["X-Cache-Lookup"] = "HIT"
+            return cached.data
+
     now = datetime.now(UTC)
     work_order_id = f"WO-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
@@ -559,7 +633,7 @@ def dispatch_cmms_work_order(payload: WorkOrderDispatchInput):
         duration = 4.5
         torque = 45.0
 
-    return {
+    result = {
         "work_order_id": work_order_id,
         "asset_id": payload.asset_id,
         "line_id": payload.line_id,
@@ -577,14 +651,26 @@ def dispatch_cmms_work_order(payload: WorkOrderDispatchInput):
         "estimated_duration_hours": duration,
     }
 
+    if idem_key:
+        idempotency_mgr.set(idem_key, 200, result)
+        response.headers["X-Idempotent-Replay"] = "false"
+        response.headers["X-Cache-Lookup"] = "MISS"
+
+    return result
+
 
 @app.get("/financial/risk-summary", tags=["Financial Analytics"])
 def get_financial_risk_summary(limit: int = Query(50, ge=5, le=500), db: Session = Depends(get_db)):
     """
     Calculates aggregated plant downtime Value-at-Risk ($VaR) and potential cost avoidance
-    across recent production telemetry logs.
+    across recent production telemetry logs using index-optimized column projection (Item 10, 11).
     """
-    records = db.query(PredictionRecord).order_by(desc(PredictionRecord.timestamp)).limit(limit).all()
+    records = (
+        db.query(PredictionRecord.probability, PredictionRecord.failure_risk)
+        .order_by(desc(PredictionRecord.timestamp))
+        .limit(limit)
+        .all()
+    )
     hourly_rate = float(os.getenv("HOURLY_DOWNTIME_COST", "12500.0"))
 
     total_var = 0.0
@@ -592,9 +678,8 @@ def get_financial_risk_summary(limit: int = Query(50, ge=5, le=500), db: Session
     high_risk_count = 0
 
     for r in records:
-        raw_prob = getattr(r, "probability", 0.0)
-        prob = float(raw_prob) if raw_prob is not None else 0.0
-        risk = str(getattr(r, "failure_risk", "LOW") or "LOW")
+        prob = float(r[0] if r[0] is not None else 0.0)
+        risk = str(r[1] or "LOW")
         if risk == "HIGH":
             high_risk_count += 1
         # Estimated 6h MTTR average with $20k repair cost

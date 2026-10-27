@@ -869,3 +869,63 @@ def test_financial_risk_summary_endpoint():
     assert "total_financial_var_usd" in data
     assert "potential_capital_savings_usd" in data
     assert "portfolio_health_status" in data
+
+
+def test_w3c_distributed_tracing():
+    # Test auto-generation of W3C traceparent
+    res_gen = client.get("/health")
+    assert "traceparent" in res_gen.headers
+    assert res_gen.headers["traceparent"].startswith("00-")
+
+    # Test propagation of inbound W3C traceparent
+    inbound_trace = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    res_prop = client.get("/health", headers={"traceparent": inbound_trace})
+    assert res_prop.headers.get("X-Request-ID") == "4bf92f3577b34da6a3ce929d0e0e4736"
+    assert res_prop.headers.get("traceparent") == inbound_trace
+
+
+def test_liveness_and_readiness_probes():
+    res_live = client.get("/health/live")
+    assert res_live.status_code == 200
+    assert res_live.json() == {"status": "alive"}
+
+    res_ready = client.get("/health/ready")
+    assert res_ready.status_code == 200
+    assert res_ready.json()["status"] == "ready"
+    assert res_ready.json()["model_loaded"] is True
+
+
+def test_cmms_work_order_idempotency():
+    idem_key = f"IDEM-TEST-{uuid.uuid4().hex}"
+    payload = {
+        "asset_id": "CNC-SPINDLE-LINE-2",
+        "line_id": "Line 4 - Discrete Assembly",
+        "plant_location": "Plant 1 - Bay C4",
+        "failure_mode": "Thermal / Overstrain",
+        "priority": "HIGH",
+    }
+
+    # Initial execution (MISS)
+    res_1 = client.post(
+        "/maintenance/dispatch-work-order",
+        json=payload,
+        headers={"X-Idempotency-Key": idem_key},
+    )
+    assert res_1.status_code == 200
+    data_1 = res_1.json()
+    assert res_1.headers.get("X-Idempotent-Replay") == "false"
+    assert res_1.headers.get("X-Cache-Lookup") == "MISS"
+
+    # Retried execution with same key (HIT, exact replay)
+    res_2 = client.post(
+        "/maintenance/dispatch-work-order",
+        json=payload,
+        headers={"X-Idempotency-Key": idem_key},
+    )
+    assert res_2.status_code == 200
+    data_2 = res_2.json()
+    assert res_2.headers.get("X-Idempotent-Replay") == "true"
+    assert res_2.headers.get("X-Cache-Lookup") == "HIT"
+    # Must return exact same work_order_id without duplicating CMMS orders
+    assert data_1["work_order_id"] == data_2["work_order_id"]
+    assert data_1["dispatched_at"] == data_2["dispatched_at"]

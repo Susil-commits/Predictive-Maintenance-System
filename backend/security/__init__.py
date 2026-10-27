@@ -34,6 +34,11 @@ from backend.security.model_integrity import (
     KNOWN_PRODUCTION_MODEL_SHA256,
     ModelIntegrityVerifier,
 )
+from backend.security.idempotency import (
+    IdempotencyManager,
+    IdempotencyRecord,
+    get_idempotency_manager,
+)
 
 __all__ = [
     "InputSanitizer",
@@ -52,4 +57,7 @@ __all__ = [
     "configure_enterprise_cors",
     "ModelIntegrityVerifier",
     "KNOWN_PRODUCTION_MODEL_SHA256",
+    "IdempotencyManager",
+    "IdempotencyRecord",
+    "get_idempotency_manager",
 ]

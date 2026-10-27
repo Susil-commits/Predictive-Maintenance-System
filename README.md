@@ -132,6 +132,7 @@ Run test suite: `pytest backend/tests/ -v --cov=backend --cov-report=term-missin
 ## 📖 Deep Documentation & References
 
 - 🎯 **[Boardroom Strategy, Forensic Audit & Agent Plan](docs/BOARDROOM_STRATEGY_AND_AUDIT.md)**: Executive C-suite presentation script, red flag kill-list, Prescriptive Digital Twin specifications, and phased agent execution roadmap.
+- ⚡ **[Distributed Systems & Performance Blueprint (50 Pillars)](docs/DISTRIBUTED_SYSTEMS_AND_PERFORMANCE.md)**: High-scale database transactions, ACID, indexing, distributed caching, idempotency, circuit breakers, CQRS, and W3C distributed tracing.
 - 🛡️ **[Enterprise Security & AI Hardening Manual](docs/ENTERPRISE_SECURITY.md)**: Zero-trust architecture, cryptographic audit hash chains, prompt injection defenses, canary honeytokens, and SOC 2 / ISO 27001 compliance.
 - 🏛️ **[System Architecture Reference](docs/ARCHITECTURE.md)**: Four-tier deep dive, physics formulas, FFT spectral extraction, DB pooling, and canary mechanics.
 - 💼 **[Business Case & Industrial ROI](docs/BUSINESS_CASE.md)**: Worked economic example on downtime reduction, cost-sensitive optimization matrix, and unit economics.
