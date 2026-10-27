@@ -1,6 +1,7 @@
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+reportMissingImports = "warning"
 extraPaths = [
     ".",
     ".venv/Lib/site-packages"

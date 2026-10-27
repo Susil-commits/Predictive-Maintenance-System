@@ -720,8 +720,8 @@ def run_pipeline():
     # Export model to ONNX for cross-platform / edge deployment
     onnx_file = os.path.join(ML_DIR, "model.onnx")
     try:
-        import onnxmltools
-        from onnxmltools.convert.common.data_types import FloatTensorType
+        import onnxmltools  # type: ignore
+        from onnxmltools.convert.common.data_types import FloatTensorType  # type: ignore
 
         booster = xgb.get_booster()
         original_names = booster.feature_names
