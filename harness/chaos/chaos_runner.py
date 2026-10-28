@@ -17,7 +17,10 @@ from harness.chaos.db_resilience_chaos import run_database_resilience_experiment
 os.environ["LOAD_TEST_MODE"] = "1"
 
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    try:
+        getattr(sys.stdout, "reconfigure")(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 class ChaosHarnessRunner:
@@ -58,13 +61,19 @@ def format_chaos_markdown(results: list[dict[str, Any]]) -> str:
         name = r["experiment"]
         dur = f"{r['duration_ms']}ms"
         if "fast_rejection_latency_us" in r:
-            criteria = f"FSM Transition (CLOSED -> OPEN -> HALF_OPEN -> CLOSED); Rejection: {r['fast_rejection_latency_us']}µs"
+            criteria = (
+                f"FSM Transition (CLOSED -> OPEN -> HALF_OPEN -> CLOSED); Rejection: {r['fast_rejection_latency_us']}µs"
+            )
         else:
             criteria = f"Zero 500 crashes during DB loss (Status: {r['phase_2_chaos_resilience_status']})"
         lines.append(f"| **{name}** | {status} | {criteria} | {dur} |")
 
     all_passed = all(r["pass"] for r in results)
-    verdict = "\n**VERDICT**: System survived all injected infrastructure faults with zero request drops or crashes." if all_passed else "\n**VERDICT**: Chaos injection caused system failures."
+    verdict = (
+        "\n**VERDICT**: System survived all injected infrastructure faults with zero request drops or crashes."
+        if all_passed
+        else "\n**VERDICT**: Chaos injection caused system failures."
+    )
     lines.extend([verdict, ""])
     return "\n".join(lines)
 
@@ -81,4 +90,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

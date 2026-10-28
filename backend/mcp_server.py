@@ -16,11 +16,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from .database import SessionLocal
 from .inference_engine import InferenceRuntime, inference_engine
 from .narration_service import orchestrate_predict_and_narrate, rag_store
 from .predictor import predictor
@@ -74,7 +72,11 @@ class PMSMCPServer:
                         "pressure": {"type": "number", "description": "Hydraulic pressure in bar"},
                         "vibration": {"type": "number", "description": "Vibration amplitude in g"},
                         "operating_hours": {"type": "number", "description": "Cumulative operating hours"},
-                        "include_counterfactual": {"type": "boolean", "default": True, "description": "Include minimal-fix intervention targets"},
+                        "include_counterfactual": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Include minimal-fix intervention targets",
+                        },
                     },
                     "required": ["temperature", "rpm", "pressure", "vibration", "operating_hours"],
                 },
@@ -90,8 +92,16 @@ class PMSMCPServer:
                         "pressure": {"type": "number"},
                         "vibration": {"type": "number"},
                         "operating_hours": {"type": "number"},
-                        "derate_rpm_pct": {"type": "number", "default": -15.0, "description": "Percentage spindle speed adjustment"},
-                        "derate_pressure_pct": {"type": "number", "default": -10.0, "description": "Percentage hydraulic pressure adjustment"},
+                        "derate_rpm_pct": {
+                            "type": "number",
+                            "default": -15.0,
+                            "description": "Percentage spindle speed adjustment",
+                        },
+                        "derate_pressure_pct": {
+                            "type": "number",
+                            "default": -10.0,
+                            "description": "Percentage hydraulic pressure adjustment",
+                        },
                     },
                     "required": ["temperature", "rpm", "pressure", "vibration", "operating_hours"],
                 },
@@ -156,7 +166,11 @@ class PMSMCPServer:
                 "description": "Interactive technical guide for diagnosing and remediating high-risk machinery alerts",
                 "arguments": [
                     {"name": "machine_id", "description": "Asset identifier", "required": True},
-                    {"name": "observed_symptoms", "description": "Audible sounds, oil leaks, or visual clues", "required": False},
+                    {
+                        "name": "observed_symptoms",
+                        "description": "Audible sounds, oil leaks, or visual clues",
+                        "required": False,
+                    },
                 ],
             },
             {
@@ -227,12 +241,18 @@ class PMSMCPServer:
         try:
             if name == "predict_equipment_risk":
                 runtime_str = args.get("runtime", "hybrid").lower()
-                rt = InferenceRuntime(runtime_str) if runtime_str in ("onnx", "xgboost", "hybrid") else InferenceRuntime.HYBRID
+                rt = (
+                    InferenceRuntime(runtime_str)
+                    if runtime_str in ("onnx", "xgboost", "hybrid")
+                    else InferenceRuntime.HYBRID
+                )
                 res = inference_engine.predict(args, runtime=rt)
                 text_content = json.dumps(res, indent=2)
 
             elif name == "predict_and_narrate":
-                res = orchestrate_predict_and_narrate(args, include_counterfactual=args.get("include_counterfactual", True))
+                res = orchestrate_predict_and_narrate(
+                    args, include_counterfactual=args.get("include_counterfactual", True)
+                )
                 text_content = json.dumps(res, indent=2)
 
             elif name == "simulate_derate_intervention":
@@ -254,31 +274,62 @@ class PMSMCPServer:
             elif name == "dispatch_work_order":
                 import uuid
                 from datetime import datetime, timezone
+
                 now = datetime.now(timezone.utc)
                 mode = str(args.get("failure_mode", "General")).lower()
                 if "therm" in mode:
                     bom = [
-                        {"part_number": "HEX-PUMP-GASKET-68", "description": "Thermal Heat Exchanger Gasket Set", "qty": "1"},
-                        {"part_number": "OIL-SYNTH-VG68", "description": "ISO VG 68 Synthetic Cooling Lubricant (5L)", "qty": "2"},
+                        {
+                            "part_number": "HEX-PUMP-GASKET-68",
+                            "description": "Thermal Heat Exchanger Gasket Set",
+                            "qty": "1",
+                        },
+                        {
+                            "part_number": "OIL-SYNTH-VG68",
+                            "description": "ISO VG 68 Synthetic Cooling Lubricant (5L)",
+                            "qty": "2",
+                        },
                     ]
                     duration = 3.5
                     torque = 35.0
                 elif "press" in mode or "strain" in mode:
                     bom = [
-                        {"part_number": "HYD-VALVE-PROP-40", "description": "Hydraulic Proportional Relief Valve Cartridge", "qty": "1"},
-                        {"part_number": "SEAL-VITON-ORING-KIT", "description": "High-Pressure Viton Fluorocarbon O-Ring Kit", "qty": "1"},
+                        {
+                            "part_number": "HYD-VALVE-PROP-40",
+                            "description": "Hydraulic Proportional Relief Valve Cartridge",
+                            "qty": "1",
+                        },
+                        {
+                            "part_number": "SEAL-VITON-ORING-KIT",
+                            "description": "High-Pressure Viton Fluorocarbon O-Ring Kit",
+                            "qty": "1",
+                        },
                     ]
                     duration = 6.0
                     torque = 45.0
                 elif "power" in mode or "rpm" in mode:
                     bom = [
-                        {"part_number": "VFD-STATOR-MOD-22KW", "description": "Variable Frequency Inverter Stator Module", "qty": "1"},
-                        {"part_number": "COUPLING-FLEX-ROTOR", "description": "Dynamic Flexible Shaft Coupling", "qty": "1"},
+                        {
+                            "part_number": "VFD-STATOR-MOD-22KW",
+                            "description": "Variable Frequency Inverter Stator Module",
+                            "qty": "1",
+                        },
+                        {
+                            "part_number": "COUPLING-FLEX-ROTOR",
+                            "description": "Dynamic Flexible Shaft Coupling",
+                            "qty": "1",
+                        },
                     ]
                     duration = 5.0
                     torque = 40.0
                 else:
-                    bom = [{"part_number": "SP-GEN-KIT-01", "description": "Standard Inspection & Fastener Kit", "qty": "1"}]
+                    bom = [
+                        {
+                            "part_number": "SP-GEN-KIT-01",
+                            "description": "Standard Inspection & Fastener Kit",
+                            "qty": "1",
+                        }
+                    ]
                     duration = 2.0
                     torque = 30.0
 
@@ -299,6 +350,7 @@ class PMSMCPServer:
 
             elif name == "get_drift_telemetry":
                 from .drift_detector import drift_detector
+
                 res = drift_detector.get_drift_status()
                 text_content = json.dumps(res, indent=2)
 
@@ -360,9 +412,7 @@ class PMSMCPServer:
         return {
             "jsonrpc": "2.0",
             "id": req_id,
-            "result": {
-                "contents": [{"uri": uri, "mimeType": "application/json", "text": content}]
-            },
+            "result": {"contents": [{"uri": uri, "mimeType": "application/json", "text": content}]},
         }
 
     def _get_prompt(self, req_id: Any, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -382,11 +432,7 @@ class PMSMCPServer:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "messages": [
-                        {"role": "user", "content": {"type": "text", "text": instruction}}
-                    ]
-                },
+                "result": {"messages": [{"role": "user", "content": {"type": "text", "text": instruction}}]},
             }
         elif name == "shift_handover_report":
             shift = args.get("shift_id", "Current Shift")
@@ -399,11 +445,7 @@ class PMSMCPServer:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "messages": [
-                        {"role": "user", "content": {"type": "text", "text": instruction}}
-                    ]
-                },
+                "result": {"messages": [{"role": "user", "content": {"type": "text", "text": instruction}}]},
             }
         else:
             return {
@@ -422,7 +464,7 @@ def main():
     # Ensure stdout handles UTF-8
     if hasattr(sys.stdout, "reconfigure"):
         try:
-            sys.stdout.reconfigure(encoding="utf-8")
+            getattr(sys.stdout, "reconfigure")(encoding="utf-8")
         except Exception:
             pass
 

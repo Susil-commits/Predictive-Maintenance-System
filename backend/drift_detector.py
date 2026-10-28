@@ -41,6 +41,18 @@ class DriftDetector:
                 return False
         return False
 
+    def get_drift_status(self, records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Returns baseline reference metadata and overall monitoring status."""
+        if records:
+            return self.evaluate_production_data(records)
+        return {
+            "status": "CONFIGURED" if self.reference_stats else "UNCONFIGURED",
+            "model_version": self.reference_stats.get("model_version", "1.0.0"),
+            "features_monitored": self.FEATURE_NAMES,
+            "baseline_samples": self.reference_stats.get("sample_count", 0),
+            "reference_stats_loaded": bool(self.reference_stats),
+        }
+
     def calculate_feature_psi(self, feature_name: str, current_values: list[float]) -> dict[str, Any]:
         """
         Calculates Population Stability Index (PSI) for a given numeric feature.

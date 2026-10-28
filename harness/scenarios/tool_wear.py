@@ -2,7 +2,6 @@
 Tool Wear Failure (TWF) Scenario: Simulates progressive flank wear and acoustic vibration degradation.
 """
 
-import math
 from datetime import datetime, timezone
 
 from .base import BaseScenario, ScenarioStep
@@ -95,4 +94,3 @@ class ToolWearScenario(BaseScenario):
             )
 
         return steps
-

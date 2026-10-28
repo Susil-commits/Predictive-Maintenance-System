@@ -169,4 +169,3 @@ def test_fastapi_mcp_endpoint():
     assert data["jsonrpc"] == "2.0"
     assert data["id"] == 100
     assert "tools" in data["result"]
-

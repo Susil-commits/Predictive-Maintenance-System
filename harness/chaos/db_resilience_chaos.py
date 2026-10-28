@@ -4,7 +4,7 @@ Verifies that database connection disruptions do not take down the prediction ga
 """
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from starlette.testclient import TestClient
 
@@ -55,4 +55,3 @@ def run_database_resilience_experiment() -> dict[str, Any]:
         "inference_preserved_under_db_loss": prediction_intact,
         "phase_4_post_recovery_status": res3.status_code,
     }
-

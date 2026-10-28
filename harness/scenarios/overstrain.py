@@ -103,4 +103,3 @@ class OverstrainScenario(BaseScenario):
             )
 
         return steps
-

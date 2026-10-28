@@ -412,7 +412,9 @@ def predict_maintenance(
             regime = regime.value
         amb = ctx_dump.get("ambient_temperature")
         delta_str = f", ΔT={input_data.temperature - amb:.1f}°C" if amb is not None else ""
-        rate_str = f", dT/dt={input_data.temp_rate_of_change:+.2f}°C/min" if input_data.temp_rate_of_change is not None else ""
+        rate_str = (
+            f", dT/dt={input_data.temp_rate_of_change:+.2f}°C/min" if input_data.temp_rate_of_change is not None else ""
+        )
         faults = ctx_dump.get("recent_fault_count_24h", 0)
         fault_str = f", {faults} prior alerts" if faults else ""
         pred_result["operational_context_summary"] = f"{m_id} ({m_type}) in {regime}{delta_str}{rate_str}{fault_str}"

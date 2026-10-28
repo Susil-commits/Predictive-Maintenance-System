@@ -11,7 +11,6 @@ from starlette.testclient import TestClient
 
 from backend.main import app
 from backend.narration_service import llm_client
-from backend.schemas import MachineContext, OperationalRegime, PredictionInput
 
 client = TestClient(app)
 
@@ -127,4 +126,3 @@ def test_llm_prompt_incorporates_context_envelope():
     assert "Thermal Gradient (dT/dt): +2.10°C/min" in prompt
     assert "Vibration Crest Factor: 4.50" in prompt
     assert "3 prior alerts" in prompt
-

@@ -100,4 +100,3 @@ class ThermalRunawayScenario(BaseScenario):
             )
 
         return steps
-

@@ -60,4 +60,3 @@ def run_circuit_breaker_chaos_experiment() -> dict[str, Any]:
         "phase_4_half_open_probe": p4_pass and half_open_pass,
         "phase_5_healed_closed": p5_pass,
     }
-

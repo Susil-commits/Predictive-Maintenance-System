@@ -107,4 +107,3 @@ class SensorGlitchScenario(BaseScenario):
             )
 
         return steps
-

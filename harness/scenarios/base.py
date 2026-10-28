@@ -3,8 +3,7 @@ Base Scenario Engine for PMS Degradation Simulation Harness.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -28,8 +27,8 @@ class BaseScenario(ABC):
 
     def __init__(
         self,
-        name: str,
-        failure_mode: str,
+        name: str = "Generic Scenario",
+        failure_mode: str = "General Anomaly",
         total_steps: int = 50,
         step_interval_seconds: float = 1.0,
         machine_id: str = "SIM-CNC-001",
@@ -90,9 +89,7 @@ class BaseScenario(ABC):
                     pass
 
         detected = first_detection_step is not None
-        root_cause_accuracy = (
-            (correct_root_cause_hits / detected_failure_count) if detected_failure_count > 0 else 0.0
-        )
+        root_cause_accuracy = (correct_root_cause_hits / detected_failure_count) if detected_failure_count > 0 else 0.0
 
         return {
             "scenario": self.name,
@@ -108,4 +105,3 @@ class BaseScenario(ABC):
             "min_probability": min(probabilities) if probabilities else 0.0,
             "pass": detected and (false_alarms == 0),
         }
-

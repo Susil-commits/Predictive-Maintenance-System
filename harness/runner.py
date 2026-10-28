@@ -6,7 +6,6 @@ benchmarks root-cause diagnostics, and produces audit-ready verification reports
 """
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -18,7 +17,7 @@ os.environ["LOAD_TEST_MODE"] = "1"
 # Ensure stdout handles UTF-8 / Windows console gracefully
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        getattr(sys.stdout, "reconfigure")(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -123,7 +122,11 @@ def format_markdown_report(summaries: list[dict[str, Any]]) -> str:
         )
 
     all_passed = all(s["pass"] for s in summaries)
-    verdict = "**VERDICT**: All degradation scenarios successfully detected with zero false alarms." if all_passed else "**VERDICT**: Some failure scenarios degraded or failed detection gates."
+    verdict = (
+        "**VERDICT**: All degradation scenarios successfully detected with zero false alarms."
+        if all_passed
+        else "**VERDICT**: Some failure scenarios degraded or failed detection gates."
+    )
     lines.extend(["", verdict, ""])
     return "\n".join(lines)
 
@@ -173,4 +176,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

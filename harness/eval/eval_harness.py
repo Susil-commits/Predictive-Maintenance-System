@@ -19,13 +19,15 @@ from typing import Any
 from starlette.testclient import TestClient
 
 from backend.main import app
-from backend.security import CanaryTrap, PromptShield
 
 # Ensure unthrottled execution for eval harness
 os.environ["LOAD_TEST_MODE"] = "1"
 
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    try:
+        getattr(sys.stdout, "reconfigure")(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 GOLDEN_CASES_FILE = os.path.join(os.path.dirname(__file__), "golden_cases.json")
 
@@ -164,7 +166,11 @@ def format_eval_markdown(results: list[dict[str, Any]]) -> str:
         lines.append(f"| **{r['id']}** | {status} | {risk} | {cite} | {g_score} | {canary} | {lat} |")
 
     all_passed = all(r["pass"] for r in results)
-    verdict = "\n**VERDICT**: All golden incident cases passed safety, citation grounding, and canary security checks." if all_passed else "\n**VERDICT**: Some evaluation cases failed accuracy or safety gates."
+    verdict = (
+        "\n**VERDICT**: All golden incident cases passed safety, citation grounding, and canary security checks."
+        if all_passed
+        else "\n**VERDICT**: Some evaluation cases failed accuracy or safety gates."
+    )
     lines.extend([verdict, ""])
     return "\n".join(lines)
 

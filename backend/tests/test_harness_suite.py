@@ -71,4 +71,3 @@ def test_chaos_database_resilience():
     """Chaos Harness: Verifies that DB connection failure does not crash the prediction API."""
     result = run_database_resilience_experiment()
     assert result["pass"] is True
-

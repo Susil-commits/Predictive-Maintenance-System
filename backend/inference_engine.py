@@ -14,16 +14,12 @@ import enum
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import onnxruntime as ort
 
 from .predictor import (
-    FEATURE_ORDER,
-    MODEL_PATH,
-    calibrated_model,
-    generate_root_cause_guidance,
     predictor,
 )
 
@@ -69,7 +65,7 @@ class InferenceEngine:
             logger.error(f"Failed to initialize ONNX Runtime session: {e}")
             self.onnx_session = None
 
-    def predict_onnx_fast(self, features_array: np.ndarray) -> Tuple[int, float]:
+    def predict_onnx_fast(self, features_array: Any) -> Tuple[int, float]:
         """
         Executes raw microsecond ONNX inference.
         Returns: (predicted_class, positive_class_probability).
@@ -77,8 +73,8 @@ class InferenceEngine:
         if self.onnx_session is None:
             raise RuntimeError("ONNX Runtime is not available.")
 
-        x = features_array.astype(np.float32)
-        outputs = self.onnx_session.run(None, {self.input_name: x})
+        x = np.asarray(features_array, dtype=np.float32)
+        outputs: Any = self.onnx_session.run(None, {self.input_name: x})
         label = int(outputs[0][0])
         # Output probabilities tensor: shape (1, 2)
         prob = float(outputs[1][0][1])
@@ -101,7 +97,7 @@ class InferenceEngine:
 
         # Step 1: Feature engineering
         features_df = predictor.engineer_features(input_dict)
-        features_array = features_df[predictor.feature_names].values
+        features_array = np.asarray(features_df[predictor.feature_names].values, dtype=np.float32)
 
         if runtime == InferenceRuntime.ONNX and self.onnx_session is not None:
             label, prob = self.predict_onnx_fast(features_array)
@@ -116,7 +112,9 @@ class InferenceEngine:
                 "runtime": "onnx",
                 "inference_time_ms": round(duration_ms, 4),
                 "confidence": "HIGH" if (prob > 0.6 or prob < 0.2) else "LOW",
-                "recommendation": "🔴 HIGH RISK — Schedule maintenance" if failure_risk == "HIGH" else "✓ Normal operation",
+                "recommendation": (
+                    "🔴 HIGH RISK — Schedule maintenance" if failure_risk == "HIGH" else "✓ Normal operation"
+                ),
                 "contributing_factors": [],
                 "shap_values": {},
                 "top_risk_factor": "unspecified (onnx-fast)",
@@ -208,4 +206,3 @@ class InferenceEngine:
 
 # Global singleton instance
 inference_engine = InferenceEngine()
-
