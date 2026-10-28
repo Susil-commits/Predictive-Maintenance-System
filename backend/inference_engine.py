@@ -14,10 +14,14 @@ import enum
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
-import onnxruntime as ort
+
+try:
+    import onnxruntime as ort
+except ImportError:
+    ort = None  # type: ignore
 
 from .predictor import (
     predictor,
@@ -41,11 +45,16 @@ class InferenceEngine:
 
     def __init__(self, onnx_model_path: str = ONNX_PATH):
         self.onnx_path = onnx_model_path
-        self.onnx_session: Optional[ort.InferenceSession] = None
+        self.onnx_session: Any = None
+        self.input_name: str = ""
         self._init_onnx_session()
 
     def _init_onnx_session(self) -> None:
         """Initializes thread-safe ONNX Runtime session with optimized execution providers."""
+        if ort is None:
+            logger.warning("onnxruntime is not installed; ONNX runtime unavailable.")
+            return
+
         if not os.path.exists(self.onnx_path):
             logger.warning(f"ONNX model artifact not found at {self.onnx_path}; ONNX runtime unavailable.")
             return
@@ -54,12 +63,13 @@ class InferenceEngine:
             sess_options = ort.SessionOptions()
             sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             sess_options.intra_op_num_threads = int(os.getenv("ORT_NUM_THREADS", "2"))
-            self.onnx_session = ort.InferenceSession(
+            session = ort.InferenceSession(
                 self.onnx_path,
                 sess_options=sess_options,
                 providers=["CPUExecutionProvider"],
             )
-            self.input_name = self.onnx_session.get_inputs()[0].name
+            self.input_name = session.get_inputs()[0].name
+            self.onnx_session = session
             logger.info(f"ONNX Runtime initialized successfully from {self.onnx_path} (C++ ThreadPool active)")
         except Exception as e:
             logger.error(f"Failed to initialize ONNX Runtime session: {e}")

@@ -34,11 +34,11 @@ jobs:
 
       - name: Lint with Ruff
         run: |
-          ruff check backend ml
+          ruff check backend ml harness
 
       - name: Verify Code Formatting with Black
         run: |
-          black --check backend ml
+          black --check backend ml harness
 
       - name: Static Type Checking with Pyright
         run: |

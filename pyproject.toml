@@ -1,10 +1,7 @@
 [tool.pyright]
-venvPath = "."
-venv = ".venv"
-reportMissingImports = "warning"
+reportMissingImports = "none"
 extraPaths = [
     ".",
-    ".venv/Lib/site-packages"
 ]
 
 [tool.pyrefly]
