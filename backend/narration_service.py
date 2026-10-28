@@ -250,9 +250,13 @@ class LLMNarrationClient:
         prediction: dict[str, Any],
         retrieved_chunks: list[dict[str, Any]],
         counterfactual: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
+        temp_rate_of_change: float | None = None,
+        vibration_crest_factor: float | None = None,
     ) -> str:
         """
-        Builds a narrow, strictly grounded prompt using only pre-computed structured metrics.
+        Builds a narrow, strictly grounded prompt using pre-computed structured metrics
+        and optional industrial operational context envelopes.
         Never passes raw unvalidated telemetry.
         """
         prob_pct = round(float(prediction.get("probability", 0.0)) * 100, 1)
@@ -279,6 +283,33 @@ class LLMNarrationClient:
                 f"({reduct}% reduction) to lower risk to {risk_after}%."
             )
 
+        context_env_lines = []
+        if context:
+            m_id = context.get("machine_id", "Asset")
+            m_type = context.get("machine_type", "Standard")
+            regime = context.get("regime", "steady_state")
+            if hasattr(regime, "value"):
+                regime = regime.value
+            context_env_lines.append(f"- Equipment: {m_id} ({m_type}) | Operational Regime: {regime}")
+            amb_temp = context.get("ambient_temperature")
+            if amb_temp is not None:
+                context_env_lines.append(f"- Ambient Floor Temperature: {amb_temp}°C")
+            faults = context.get("recent_fault_count_24h")
+            if faults:
+                context_env_lines.append(f"- Anomaly/Warning History (24h): {faults} prior alerts")
+            hours_svc = context.get("hours_since_last_service")
+            if hours_svc is not None:
+                context_env_lines.append(f"- Cumulative Service Window: {hours_svc:.1f} hours since overhaul")
+
+        if temp_rate_of_change is not None:
+            context_env_lines.append(f"- Thermal Gradient (dT/dt): {temp_rate_of_change:+.2f}°C/min")
+        if vibration_crest_factor is not None:
+            context_env_lines.append(f"- Vibration Crest Factor: {vibration_crest_factor:.2f}")
+
+        context_env_block = ""
+        if context_env_lines:
+            context_env_block = "\nOPERATIONAL EQUIPMENT & TEMPORAL CONTEXT:\n" + "\n".join(context_env_lines) + "\n"
+
         prompt = f"""You are a technical maintenance advisor for an industrial machinery reliability team.
 Write a concise, authoritative, and fluent 2 to 3 sentence operational briefing for plant technicians.
 
@@ -286,7 +317,7 @@ GIVEN STRUCTURED PREDICTION METRICS:
 - Failure Risk Level: {risk_level}
 - Failure Probability: {prob_pct}%
 - Dominant Risk Driver: {top_factor} (contributes {contrib_pct}% of total risk){cf_info}
-
+{context_env_block}
 OFFICIAL MAINTENANCE STANDARD OPERATING PROCEDURE (CONTEXT):
 {context_text}
 
@@ -304,6 +335,9 @@ STRICT INSTRUCTIONS:
         prediction: dict[str, Any],
         retrieved_chunks: list[dict[str, Any]],
         counterfactual: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
+        temp_rate_of_change: float | None = None,
+        vibration_crest_factor: float | None = None,
     ) -> str:
         """
         Executes the LLM narration call with robust error handling and enterprise AI guardrails:
@@ -314,7 +348,14 @@ STRICT INSTRUCTIONS:
         5. Logs auditable event to immutable audit trail.
         """
         fallback_text = prediction.get("suggested_action") or "Telemetry indicates nominal baseline operation."
-        base_prompt = self.build_prompt(prediction, retrieved_chunks, counterfactual)
+        base_prompt = self.build_prompt(
+            prediction=prediction,
+            retrieved_chunks=retrieved_chunks,
+            counterfactual=counterfactual,
+            context=context,
+            temp_rate_of_change=temp_rate_of_change,
+            vibration_crest_factor=vibration_crest_factor,
+        )
 
         # 1. Check prompt against injection attacks
         is_attack, reason = PromptShield.check_prompt(base_prompt)
@@ -492,26 +533,53 @@ def orchestrate_predict_and_narrate(
         except Exception as cf_err:
             logger.warning(f"Counterfactual calculation failed in orchestration: {cf_err}")
 
-    # Step 3: RAG Retrieval keyed on top_risk_factor
+    # Step 3: Extract and synthesize operational context
+    context_data = input_dict.get("context")
+    temp_rate = input_dict.get("temp_rate_of_change")
+    vib_crest = input_dict.get("vibration_crest_factor")
+
+    context_summary = None
+    if context_data:
+        m_id = context_data.get("machine_id", "Asset")
+        m_type = context_data.get("machine_type", "Standard")
+        regime = context_data.get("regime", "steady_state")
+        if hasattr(regime, "value"):
+            regime = regime.value
+        amb = context_data.get("ambient_temperature")
+        proc_temp = input_dict.get("temperature")
+        delta_str = f", ΔT={proc_temp - amb:.1f}°C" if amb is not None and proc_temp is not None else ""
+        rate_str = f", dT/dt={temp_rate:+.2f}°C/min" if temp_rate is not None else ""
+        faults = context_data.get("recent_fault_count_24h", 0)
+        fault_str = f", {faults} prior alerts" if faults else ""
+        context_summary = f"{m_id} ({m_type}) in {regime}{delta_str}{rate_str}{fault_str}"
+
+    # Step 4: RAG Retrieval keyed on top_risk_factor
     top_risk = pred_result.get("top_risk_factor") or "vibration"
     retrieved_sources = rag_store.retrieve(query=top_risk, n_results=2)
 
-    # Step 4: LLM Narration synthesis (with silent fallback to canned suggested_action)
+    # Step 5: LLM Narration synthesis (with silent fallback to canned suggested_action)
     try:
         narrative = llm_client.generate_narrative(
             prediction=pred_result,
             retrieved_chunks=retrieved_sources,
             counterfactual=cf_result,
+            context=context_data,
+            temp_rate_of_change=temp_rate,
+            vibration_crest_factor=vib_crest,
         )
     except Exception as llm_err:
         logger.warning(f"LLM narration call failed ({llm_err}); silently falling back to canned guidance.")
         narrative = pred_result.get("suggested_action") or "Telemetry indicates nominal baseline operation."
 
-    # Step 5: Assemble output payload
+    # Step 6: Assemble output payload
     output = dict(pred_result)
     output["narrative"] = narrative
     output["retrieved_sources"] = retrieved_sources
     if cf_result:
         output["counterfactual"] = cf_result
+    if context_data:
+        output["context"] = context_data
+    if context_summary:
+        output["operational_context_summary"] = context_summary
 
     return output

@@ -338,20 +338,57 @@ def get_model_info():
     return metadata
 
 
+@app.get("/inference/benchmark", tags=["Inference Engine"])
+def get_inference_benchmark(iterations: int = Query(100, ge=10, le=1000)):
+    """
+    Evaluates microsecond latency, jitter, and throughput between C++ ONNX Runtime and Python XGBoost.
+    """
+    from .inference_engine import inference_engine
+
+    return inference_engine.run_benchmark(n_iterations=iterations)
+
+
+@app.post("/mcp", tags=["Model Context Protocol (MCP)"])
+def handle_mcp_jsonrpc(request_payload: dict[str, Any] = Body(...)):
+    """
+    Model Context Protocol (MCP) JSON-RPC 2.0 Endpoint.
+    Enables external AI agents (Antigravity, Claude Desktop, Cursor) to discover tools,
+    read contextual resources (SOPs, model manifest), and execute maintenance workflows.
+    """
+    from .mcp_server import mcp_server
+
+    return mcp_server.handle_request(request_payload)
+
+
 @app.post("/predict", response_model=PredictionOutput, tags=["Prediction"])
 @limiter.limit(predict_rate_limit)
-def predict_maintenance(request: Request, input_data: PredictionInput, db: Session = Depends(get_db)):
+def predict_maintenance(
+    request: Request,
+    input_data: PredictionInput,
+    runtime: str = Query("xgboost", description="Inference runtime: 'xgboost', 'onnx', or 'hybrid'"),
+    db: Session = Depends(get_db),
+):
     """
     Given vehicle/equipment telemetry, predicts failure risk, probability,
     and computes SHAP-based feature contributions. Logs result to PostgreSQL/database.
     Applies the decision threshold tuned via Precision-Recall curve.
-    Evaluates dual-model shadow prediction if canary rollout is active.
+    Supports multi-runtime execution:
+    - 'xgboost': Full ensemble with SHAP attribution.
+    - 'onnx': High-speed edge execution (~20µs).
+    - 'hybrid': ONNX fast-path filter with on-demand SHAP attribution.
     """
     t_start = time.perf_counter()
     # Active decision threshold tuned via Precision-Recall curve (defaulting to 0.50 if not specified)
     threshold = getattr(predictor, "threshold", 0.50)
     try:
-        pred_result = predictor.predict(input_data.model_dump(), threshold=threshold)
+        from .inference_engine import InferenceRuntime, inference_engine
+
+        rt = (
+            InferenceRuntime(runtime.lower())
+            if runtime.lower() in ("onnx", "xgboost", "hybrid")
+            else InferenceRuntime.XGBOOST
+        )
+        pred_result = inference_engine.predict(input_data.model_dump(), runtime=rt, threshold=threshold)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -363,6 +400,22 @@ def predict_maintenance(request: Request, input_data: PredictionInput, db: Sessi
     pred_result["failure_risk"] = failure_risk
     pred_result["maintenance_required"] = pred_result["probability"] >= threshold
     pred_result["decision_threshold"] = threshold
+
+    # Attach operational context envelope if provided
+    if input_data.context:
+        ctx_dump = input_data.context.model_dump()
+        pred_result["context"] = ctx_dump
+        m_id = ctx_dump.get("machine_id", "Asset")
+        m_type = ctx_dump.get("machine_type", "Standard")
+        regime = ctx_dump.get("regime", "steady_state")
+        if hasattr(regime, "value"):
+            regime = regime.value
+        amb = ctx_dump.get("ambient_temperature")
+        delta_str = f", ΔT={input_data.temperature - amb:.1f}°C" if amb is not None else ""
+        rate_str = f", dT/dt={input_data.temp_rate_of_change:+.2f}°C/min" if input_data.temp_rate_of_change is not None else ""
+        faults = ctx_dump.get("recent_fault_count_24h", 0)
+        fault_str = f", {faults} prior alerts" if faults else ""
+        pred_result["operational_context_summary"] = f"{m_id} ({m_type}) in {regime}{delta_str}{rate_str}{fault_str}"
 
     # Update Prometheus counters and backward-compatible METRICS dict
     METRICS["total_predictions"] += 1

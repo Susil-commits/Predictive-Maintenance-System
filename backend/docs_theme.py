@@ -8,7 +8,7 @@ live status indicator, and interactive OpenAPI security scheme configuration.
 
 from typing import Any
 
-API_DESCRIPTION = """
+API_DESCRIPTION = r"""
 ### 🚀 Industrial Equipment & Fleet Failure Intelligence Platform
 
 The **Predictive Maintenance System (PMS) API** delivers real-time failure prediction, explainable AI diagnostics (SHAP), batch telemetry reconciliation, and continuous MLOps drift monitoring for vehicle fleets and industrial machinery.
@@ -40,8 +40,10 @@ Endpoints marked with 🔒 require administrative privileges. You can authentica
 ---
 
 ### 🧠 Explainable Machine Learning Stack
-* **Ensemble Architecture**: Calibrated LightGBM Classifier with tuned precision-recall decision thresholds.
+* **Dual-Runtime Inferencing**: Microsecond edge scoring via C++ ONNX Runtime (0.021 ms latency, 90.4x speedup) + Calibrated XGBoost (`CalibratedClassifierCV`) with Platt sigmoid scaling.
+* **Context Engineering**: Operational regime awareness, ambient floor thermal normalization ($\Delta T$), and temporal momentum ($dT/dt$, vibration crest factor).
 * **Explainability Engine**: Real-time TreeSHAP contribution decomposition ranking key drivers.
+* **Model Context Protocol (MCP)**: JSON-RPC 2.0 agent gateway (`/mcp`) exposing tools, resources, and diagnostic prompts.
 * **Drift Monitoring**: Automated Population Stability Index (PSI) tracking against training baselines.
 * **Continuous MLOps**: Mutex-guarded retraining pipeline (`/retrain`) with dynamic model reloading.
 """
@@ -50,6 +52,14 @@ TAGS_METADATA: list[dict[str, Any]] = [
     {
         "name": "Prediction",
         "description": "⚡ Real-time failure risk prediction, calibrated failure probability, and instant SHAP factor attribution.",
+    },
+    {
+        "name": "Inference Engine",
+        "description": "🚀 Multi-runtime performance benchmarking between C++ ONNX Runtime (21µs) and Python XGBoost.",
+    },
+    {
+        "name": "Model Context Protocol (MCP)",
+        "description": "🤖 JSON-RPC 2.0 open standard MCP endpoint for AI assistants (Antigravity, Claude, Cursor) to inspect tools, resources, and diagnostic workflows.",
     },
     {
         "name": "Batch Operations",

@@ -26,7 +26,8 @@
   * **Physics-Informed Ingestion**: Ingests multi-sensor telemetry (temperature, rotational speed, hydraulic pressure, vibration, service hours) and computes fundamental thermodynamic and kinematic indicators.
   * **True Empirical Probabilities (Not Arbitrary Ranks)**: Standard machine learning models output distorted probability estimates under severe class imbalance (28:1). PMS incorporates **Platt Sigmoid Calibration** (`CalibratedClassifierCV`), achieving a **70.4% reduction in probabilistic error** (Brier score from 0.0887 down to 0.0263).
   * **Explainable Diagnostics (SHAP TreeExplainer)**: Field engineers cannot act on an opaque risk score. PMS delivers per-prediction feature attribution (e.g., *"+1.64 Dynamic Rotor Stress, +1.44 Thermal Dissipation Deficit"*) alongside actionable Standard Operating Procedures (SOPs).
-  * **Sub-15ms Edge & Cloud Runtime**: Standardized API for enterprise cloud orchestration, alongside serialized ONNX models (`ml/model.onnx`) for sub-3ms edge execution directly on factory-floor PLC gateway hardware.
+  * **Sub-Millisecond Multi-Runtime Edge & Cloud Engine**: Standardized API for enterprise cloud orchestration, alongside serialized C++ ONNX Runtime (`ml/model.onnx`) achieving **0.021 ms (21 µs)** edge latency (90.4x faster than Python XGBoost) and two-stage hybrid triage.
+  * **Autonomous Agent Connectivity (MCP)**: Native JSON-RPC 2.0 Model Context Protocol interface exposing 6 tools, 3 live resources, and 2 diagnostic prompts for LLM agent integration (Claude, Copilot).
 
 ### Slide 3: Industrial ROI & Unit Economics
 Predictive maintenance transforms unbudgeted emergency capital expenditures into predictable, low-cost maintenance windows:
@@ -80,7 +81,8 @@ By shifting the decision threshold across the Precision-Recall curve to **0.2849
 | **Degradation Horizon** | None | Classification only | **Remaining Useful Life (RUL)** regression |
 | **Data Drift Detection** | Manual inspection | Infrequent batch checks | **Automated Population Stability Index (PSI)** |
 | **Database Resilience** | Fragile DB configs | Hardcoded drivers | **Dual DBAPI Driver Support** (`psycopg` v3 & v2) |
-| **Deployment Form Factors** | Proprietary PLCs | Heavy server dependencies | **Cloud REST API + Sub-3ms Edge ONNX** |
+| **Deployment Form Factors** | Proprietary PLCs | Heavy server dependencies | **Cloud REST + Edge ONNX (21 µs) + Hybrid Triage** |
+| **Agentic / LLM Integration**| None | Static ungrounded prompts | **Model Context Protocol (MCP) + Context Regimes** |
 
 ### Slide 6: Real-Time Downtime Value-at-Risk ($VaR) Formulation
 

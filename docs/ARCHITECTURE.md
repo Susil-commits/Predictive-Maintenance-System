@@ -161,3 +161,85 @@ As specified in [`docs/BOARDROOM_STRATEGY_AND_AUDIT.md`](BOARDROOM_STRATEGY_AND_
 ### E. Cryptographic Model Manifest Verification
 - Replaces static checksum constants with dynamically generated, cryptographically signed model manifests (`model_manifest.json.sig`), eliminating retraining crash vulnerabilities and securing the AI supply chain.
 
+---
+
+## 6. Context Engineering Architecture
+
+### A. Motivation & Industrial Problem Statement
+Raw telemetry frames (`temperature`, `rpm`, `pressure`, `vibration`, `operating_hours`) are context-blind. A temperature reading of 90°C during an idle run-up is a severe thermal anomaly, whereas the same reading under peak heavy milling in a 35°C ambient plant bay is nominal. Context Engineering bridges physical operational state with AI reasoning:
+
+1. **Operational Regime Normalization**:
+   - Categorizes telemetry by machine state: `idle`, `warmup`, `steady_state_light`, `steady_state_heavy`, `shutdown`.
+   - Computes thermal deficit against ambient floor sensors: $\Delta T = T_{\text{process}} - T_{\text{ambient}}$.
+2. **Temporal Momentum Gradients**:
+   - Ingests first-order thermal gradient ($dT/dt$ in °C/min) to distinguish acute cooling failure from thermal equilibrium.
+   - Computes vibration crest factors ($\text{Peak}/\text{RMS}$) to capture transient impact spalling.
+3. **Structured Context Grounding**:
+   - Synthesizes machine ID, equipment class, 24h prior alert history, and counterfactual intervention targets (`find_minimal_fix`) into the prompt payload before RAG SOP assembly.
+
+---
+
+## 7. High-Performance Multi-Runtime Inferencing (`backend/inference_engine.py`)
+
+### A. Architectural Motivation
+Industrial IoT streams generate telemetry at 100 Hz to 1 kHz per machine. Standard Python/Scikit-Learn/XGBoost inference incurs ~1.9 ms latency and GIL contention. PMS introduces a multi-runtime dispatcher:
+
+```
+[Inference Request]
+        │
+        ├──► ONNX Runtime (C++) ──► 0.021 ms / prediction (90.4x faster | ~47,600 req/sec)
+        │
+        ├──► Calibrated XGBoost ──► 1.909 ms / prediction (Platt Scaling + SHAP TreeExplainer)
+        │
+        └──► Hybrid Dispatcher  ──► Triage filter via ONNX; executes SHAP only when risk is elevated
+```
+
+### B. Empirical Benchmark Results
+- **ONNX Runtime (C++ Execution Provider)**: **0.021 ms** (21 µs) mean latency; throughput: **~47,600 req/sec** per CPU core.
+- **Calibrated XGBoost (Python)**: **1.909 ms** mean latency; throughput: **~520 req/sec**.
+- **Speedup Factor**: **90.4x faster**.
+- **Execution Routing**: Configurable via `runtime` parameter (`POST /predict?runtime=onnx|xgboost|hybrid`) or `X-Inference-Runtime` header.
+
+---
+
+## 8. Harness Engineering Suite (`harness/`)
+
+### A. Architectural Purpose
+Physical industrial machinery cannot be deliberately destroyed to test software pipelines. The Harness Engineering Suite provides automated, zero-hardware verification across three specialized harnesses:
+
+1. **Scenario & Degradation Generator (`harness/scenarios/`)**:
+   - Models physical failure trajectories:
+     - **Thermal Runaway (HDF)**: Coolant pump blockage, exponential heat rise ($T > 95^\circ\text{C}$).
+     - **Overstrain (OSF)**: Workpiece inclusion, hydraulic pressure spike ($P > 38\text{ bar}$).
+     - **Tool Wear (TWF)**: Flank wear degradation ($H > 4800\text{h}$, $V > 0.65\text{g}$).
+     - **Sensor Glitches**: Transducer EMI spikes and brownout recovery.
+   - *Outcome*: 100% of physical failure modes detected across 125 total steps with zero false alarms.
+2. **AI & RAG Evaluation Harness (`harness/eval/`)**:
+   - Evaluates LLM narration groundedness ($G_{\text{score}}$: 80%–100%), citation recall, and prompt-injection defense against a 5-case golden incident benchmark.
+   - Asserts zero honeytoken leakage from `CanaryTrap`.
+3. **Chaos & Resilience Harness (`harness/chaos/`)**:
+   - **Circuit Breaker FSM**: Injects synthetic LLM outages; verifies `CLOSED -> OPEN -> HALF_OPEN -> CLOSED` transitions with **3.6 µs fast-rejection latency**.
+   - **Database Connection Severing**: Verifies that database commit crashes are rolled back safely and return HTTP 200 without gateway downtime.
+
+---
+
+## 9. Model Context Protocol (MCP) Server (`backend/mcp_server.py`)
+
+PMS implements the open **Model Context Protocol (MCP)** specification (JSON-RPC 2.0), exposing PMS primitives to external AI agents (Antigravity, Claude Desktop, Cursor):
+
+- **Transports**: Standard I/O (`python -m backend.mcp_server`) and HTTP gateway (`POST /mcp`).
+- **MCP Tools**:
+  - `predict_equipment_risk`: Runs failure prediction with runtime selection (`onnx`, `xgboost`, `hybrid`).
+  - `predict_and_narrate`: Context-grounded RAG narration with auditable SOP chunks.
+  - `simulate_derate_intervention`: Prescribes mechanical de-rating to lower failure probability and extend RUL.
+  - `dispatch_work_order`: Automatically generates an ISO-compliant work order with BOM spare parts and safety interlocks.
+  - `get_drift_telemetry`: Checks Population Stability Index (PSI) drift metrics.
+  - `run_inference_benchmark`: Benchmarks C++ ONNX vs Python XGBoost.
+- **MCP Resources**:
+  - `pms://system/health`: System health and model status.
+  - `pms://models/manifest`: Trained model metrics, hyperparameters, and ROC-AUC.
+  - `pms://knowledge_base/sop_index`: RAG knowledge base document catalog.
+- **MCP Prompts**:
+  - `diagnose_machine_anomaly`: Guided step-by-step diagnostic workflow for technicians.
+  - `shift_handover_report`: Plant manager reliability summary.
+

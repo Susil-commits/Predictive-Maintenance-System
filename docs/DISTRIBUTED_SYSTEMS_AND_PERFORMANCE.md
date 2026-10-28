@@ -288,3 +288,35 @@ PREDICTIVE MAINTENANCE SYSTEM (PMS) ENTERPRISE DISTRIBUTED SYSTEMS ARCHITECTURE
 - **PMS Implementation** in [`backend/main.py:request_id_middleware`](file:///c:/Users/nayak/OneDrive/Desktop/PMS/backend/main.py):
   - Parses and propagates standard W3C `traceparent` headers (`00-{trace_id}-{span_id}-01`).
   - Correlates telemetry from edge gateways through FastAPI middleware, database queries, and external CMMS webhooks into end-to-end distributed trace spans in Datadog, Jaeger, or OpenTelemetry.
+
+---
+
+## Pillar XI: Edge Acceleration, Agentic Protocols & Harness Engineering
+
+### 51. Microsecond Edge Inference (ONNX C++ Execution Provider)
+- **Problem Statement**: Edge PLCs, CNC controllers, and high-frequency IoT streaming (100 Hz+) cannot tolerate Python interpreter overhead and 2 ms inference latency.
+- **PMS Implementation**: In [`backend/inference_engine.py`](file:///c:/Users/nayak/OneDrive/Desktop/PMS/backend/inference_engine.py):
+  - Integrated `onnxruntime` with `CPUExecutionProvider` and intra-op thread pooling.
+  - Benchmarked Performance: **0.021 ms (21 µs) mean latency** vs. **1.909 ms** for standard Python XGBoost (**90.4x speedup**, **~47,600 req/sec** per core).
+  - Two-Stage Hybrid Routing: Executes ONNX microsecond triage; triggers expensive Python SHAP TreeExplainer only when probability breaches the decision threshold (saving 98% of compute on nominal factory streams).
+
+### 52. Model Context Protocol (MCP) Standard Interface
+- **Problem Statement**: External autonomous LLM agents (Antigravity, Claude Desktop, Cursor) need standardized discovery, contextual grounding, and tool execution without custom API glue.
+- **PMS Implementation**: In [`backend/mcp_server.py`](file:///c:/Users/nayak/OneDrive/Desktop/PMS/backend/mcp_server.py):
+  - Compliant JSON-RPC 2.0 protocol supporting dual transports: Standard I/O (`stdio`) and HTTP gateway (`POST /mcp`).
+  - Exposes 6 Tools (`predict_equipment_risk`, `predict_and_narrate`, `simulate_derate_intervention`, `dispatch_work_order`, `get_drift_telemetry`, `run_inference_benchmark`).
+  - Exposes 3 Resources (`pms://system/health`, `pms://models/manifest`, `pms://knowledge_base/sop_index`).
+  - Exposes 2 Prompts (`diagnose_machine_anomaly`, `shift_handover_report`).
+
+### 53. Context Engineering & Operational Normalization
+- **Problem Statement**: Telemetry points lack physical meaning in isolation (e.g. 90°C during cold idle is acute failure; 90°C under heavy load in 35°C ambient is nominal).
+- **PMS Implementation**: In [`backend/schemas.py`](file:///c:/Users/nayak/OneDrive/Desktop/PMS/backend/schemas.py) and [`backend/narration_service.py`](file:///c:/Users/nayak/OneDrive/Desktop/PMS/backend/narration_service.py):
+  - Normalizes thermal readings against ambient floor sensors ($\Delta T = T_{\text{process}} - T_{\text{ambient}}$).
+  - Ingests temporal thermal gradients ($dT/dt$ in °C/min) and vibration crest factors ($\text{Peak}/\text{RMS}$).
+  - Synthesizes machine identity, operational regime (`steady_state_heavy`), and counterfactual safety fix targets directly into grounded LLM technician briefings.
+
+### 54. Chaos & Fault-Injection Engineering
+- **Problem Statement**: Production resilience must be provable and automated before cloud deployment.
+- **PMS Implementation**: In [`harness/chaos/`](file:///c:/Users/nayak/OneDrive/Desktop/PMS/harness/chaos/):
+  - Automated circuit breaker fault injection: Proves FSM transitions (`CLOSED -> OPEN -> HALF_OPEN -> CLOSED`) with **3.6 µs fast rejection**.
+  - Database connection severing: Proves zero 500 crashes and resilient rollback during database connectivity loss.

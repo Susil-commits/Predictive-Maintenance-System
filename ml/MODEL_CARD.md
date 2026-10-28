@@ -73,3 +73,26 @@ The table below reports empirical performance across failure modes on both the h
 ## Data Drift Monitoring
 - Monitored via continuous Population Stability Index (PSI) against baseline distributions stored in `reference_stats.json`.
 - Alerts triggered when feature PSI exceeds 0.25 (significant drift threshold).
+
+## Multi-Runtime Inferencing (ONNX vs. XGBoost)
+
+PMS supports multi-runtime execution across C++ ONNX Runtime and Python XGBoost:
+
+| Inference Runtime | Model Artifact | Mean Latency (CPU) | P95 Latency | Throughput | Primary Operational Domain |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **ONNX Runtime (C++)** | `ml/model.onnx` | **0.021 ms** (21 µs) | **0.028 ms** | **~47,600 req/sec** | High-frequency edge streaming (100Hz+) |
+| **Calibrated XGBoost (Python)** | `ml/model.pkl` | 1.909 ms | 2.450 ms | ~520 req/sec | Full SHAP TreeExplainer attribution & Platt scaling |
+| **Speedup Factor** | — | **90.4x Faster** | — | — | Sub-millisecond edge triage |
+
+> **Calibration Disclosure**: `ml/model.onnx` was serialized from the raw uncalibrated `XGBClassifier` booster. It outputs raw decision margins rather than Platt-calibrated probabilities. To balance microsecond latency with strict probabilistic calibration, the `hybrid` runtime mode executes ONNX as a sub-millisecond triage filter, invoking the calibrated `CalibratedClassifierCV` + SHAP TreeExplainer only when probability breaches the decision threshold.
+
+## Context Engineering & Physical Degradation Verification
+
+Evaluated against the automated **PMS Harness Engineering Suite (`harness/`)**:
+- **Degradation Profiles**:
+  - *Thermal Runaway (HDF)*: Detected at Step 22 ($t \approx 44\text{s}$) with 0 false alarms.
+  - *Overstrain Surge (OSF)*: Detected at Step 13 ($t \approx 13\text{s}$) with 0 false alarms.
+  - *Tool Wear Fatigue (TWF)*: Detected at Step 15 ($t \approx 15\text{s}$) with 0 false alarms.
+  - *Sensor Glitch*: Transient EMI pulses caught and recovered at Step 5 with 0 false alarms.
+- **AI Groundedness & Citation Fidelity**: Verified on curated golden incident benchmarks; 80%–100% numerical fidelity with zero hallucinated maintenance procedures.
+- **Adversarial Resilience**: 100% of OWASP LLM01 prompt injection attempts neutralized by `PromptShield`; zero canary honeytoken leaks.

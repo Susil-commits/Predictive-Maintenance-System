@@ -69,6 +69,19 @@ jobs:
         run: |
           pytest backend/tests/ -v --cov=backend --cov-report=term-missing
 
+      - name: Run PMS Degradation Simulation, AI RAG Eval, & Chaos Harness
+        env:
+          DATABASE_URL: sqlite:///./pms.db
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: ${{ env.ADMIN_PASSWORD }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          PMS_API_KEY: ${{ env.PMS_API_KEY }}
+          PYTHONPATH: .
+        run: |
+          python -m harness.runner --scenario all
+          python -m harness.eval.eval_harness
+          python -m harness.chaos.chaos_runner
+
   audit:
     name: Security Vulnerability Audit (pip-audit)
     runs-on: ubuntu-latest

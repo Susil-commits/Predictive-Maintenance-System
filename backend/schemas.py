@@ -1,6 +1,51 @@
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class OperationalRegime(str, Enum):
+    IDLE = "idle"
+    WARMUP = "warmup"
+    STEADY_STATE_LIGHT = "steady_state_light"
+    STEADY_STATE_HEAVY = "steady_state_heavy"
+    SHUTDOWN = "shutdown"
+
+
+class MachineContext(BaseModel):
+    machine_id: str = Field(
+        default="CNC-MILL-01",
+        description="Unique machine asset identifier",
+        json_schema_extra={"example": "CNC-MILL-01"},
+    )
+    machine_type: str = Field(
+        default="Heavy-Duty",
+        description="Machine grade or equipment class",
+        json_schema_extra={"example": "Heavy-Duty"},
+    )
+    regime: OperationalRegime = Field(
+        default=OperationalRegime.STEADY_STATE_HEAVY,
+        description="Current operational phase/duty profile",
+    )
+    ambient_temperature: float = Field(
+        default=25.0,
+        ge=-20.0,
+        le=60.0,
+        description="Ambient plant floor temperature in °C",
+        json_schema_extra={"example": 25.0},
+    )
+    hours_since_last_service: float = Field(
+        default=120.0,
+        ge=0.0,
+        description="Operating hours since last maintenance overhaul",
+        json_schema_extra={"example": 120.0},
+    )
+    recent_fault_count_24h: int = Field(
+        default=0,
+        ge=0,
+        description="Count of warnings or anomaly flags in past 24 hours",
+        json_schema_extra={"example": 0},
+    )
 
 
 class PredictionInput(BaseModel):
@@ -38,6 +83,21 @@ class PredictionInput(BaseModel):
         le=50000.0,
         description="Cumulative equipment operating hours",
         json_schema_extra={"example": 4820},
+    )
+    # Context Engineering Envelope (Optional for 100% backward compatibility)
+    context: MachineContext | None = Field(
+        None,
+        description="Operational equipment context, regime, and environmental metadata",
+    )
+    temp_rate_of_change: float | None = Field(
+        None,
+        description="Temporal temperature velocity in °C/min (dT/dt)",
+        json_schema_extra={"example": 1.25},
+    )
+    vibration_crest_factor: float | None = Field(
+        None,
+        description="Peak-to-RMS vibration crest factor indicating shock impulses",
+        json_schema_extra={"example": 3.4},
     )
 
 
@@ -119,6 +179,15 @@ class PredictionOutput(BaseModel):
     prescriptive_action: dict[str, Any] | None = Field(
         None,
         description="Detailed prescriptive mitigation guidance and spare parts BOM",
+    )
+    context: MachineContext | None = Field(
+        None,
+        description="Echoed or evaluated operational equipment context",
+    )
+    operational_context_summary: str | None = Field(
+        None,
+        description="Human-readable synthesis of equipment regime, thermal delta, and operational status",
+        json_schema_extra={"example": "CNC-MILL-01 (Heavy-Duty) in steady_state_heavy; ΔT=67.4°C over ambient"},
     )
 
 
