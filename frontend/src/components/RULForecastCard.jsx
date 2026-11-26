@@ -1,7 +1,7 @@
 import React from 'react';
 import { Clock, Activity, AlertTriangle, CheckCircle, RefreshCw, Gauge, ShieldCheck, Wrench } from 'lucide-react';
 
-export default function RULForecastCard({ rulData, loading, onRefresh }) {
+export default function RULForecastCard({ rulData, loading, onRefresh, rulSourceMeta }) {
   if (!rulData && !loading) {
     return (
       <div className="glass-panel" style={{ marginTop: 16 }}>
@@ -36,7 +36,9 @@ export default function RULForecastCard({ rulData, loading, onRefresh }) {
           <Clock size={18} className="panel-icon" style={{ color: isUrgent ? '#fb7185' : '#38bdf8' }} />
           <span>RUL Forecast</span>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 400, fontFamily: 'var(--font-mono)' }}>
-            [Time-Series Regression]
+            {rulSourceMeta?.hasHistory
+              ? `[${rulSourceMeta.assetId} · DB History: ${rulSourceMeta.points} pts]`
+              : '[Time-Series Projection]'}
           </span>
         </h2>
         {onRefresh && (

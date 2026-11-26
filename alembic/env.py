@@ -2,14 +2,13 @@ import os
 import sys
 from logging.config import fileConfig
 
-from sqlalchemy import pool
 from alembic import context
 
 # Ensure the project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import backend.models  # noqa: F401 - Ensure models (PredictionRecord, User) are registered
 from backend.database import Base, DATABASE_URL, engine
-import backend.models  # Ensure models (PredictionRecord, User) are registered
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

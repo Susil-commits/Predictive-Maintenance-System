@@ -871,6 +871,11 @@ def run_pipeline():
             "brier_score_uncalibrated": round(float(xgb_brier_uncalibrated), 4),
             "brier_score_calibrated": round(float(calibrated_brier), 4),
             "brier_reduction_pct": round(float(error_reduction), 2),
+            "platt_params": [
+                {"a": round(float(cc.calibrators[0].a_), 6), "b": round(float(cc.calibrators[0].b_), 6)}
+                for cc in getattr(calibrated_xgb, "calibrated_classifiers_", [])
+                if getattr(cc, "calibrators", None)
+            ],
         },
         "mlflow_run_id": mlflow_run_id,
         "mlflow_experiment": experiment_name,

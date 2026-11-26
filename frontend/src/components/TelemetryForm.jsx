@@ -9,10 +9,39 @@ import {
   Copy, 
   Check, 
   RotateCcw,
-  Binary
+  Binary,
+  Cpu,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
-export default function TelemetryForm({ formData, onChange, onSubmit, loading, onReset }) {
+const RUNTIME_OPTIONS = [
+  { id: 'xgboost', label: 'XGBoost + SHAP', hint: 'Full calibrated attribution (~2 ms)' },
+  { id: 'onnx', label: 'ONNX Edge (C++)', hint: 'Sub-ms fast scoring (~21 µs)' },
+  { id: 'hybrid', label: 'Hybrid Router', hint: 'ONNX triage + on-demand SHAP' },
+];
+
+const REGIME_OPTIONS = [
+  { value: 'idle', label: 'Idle / Standby' },
+  { value: 'warmup', label: 'Thermal Warmup' },
+  { value: 'steady_state_light', label: 'Steady State (Light)' },
+  { value: 'steady_state_heavy', label: 'Steady State (Heavy)' },
+  { value: 'shutdown', label: 'Controlled Shutdown' },
+];
+
+export default function TelemetryForm({
+  formData,
+  onChange,
+  onSubmit,
+  loading,
+  onReset,
+  runtime = 'xgboost',
+  onRuntimeChange,
+  contextEnabled = false,
+  onToggleContext,
+  contextData = {},
+  onContextChange,
+}) {
   const [copied, setCopied] = useState(false);
 
   const handleChange = (e) => {
@@ -272,6 +301,146 @@ export default function TelemetryForm({ formData, onChange, onSubmit, loading, o
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Multi-Runtime Inference Selector & Context Engineering Toggle */}
+        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {onRuntimeChange && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+                <Cpu size={13} color="#38bdf8" />
+                <span>INFERENCE RUNTIME</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {RUNTIME_OPTIONS.map((rt) => (
+                  <button
+                    key={rt.id}
+                    type="button"
+                    onClick={() => onRuntimeChange(rt.id)}
+                    title={rt.hint}
+                    className={`preset-btn ${runtime === rt.id ? 'highlight' : ''}`}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.7rem',
+                      fontFamily: 'var(--font-mono)',
+                      borderColor: runtime === rt.id ? '#38bdf8' : undefined,
+                      color: runtime === rt.id ? '#38bdf8' : undefined,
+                    }}
+                  >
+                    {rt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {onToggleContext && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={onToggleContext}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#e4e4e7',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.72rem',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color: contextEnabled ? '#34d399' : '#71717a' }}>●</span>
+                  <span>CONTEXT ENGINEERING ENVELOPE (Regime · Ambient ΔT · dT/dt · Crest Factor)</span>
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-dim)' }}>
+                  <span>{contextEnabled ? 'ACTIVE' : 'OPTIONAL'}</span>
+                  {contextEnabled ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </span>
+              </button>
+
+              {contextEnabled && onContextChange && (
+                <div style={{ padding: '10px 12px 12px', borderTop: '1px solid var(--border-subtle)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 10 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>MACHINE ID</label>
+                    <input
+                      type="text"
+                      value={contextData.machine_id || ''}
+                      onChange={(e) => onContextChange('machine_id', e.target.value)}
+                      className="telemetry-input"
+                      style={{ fontSize: '0.76rem', padding: '6px 8px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>OPERATIONAL REGIME</label>
+                    <select
+                      value={contextData.regime || 'steady_state_heavy'}
+                      onChange={(e) => onContextChange('regime', e.target.value)}
+                      className="telemetry-input"
+                      style={{ fontSize: '0.76rem', padding: '6px 8px', background: '#09090b' }}
+                    >
+                      {REGIME_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>AMBIENT TEMP (°C)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="-20"
+                      max="60"
+                      value={contextData.ambient_temperature ?? 25.0}
+                      onChange={(e) => onContextChange('ambient_temperature', parseFloat(e.target.value) || 0)}
+                      className="telemetry-input"
+                      style={{ fontSize: '0.76rem', padding: '6px 8px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>dT/dt (°C/min)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={contextData.temp_rate_of_change ?? 0.0}
+                      onChange={(e) => onContextChange('temp_rate_of_change', parseFloat(e.target.value) || 0)}
+                      className="telemetry-input"
+                      style={{ fontSize: '0.76rem', padding: '6px 8px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>VIB CREST FACTOR</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="1"
+                      max="20"
+                      value={contextData.vibration_crest_factor ?? 2.5}
+                      onChange={(e) => onContextChange('vibration_crest_factor', parseFloat(e.target.value) || 0)}
+                      className="telemetry-input"
+                      style={{ fontSize: '0.76rem', padding: '6px 8px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>24H PRIOR FAULTS</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={contextData.recent_fault_count_24h ?? 0}
+                      onChange={(e) => onContextChange('recent_fault_count_24h', parseInt(e.target.value, 10) || 0)}
+                      className="telemetry-input"
+                      style={{ fontSize: '0.76rem', padding: '6px 8px' }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="action-row">

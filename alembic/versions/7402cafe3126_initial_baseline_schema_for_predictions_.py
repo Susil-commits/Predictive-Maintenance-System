@@ -1,7 +1,7 @@
 """Initial baseline schema for predictions and users
 
 Revision ID: 7402cafe3126
-Revises: 
+Revises:
 Create Date: 2026-09-05 16:33:37.709788
 
 """

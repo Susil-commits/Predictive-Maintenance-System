@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-let rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+let rawBaseUrl = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // Ensure remote URLs always use HTTPS and strip trailing slashes
 if (rawBaseUrl && !rawBaseUrl.includes('localhost') && !rawBaseUrl.includes('127.0.0.1')) {
@@ -86,8 +86,13 @@ export const getModelInfo = async () => {
   return response.data;
 };
 
-export const predictMaintenance = async (payload) => {
-  const response = await api.post('/predict', payload);
+export const predictMaintenance = async (payload, runtime = 'xgboost') => {
+  const response = await api.post(`/predict?runtime=${encodeURIComponent(runtime)}`, payload);
+  return response.data;
+};
+
+export const getInferenceBenchmark = async (iterations = 100) => {
+  const response = await api.get(`/inference/benchmark?iterations=${iterations}`);
   return response.data;
 };
 
@@ -116,15 +121,91 @@ export const dispatchWorkOrder = async (payload) => {
   return response.data;
 };
 
+export const getWorkOrders = async (assetId = null, status = null, limit = 50) => {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (assetId) params.set('asset_id', assetId);
+  if (status) params.set('status', status);
+  const response = await api.get(`/maintenance/work-orders?${params.toString()}`);
+  return response.data;
+};
+
+export const updateWorkOrderStatus = async (workOrderId, payload) => {
+  const response = await api.patch(`/maintenance/work-orders/${encodeURIComponent(workOrderId)}`, payload);
+  return response.data;
+};
+
 export const getFinancialRiskSummary = async (limit = 50) => {
   const response = await api.get(`/financial/risk-summary?limit=${limit}`);
   return response.data;
 };
 
 
-export const getHistory = async (limit = 20) => {
-  const response = await api.get(`/history?limit=${limit}`);
+export const getHistory = async (limit = 20, assetId = null) => {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (assetId) params.set('asset_id', assetId);
+  const response = await api.get(`/history?${params.toString()}`);
   return response.data;
+};
+
+export const getFleetSummary = async (limit = 500) => {
+  const response = await api.get(`/fleet/summary?limit=${limit}`);
+  return response.data;
+};
+
+export const getAssetRul = async (assetId, windowSize = 30) => {
+  const response = await api.get(`/fleet/${encodeURIComponent(assetId)}/rul?window=${windowSize}`);
+  return response.data;
+};
+
+export const connectTelemetryStream = ({ onEvent, onStatus } = {}) => {
+  let ws = null;
+  let closedByUser = false;
+  let reconnectTimer = null;
+  let attempt = 0;
+
+  const wsUrl = `${API_BASE_URL.replace(/^http/i, 'ws')}/ws/telemetry`;
+
+  const connect = () => {
+    if (closedByUser) return;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        attempt = 0;
+        if (onStatus) onStatus('connected');
+      };
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+          if (onEvent) onEvent(data);
+        } catch {
+          // Ignore malformed frame
+        }
+      };
+      ws.onerror = () => {
+        if (onStatus) onStatus('error');
+      };
+      ws.onclose = () => {
+        if (onStatus) onStatus('disconnected');
+        if (!closedByUser) {
+          attempt += 1;
+          const delay = Math.min(30000, 2000 * Math.pow(1.5, attempt - 1));
+          reconnectTimer = setTimeout(connect, delay);
+        }
+      };
+    } catch {
+      if (onStatus) onStatus('disconnected');
+    }
+  };
+
+  connect();
+
+  return () => {
+    closedByUser = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      ws.close();
+    }
+  };
 };
 
 export const clearHistory = async () => {
@@ -144,6 +225,56 @@ export const resetDriftStatus = async () => {
 
 export const triggerRetrain = async () => {
   const response = await api.post('/retrain');
+  return response.data;
+};
+
+export const getCanaryStatus = async () => {
+  const response = await api.get('/canary/status');
+  return response.data;
+};
+
+export const startCanaryRollout = async () => {
+  const response = await api.post('/canary/start');
+  return response.data;
+};
+
+export const promoteCanaryModel = async () => {
+  const response = await api.post('/canary/promote');
+  return response.data;
+};
+
+export const abortCanaryRollout = async () => {
+  const response = await api.post('/canary/abort');
+  return response.data;
+};
+
+export const getSchedulerJobs = async () => {
+  const response = await api.get('/scheduler/jobs');
+  return response.data;
+};
+
+export const runScheduledDriftCheck = async () => {
+  const response = await api.post('/scheduler/run-drift-check');
+  return response.data;
+};
+
+export const getSecurityTelemetry = async () => {
+  const response = await api.get('/api/security/telemetry');
+  return response.data;
+};
+
+export const getSecurityAuditTrail = async () => {
+  const response = await api.get('/api/security/audit-trail');
+  return response.data;
+};
+
+export const verifyAuditChain = async () => {
+  const response = await api.get('/api/security/verify-chain');
+  return response.data;
+};
+
+export const getCircuitStatus = async () => {
+  const response = await api.get('/api/security/circuit-status');
   return response.data;
 };
 

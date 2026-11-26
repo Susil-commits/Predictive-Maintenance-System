@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import subprocess
@@ -33,13 +34,15 @@ from fastapi import (
     Query,
     Request,
     Response,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from sqlalchemy import desc, text
+from sqlalchemy import desc, inspect, text
 from sqlalchemy.orm import Session
 
 from .auth import (
@@ -62,7 +65,7 @@ from .drift_detector import drift_detector
 from .limiter import limiter
 from .logging_config import set_request_id
 from .metrics import metrics
-from .models import PredictionRecord
+from .models import PredictionRecord, WorkOrderRecord
 from .narration_service import orchestrate_predict_and_narrate
 from .predictor import (
     FEATURE_ORDER,
@@ -71,11 +74,15 @@ from .predictor import (
     predictor,
     scaler,
 )
+from .realtime import telemetry_broadcaster
 from .rul_engine import predict_rul_quantiles
 from .scheduler import drift_scheduler
 from .schemas import (
+    AssetRULResponse,
     CounterfactualOutput,
     DriftStatusResponse,
+    FleetAssetSummary,
+    FleetSummaryResponse,
     HealthResponse,
     ModelInfoResponse,
     NarrationOutput,
@@ -86,27 +93,48 @@ from .schemas import (
     SimulateDerateOutput,
     WorkOrderDispatchInput,
     WorkOrderDispatchOutput,
+    WorkOrderUpdateInput,
 )
 
 logger = logging.getLogger("pms.api")
 
 
 def init_db():
-    """Ensure tables are created and default admin is seeded."""
+    """Ensure tables are created, backward-compatible columns exist, and default admin is seeded."""
     try:
         if engine is not None:
             Base.metadata.create_all(bind=engine)
-            # Ensure designation column exists on existing user tables
+            # Ensure designation column exists on existing user tables and asset/regime/runtime on predictions
             try:
+                inspector = inspect(engine)
                 with engine.connect() as conn:
-                    conn.execute(
-                        text(
-                            "ALTER TABLE pms_users ADD COLUMN IF NOT EXISTS designation VARCHAR(128) DEFAULT 'Maintenance Specialist';"
-                        )
-                    )
+                    if inspector.has_table("pms_users"):
+                        user_cols = {c["name"] for c in inspector.get_columns("pms_users")}
+                        if "designation" not in user_cols:
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE pms_users ADD COLUMN designation VARCHAR(128) DEFAULT 'Maintenance Specialist'"
+                                )
+                            )
+                    if inspector.has_table("predictions"):
+                        pred_cols = {c["name"] for c in inspector.get_columns("predictions")}
+                        if "asset_id" not in pred_cols:
+                            conn.execute(
+                                text("ALTER TABLE predictions ADD COLUMN asset_id VARCHAR(64) DEFAULT 'CNC-MILL-01'")
+                            )
+                        if "regime" not in pred_cols:
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE predictions ADD COLUMN regime VARCHAR(32) DEFAULT 'steady_state_heavy'"
+                                )
+                            )
+                        if "runtime" not in pred_cols:
+                            conn.execute(
+                                text("ALTER TABLE predictions ADD COLUMN runtime VARCHAR(32) DEFAULT 'xgboost'")
+                            )
                     conn.commit()
-            except Exception:
-                pass
+            except Exception as mig_err:
+                logger.debug(f"Column auto-migration note: {mig_err}")
         with SessionLocal() as _db:
             seed_initial_admin(_db)
     except RuntimeError:
@@ -360,6 +388,74 @@ def handle_mcp_jsonrpc(request_payload: dict[str, Any] = Body(...)):
     return mcp_server.handle_request(request_payload)
 
 
+def _persist_and_broadcast_prediction(
+    db: Session,
+    input_data: PredictionInput,
+    result: dict[str, Any],
+    pred_id: str,
+    now: datetime,
+) -> None:
+    """Persists prediction telemetry (including asset/regime/runtime) and broadcasts live WS event."""
+    ctx = input_data.context
+    asset_id = (ctx.machine_id if ctx and ctx.machine_id else "CNC-MILL-01").strip() or "CNC-MILL-01"
+    raw_regime = (
+        ctx.regime.value if (ctx and hasattr(ctx.regime, "value")) else (ctx.regime if ctx else "steady_state_heavy")
+    )
+    regime_str = str(raw_regime or "steady_state_heavy")
+    runtime_str = str(result.get("runtime") or "xgboost")
+
+    result["asset_id"] = asset_id
+    result["prediction_id"] = pred_id
+    result["timestamp"] = now.isoformat()
+
+    try:
+        db_record = PredictionRecord(
+            prediction_id=pred_id,
+            timestamp=now,
+            asset_id=asset_id,
+            regime=regime_str,
+            runtime=runtime_str,
+            temperature=input_data.temperature,
+            rpm=input_data.rpm,
+            pressure=input_data.pressure,
+            vibration=input_data.vibration,
+            operating_hours=input_data.operating_hours,
+            failure_risk=result["failure_risk"],
+            probability=result["probability"],
+            maintenance_required=result["maintenance_required"],
+            shap_values=result.get("shap_values", {}),
+            contributing_factors=result.get("contributing_factors", []),
+        )
+        db.add(db_record)
+        db.commit()
+    except Exception as db_err:
+        db.rollback()
+        logger.warning(f"Failed to log prediction to database: {db_err}")
+
+    telemetry_broadcaster.publish(
+        {
+            "type": "prediction",
+            "prediction_id": pred_id,
+            "timestamp": now.isoformat(),
+            "asset_id": asset_id,
+            "regime": regime_str,
+            "runtime": runtime_str,
+            "inference_time_ms": result.get("inference_time_ms"),
+            "failure_risk": result["failure_risk"],
+            "probability": result["probability"],
+            "maintenance_required": result["maintenance_required"],
+            "top_risk_factor": result.get("top_risk_factor"),
+            "input_features": {
+                "temperature": input_data.temperature,
+                "rpm": input_data.rpm,
+                "pressure": input_data.pressure,
+                "vibration": input_data.vibration,
+                "operating_hours": input_data.operating_hours,
+            },
+        }
+    )
+
+
 @app.post("/predict", response_model=PredictionOutput, tags=["Prediction"])
 @limiter.limit(predict_rate_limit)
 def predict_maintenance(
@@ -444,30 +540,7 @@ def predict_maintenance(
     duration = time.perf_counter() - t_start
     metrics.record_predict_latency(duration)
 
-    # Log prediction to database
-    try:
-        db_record = PredictionRecord(
-            prediction_id=pred_id,
-            timestamp=now,
-            temperature=input_data.temperature,
-            rpm=input_data.rpm,
-            pressure=input_data.pressure,
-            vibration=input_data.vibration,
-            operating_hours=input_data.operating_hours,
-            failure_risk=pred_result["failure_risk"],
-            probability=pred_result["probability"],
-            maintenance_required=pred_result["maintenance_required"],
-            shap_values=pred_result["shap_values"],
-            contributing_factors=pred_result["contributing_factors"],
-        )
-        db.add(db_record)
-        db.commit()
-    except Exception as db_err:
-        db.rollback()
-        logger.warning(f"Failed to log prediction to database: {db_err}")
-
-    pred_result["prediction_id"] = pred_id
-    pred_result["timestamp"] = now.isoformat()
+    _persist_and_broadcast_prediction(db, input_data, pred_result, pred_id, now)
     return pred_result
 
 
@@ -528,30 +601,7 @@ def predict_with_narration(
     duration = time.perf_counter() - t_start
     metrics.record_predict_latency(duration)
 
-    # Log prediction to database
-    try:
-        db_record = PredictionRecord(
-            prediction_id=pred_id,
-            timestamp=now,
-            temperature=input_data.temperature,
-            rpm=input_data.rpm,
-            pressure=input_data.pressure,
-            vibration=input_data.vibration,
-            operating_hours=input_data.operating_hours,
-            failure_risk=result["failure_risk"],
-            probability=result["probability"],
-            maintenance_required=result["maintenance_required"],
-            shap_values=result["shap_values"],
-            contributing_factors=result["contributing_factors"],
-        )
-        db.add(db_record)
-        db.commit()
-    except Exception as db_err:
-        db.rollback()
-        logger.warning(f"Failed to log prediction to database: {db_err}")
-
-    result["prediction_id"] = pred_id
-    result["timestamp"] = now.isoformat()
+    _persist_and_broadcast_prediction(db, input_data, result, pred_id, now)
     return result
 
 
@@ -629,10 +679,11 @@ def dispatch_cmms_work_order(
     response: Response,
     x_idempotency_key: str | None = Header(None, alias="X-Idempotency-Key"),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
 ):
     """
     Closed-Loop CMMS/ERP Dispatch Integration:
-    Compiles and dispatches an ISO-compliant, digitally signed work order payload formatted for
+    Compiles, persists, and dispatches an ISO-compliant, digitally signed work order payload formatted for
     enterprise maintenance systems (SAP Plant Maintenance / IBM Maximo).
     Guarantees exact-once execution via Idempotency-Key header support (Item 25).
     """
@@ -696,23 +747,84 @@ def dispatch_cmms_work_order(
         duration = 4.5
         torque = 45.0
 
+    cmms_target = "SAP Plant Maintenance (SAP PM / IBM Maximo Connector)"
+    tech_qual = "Level II Vibration Analyst / Mechanical Specialist"
+    interlocks = [
+        "Lockout/Tagout (LOTO) procedure mandatory before mechanical decoupling",
+        "Verify zero residual hydraulic accumulator pressure prior to flange release",
+        "PPE: Arc-flash shield and thermal protective gloves required",
+    ]
+
     result = {
         "work_order_id": work_order_id,
+        "prediction_id": payload.prediction_id,
         "asset_id": payload.asset_id,
         "line_id": payload.line_id,
+        "plant_location": payload.plant_location,
+        "failure_mode": payload.failure_mode,
+        "priority": payload.priority,
         "dispatched_at": now.isoformat(),
+        "resolved_at": None,
         "status": "DISPATCHED_TO_CMMS",
-        "cmms_target": "SAP Plant Maintenance (SAP PM / IBM Maximo Connector)",
-        "technician_qualification": "Level II Vibration Analyst / Mechanical Specialist",
+        "cmms_target": cmms_target,
+        "technician_qualification": tech_qual,
         "required_bom_parts": bom,
-        "safety_interlocks": [
-            "Lockout/Tagout (LOTO) procedure mandatory before mechanical decoupling",
-            "Verify zero residual hydraulic accumulator pressure prior to flange release",
-            "PPE: Arc-flash shield and thermal protective gloves required",
-        ],
+        "safety_interlocks": interlocks,
         "torque_specs_nm": torque,
         "estimated_duration_hours": duration,
+        "notes": payload.notes,
+        "resolution_notes": None,
+        "actual_failure_confirmed": None,
     }
+
+    try:
+        db_wo = WorkOrderRecord(
+            work_order_id=work_order_id,
+            prediction_id=payload.prediction_id,
+            asset_id=payload.asset_id,
+            line_id=payload.line_id,
+            plant_location=payload.plant_location,
+            failure_mode=payload.failure_mode,
+            priority=payload.priority,
+            status="DISPATCHED_TO_CMMS",
+            cmms_target=cmms_target,
+            technician_qualification=tech_qual,
+            required_bom_parts=bom,
+            safety_interlocks=interlocks,
+            torque_specs_nm=torque,
+            estimated_duration_hours=duration,
+            notes=payload.notes,
+            dispatched_at=now,
+        )
+        db.add(db_wo)
+        db.commit()
+    except Exception as db_err:
+        db.rollback()
+        logger.warning(f"Failed to persist work order {work_order_id}: {db_err}")
+
+    try:
+        get_audit_logger().record_event(
+            event_type="CMMS_WORK_ORDER_DISPATCH",
+            actor_id="cmms_dispatcher",
+            details={
+                "work_order_id": work_order_id,
+                "asset_id": payload.asset_id,
+                "priority": payload.priority,
+                "failure_mode": payload.failure_mode,
+            },
+            status="SUCCESS",
+        )
+    except Exception:
+        pass
+
+    webhook_url = os.getenv("CMMS_WEBHOOK_URL", "").strip()
+    if webhook_url:
+        try:
+            import httpx
+
+            httpx.post(webhook_url, json=result, timeout=3.0)
+        except Exception as wh_err:
+            logger.warning(f"CMMS outbound webhook failed for {work_order_id}: {wh_err}")
 
     if idem_key:
         idempotency_mgr.set(idem_key, 200, result)
@@ -720,6 +832,68 @@ def dispatch_cmms_work_order(
         response.headers["X-Cache-Lookup"] = "MISS"
 
     return result
+
+
+@app.get("/maintenance/work-orders", response_model=list[WorkOrderDispatchOutput], tags=["Maintenance & CMMS"])
+def list_cmms_work_orders(
+    limit: int = Query(50, ge=1, le=200),
+    asset_id: str | None = Query(None, description="Optional asset_id filter"),
+    status_filter: str | None = Query(None, alias="status", description="Optional status filter"),
+    db: Session = Depends(get_db),
+):
+    """Lists persisted CMMS work orders ordered by most recently dispatched."""
+    query = db.query(WorkOrderRecord)
+    if asset_id:
+        query = query.filter(WorkOrderRecord.asset_id == asset_id)
+    if status_filter:
+        query = query.filter(WorkOrderRecord.status == status_filter)
+    rows = query.order_by(desc(WorkOrderRecord.dispatched_at)).limit(limit).all()
+    return [r.to_dict() for r in rows]
+
+
+@app.patch(
+    "/maintenance/work-orders/{work_order_id}",
+    response_model=WorkOrderDispatchOutput,
+    tags=["Maintenance & CMMS"],
+)
+def update_cmms_work_order(
+    work_order_id: str,
+    payload: WorkOrderUpdateInput,
+    db: Session = Depends(get_db),
+):
+    """
+    Updates a CMMS work order lifecycle state and captures technician ground-truth feedback.
+    """
+    row = db.query(WorkOrderRecord).filter(WorkOrderRecord.work_order_id == work_order_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+
+    setattr(row, "status", payload.status.value)
+    if payload.resolution_notes is not None:
+        setattr(row, "resolution_notes", payload.resolution_notes)
+    if payload.actual_failure_confirmed is not None:
+        setattr(row, "actual_failure_confirmed", payload.actual_failure_confirmed)
+    if payload.status.value == "RESOLVED":
+        setattr(row, "resolved_at", datetime.now(UTC))
+
+    db.commit()
+    db.refresh(row)
+
+    try:
+        get_audit_logger().record_event(
+            event_type="CMMS_WORK_ORDER_UPDATED",
+            actor_id="technician",
+            details={
+                "work_order_id": work_order_id,
+                "new_status": payload.status.value,
+                "actual_failure_confirmed": payload.actual_failure_confirmed,
+            },
+            status="SUCCESS",
+        )
+    except Exception:
+        pass
+
+    return row.to_dict()
 
 
 @app.get("/financial/risk-summary", tags=["Financial Analytics"])
@@ -763,18 +937,142 @@ def get_financial_risk_summary(limit: int = Query(50, ge=5, le=500), db: Session
 
 
 @app.get("/history", tags=["Audit & History"])
-def get_prediction_history(limit: int = Query(25, ge=1, le=100), db: Session = Depends(get_db)):
+def get_prediction_history(
+    limit: int = Query(25, ge=1, le=100),
+    asset_id: str | None = Query(None, description="Optional asset_id filter"),
+    db: Session = Depends(get_db),
+):
     """
-    Retrieves the most recent predictions logged in the database.
+    Retrieves the most recent predictions logged in the database, optionally filtered by asset_id.
     """
     try:
-        records = db.query(PredictionRecord).order_by(desc(PredictionRecord.timestamp)).limit(limit).all()
+        query = db.query(PredictionRecord)
+        if asset_id:
+            query = query.filter(PredictionRecord.asset_id == asset_id)
+        records = query.order_by(desc(PredictionRecord.timestamp)).limit(limit).all()
         return [r.to_dict() for r in records]
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database query error: {e!s}",
         )
+
+
+@app.get("/fleet/summary", response_model=FleetSummaryResponse, tags=["Fleet & Streaming"])
+def get_fleet_summary(limit: int = Query(500, ge=10, le=2000), db: Session = Depends(get_db)):
+    """
+    Aggregates live equipment health across all tracked assets from recent telemetry logs.
+    """
+    try:
+        records = db.query(PredictionRecord).order_by(desc(PredictionRecord.timestamp)).limit(limit).all()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Fleet summary query error: {e!s}",
+        )
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for rec in records:
+        d = rec.to_dict()
+        features = d["input_features"]
+        aid = str(d["asset_id"])
+        is_high = d["failure_risk"] == "HIGH"
+        if aid not in grouped:
+            grouped[aid] = {
+                "asset_id": aid,
+                "total_evaluations": 1,
+                "high_risk_count": 1 if is_high else 0,
+                "latest_failure_risk": str(d["failure_risk"]),
+                "latest_probability": float(d["probability"]),
+                "latest_temperature": float(features["temperature"]),
+                "latest_vibration": float(features["vibration"]),
+                "latest_operating_hours": float(features["operating_hours"]),
+                "latest_regime": str(d["regime"]),
+                "latest_runtime": str(d["runtime"]),
+                "last_seen": d["timestamp"],
+            }
+        else:
+            grouped[aid]["total_evaluations"] += 1
+            if is_high:
+                grouped[aid]["high_risk_count"] += 1
+
+    assets = sorted(
+        grouped.values(),
+        key=lambda a: (0 if a["latest_failure_risk"] == "HIGH" else 1, -a["latest_probability"]),
+    )
+    critical_count = sum(1 for a in assets if a["latest_failure_risk"] == "HIGH")
+    return {
+        "total_assets": len(assets),
+        "critical_assets": critical_count,
+        "assets": [FleetAssetSummary(**a) for a in assets],
+    }
+
+
+@app.get("/fleet/{asset_id}/rul", response_model=AssetRULResponse, tags=["Fleet & Streaming"])
+def get_asset_rul_forecast(
+    asset_id: str,
+    window: int = Query(30, ge=2, le=100),
+    db: Session = Depends(get_db),
+):
+    """
+    Computes Remaining Useful Life (RUL) quantiles directly from persisted telemetry history
+    for the requested asset_id instead of synthetic client trajectories.
+    """
+    records = (
+        db.query(PredictionRecord)
+        .filter(PredictionRecord.asset_id == asset_id)
+        .order_by(desc(PredictionRecord.timestamp))
+        .limit(window)
+        .all()
+    )
+    if len(records) < 2:
+        return {
+            "asset_id": asset_id,
+            "has_history": False,
+            "history_points_used": len(records),
+            "rul": None,
+        }
+
+    # Chronological order (oldest -> newest) for rolling time-series features
+    ordered = list(reversed(records))
+    series = [dict(r.to_dict()["input_features"]) for r in ordered]
+    rul_result = predict_rul_quantiles(series, confidence_level=0.90)
+    return {
+        "asset_id": asset_id,
+        "has_history": True,
+        "history_points_used": len(series),
+        "rul": rul_result,
+    }
+
+
+@app.websocket("/ws/telemetry")
+async def websocket_telemetry_stream(websocket: WebSocket):
+    """
+    Real-time WebSocket stream pushing live inference events and risk alerts as telemetry arrives.
+    """
+    await websocket.accept()
+    loop = asyncio.get_running_loop()
+    queue = telemetry_broadcaster.subscribe(websocket, loop)
+    try:
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "subscribers": telemetry_broadcaster.subscriber_count(),
+            }
+        )
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=25.0)
+                await websocket.send_json(event)
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "heartbeat", "timestamp": datetime.now(UTC).isoformat()})
+    except WebSocketDisconnect:
+        pass
+    except Exception as ws_err:
+        logger.debug(f"[WS] Stream closed: {ws_err}")
+    finally:
+        telemetry_broadcaster.unsubscribe(websocket)
 
 
 @app.delete(

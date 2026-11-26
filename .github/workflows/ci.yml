@@ -58,6 +58,15 @@ jobs:
           [ -z "$API_KEY" ] && API_KEY=$(openssl rand -hex 32)
           echo "PMS_API_KEY=$API_KEY" >> $GITHUB_ENV
 
+      - name: Verify Alembic Migrations
+        env:
+          DATABASE_URL: sqlite:///./ci_alembic.db
+          PYTHONPATH: .
+        run: |
+          rm -f ci_alembic.db
+          alembic upgrade head
+          rm -f ci_alembic.db
+
       - name: Run Pytest Suite with Coverage
         env:
           DATABASE_URL: sqlite:///./pms.db
@@ -122,12 +131,17 @@ jobs:
           docker build -t pms-frontend:ci -f Dockerfile.frontend .
 
   frontend:
-    name: Build Frontend Assets
+    name: Lint, Test & Build Frontend Assets
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Install and build
-        run: cd frontend && npm install && npm run build
+      - name: Install, lint, test, and build
+        run: |
+          cd frontend
+          npm install
+          npm run lint
+          npm test
+          npm run build

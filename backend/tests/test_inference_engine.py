@@ -62,9 +62,38 @@ def test_inference_benchmark_endpoint():
 
 
 def test_predict_endpoint_runtime_query_param():
-    """Verifies /predict?runtime=onnx routes to the ONNX engine."""
+    """Verifies /predict?runtime=onnx routes to the ONNX engine and exposes runtime metadata."""
     res = client.post("/predict?runtime=onnx", json=SAMPLE_TELEMETRY)
     assert res.status_code == 200
     data = res.json()
     assert "probability" in data
     assert "failure_risk" in data
+    assert data["runtime"] == "onnx"
+    assert isinstance(data["inference_time_ms"], float)
+
+
+def test_onnx_platt_calibration_parity():
+    """Verifies ONNX edge runtime applies Platt scaling and matches XGBoost risk verdicts."""
+    moderate_telemetry = {
+        "temperature": 85.0,
+        "rpm": 2400.0,
+        "pressure": 28.0,
+        "vibration": 0.42,
+        "operating_hours": 3200.0,
+    }
+    high_telemetry = {
+        "temperature": 92.4,
+        "rpm": 2800.0,
+        "pressure": 31.5,
+        "vibration": 0.64,
+        "operating_hours": 4820.0,
+    }
+
+    onnx_mod = inference_engine.predict(moderate_telemetry, runtime=InferenceRuntime.ONNX)
+    xgb_mod = inference_engine.predict(moderate_telemetry, runtime=InferenceRuntime.XGBOOST)
+    assert onnx_mod["failure_risk"] == xgb_mod["failure_risk"] == "LOW"
+    assert abs(onnx_mod["probability"] - xgb_mod["probability"]) < 0.03
+
+    onnx_high = inference_engine.predict(high_telemetry, runtime=InferenceRuntime.ONNX)
+    xgb_high = inference_engine.predict(high_telemetry, runtime=InferenceRuntime.XGBOOST)
+    assert onnx_high["failure_risk"] == xgb_high["failure_risk"] == "HIGH"

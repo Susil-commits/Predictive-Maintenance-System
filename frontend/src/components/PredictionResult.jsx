@@ -4,11 +4,12 @@ import {
   Terminal, ShieldAlert, Hash, Clock,
   Cloud, Eye, EyeOff, Save, ExternalLink,
   Loader2, Check, Trash2, X, FileText,
-  Wrench, Sparkles, ArrowRight, DollarSign, Send, CheckSquare, ShieldCheck
+  Wrench, Sparkles, ArrowRight, DollarSign, Send, CheckSquare, ShieldCheck,
+  BookOpen, Cpu
 } from 'lucide-react';
 import { uploadPredictionReport, isCloudinaryConfigured } from '../cloudinary';
 import { getSession, saveReport } from '../auth';
-import { predictCounterfactual, dispatchWorkOrder } from '../api';
+import { predictCounterfactual, dispatchWorkOrder, predictNarrate } from '../api';
 
 
 // ── Inline JSON viewer ────────────────────────────────────────────────────────
@@ -244,12 +245,16 @@ function ReportPrompt({ result, onSaved, onView, onClose }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function PredictionResult({ result }) {
+export default function PredictionResult({ result, onReevaluateWithShap }) {
   const [showPrompt,  setShowPrompt]  = useState(false);
   const [showViewer,  setShowViewer]  = useState(false);
   const [savedEntry,  setSavedEntry]  = useState(null);
   const [cfData,      setCfData]      = useState(null);
+  const [cfLoading,   setCfLoading]   = useState(false);
   const [cfError,     setCfError]     = useState(null);
+  const [narrationData, setNarrationData] = useState(null);
+  const [narrationLoading, setNarrationLoading] = useState(false);
+  const [narrationError, setNarrationError] = useState(null);
   const [dispatchLoading, setDispatchLoading] = useState(false);
   const [dispatchResult, setDispatchResult] = useState(null);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
@@ -260,7 +265,7 @@ export default function PredictionResult({ result }) {
     try {
       const payload = {
         prediction_id: result.prediction_id || null,
-        asset_id: 'CNC-SPINDLE-LINE-2',
+        asset_id: result.context?.machine_id || 'CNC-SPINDLE-LINE-2',
         line_id: 'Line 4 - Discrete Powertrain',
         plant_location: 'Bay C4 - Machining Center',
         failure_mode: result.top_risk_factor ? `${result.top_risk_factor.toUpperCase()} Degradation` : 'Mechanical Degradation',
@@ -286,6 +291,8 @@ export default function PredictionResult({ result }) {
       setSavedEntry(null);
       setCfData(null);
       setCfError(null);
+      setNarrationData(null);
+      setNarrationError(null);
 
       // Auto-evaluate minimal counterfactual fix for HIGH risk predictions
       if (result.failure_risk === 'HIGH' && result.input_data) {
@@ -306,6 +313,20 @@ export default function PredictionResult({ result }) {
       .then(data => setCfData(data))
       .catch(err => setCfError(err.message || 'Counterfactual evaluation failed'))
       .finally(() => setCfLoading(false));
+  };
+
+  const handleGenerateNarration = async () => {
+    if (!result?.input_data || narrationLoading) return;
+    setNarrationLoading(true);
+    setNarrationError(null);
+    try {
+      const data = await predictNarrate(result.input_data, false);
+      setNarrationData(data);
+    } catch (err) {
+      setNarrationError(err?.response?.data?.detail || err.message || 'Failed to generate RAG narration');
+    } finally {
+      setNarrationLoading(false);
+    }
   };
 
   if (!result) {
@@ -462,6 +483,15 @@ export default function PredictionResult({ result }) {
             <span className="field-unit">
               ROOT CAUSE ENGINE {result.model_version ? `// ${result.model_version.toUpperCase()}` : ''}
             </span>
+            {result.runtime && (
+              <span
+                className="field-unit"
+                style={{ color: '#a78bfa', borderColor: 'rgba(167,139,250,0.3)', background: 'rgba(167,139,250,0.06)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <Cpu size={11} />
+                <span>{result.runtime.toUpperCase()}{result.inference_time_ms != null ? ` · ${result.inference_time_ms}ms` : ''}</span>
+              </span>
+            )}
 
             {/* Saved cloud link */}
             {savedEntry?.cloudinaryUrl && (
@@ -536,6 +566,26 @@ export default function PredictionResult({ result }) {
               <><CheckCircle2 size={18} style={{ flexShrink: 0 }} /><span><strong>Operational Nominal:</strong> Sensor telemetry aligns with baseline healthy tolerances.</span></>
             )}
           </div>
+
+          {/* Operational Context Envelope Summary */}
+          {result.operational_context_summary && (
+            <div style={{
+              marginTop: 8,
+              padding: '8px 12px',
+              borderRadius: 6,
+              background: 'rgba(167, 139, 250, 0.06)',
+              border: '1px solid rgba(167, 139, 250, 0.22)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.73rem',
+              color: '#ddd6fe',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <ShieldCheck size={14} color="#a78bfa" style={{ flexShrink: 0 }} />
+              <span><strong>Context Envelope:</strong> {result.operational_context_summary}</span>
+            </div>
+          )}
 
           {/* Financial Value-at-Risk ($VaR) Card (Hardened Quants) */}
           <div
@@ -722,34 +772,150 @@ export default function PredictionResult({ result }) {
             </div>
           )}
 
+          {/* RAG AI Technician Briefing & Auditable SOPs */}
+          <div style={{
+            marginTop: 10,
+            padding: '12px 14px',
+            borderRadius: 8,
+            background: 'rgba(167, 139, 250, 0.05)',
+            border: '1px solid rgba(167, 139, 250, 0.22)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 600, color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                <BookOpen size={14} />
+                <span>AI Technician Briefing &amp; SOP Citations (RAG)</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleGenerateNarration}
+                disabled={narrationLoading}
+                className="preset-btn highlight"
+                style={{ padding: '3px 10px', fontSize: '0.7rem', gap: 5 }}
+                title="Synthesize context-grounded briefing with retrieved SOP citations"
+              >
+                {narrationLoading ? <Loader2 size={11} className="batch-spin" /> : <Sparkles size={11} />}
+                <span>{narrationData ? 'Regenerate Briefing' : 'Generate RAG Briefing'}</span>
+              </button>
+            </div>
+
+            {narrationError && (
+              <div style={{ fontSize: '0.74rem', color: '#fb7185', fontFamily: 'var(--font-mono)' }}>
+                {narrationError}
+              </div>
+            )}
+
+            {!narrationData && !narrationLoading && !narrationError && (
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                Click <strong style={{ color: '#e4e4e7' }}>Generate RAG Briefing</strong> to synthesize an SOP-grounded technician brief with auditable procedure citations.
+              </div>
+            )}
+
+            {narrationData && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{
+                  fontSize: '0.8rem',
+                  lineHeight: 1.6,
+                  color: '#f4f4f5',
+                  background: 'rgba(0,0,0,0.28)',
+                  padding: '10px 12px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {narrationData.narrative}
+                </div>
+
+                {narrationData.retrieved_sources?.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>
+                      Auditable SOP Sources ({narrationData.retrieved_sources.length})
+                    </span>
+                    {narrationData.retrieved_sources.map((src, idx) => (
+                      <div key={idx} style={{
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px solid var(--border-subtle)',
+                        fontSize: '0.73rem',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ color: '#c4b5fd', fontWeight: 600 }}>
+                            {src.title} · <span style={{ color: '#94a3b8', fontWeight: 400 }}>{src.section}</span>
+                          </span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-dim)' }}>
+                            {src.failure_mode}{src.relevance_score != null ? ` · score ${Number(src.relevance_score).toFixed(2)}` : ''}
+                          </span>
+                        </div>
+                        <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.45 }}>{src.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Root cause factors */}
           <div className="factors-section">
             <div className="factors-title">
               <span>Feature Attribution (Root Cause Impact)</span>
               <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 400 }}>Ranked by Impact Magnitude</span>
             </div>
-            {factors.slice(0, 5).map((factor, index) => {
-              const isPositive = factor.impact >= 0;
-              const barWidth   = Math.max(8, Math.min(100, Math.round(((factor.importance || Math.abs(factor.impact)) / (maxImp || 1)) * 100)));
-              return (
-                <div key={factor.factor} className="factor-item">
-                  <div className="factor-top-row">
-                    <div className="factor-name-wrapper">
-                      <span className="factor-rank">{String(index + 1).padStart(2, '0')}</span>
-                      <span className="factor-name">{factor.factor}</span>
+            {factors.length === 0 ? (
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 6,
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: '0.75rem',
+                color: 'var(--text-dim)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 8,
+              }}>
+                <span>
+                  SHAP TreeExplainer was skipped for sub-millisecond edge speed ({result.runtime || 'onnx'}).
+                </span>
+                {onReevaluateWithShap && (
+                  <button
+                    type="button"
+                    className="preset-btn highlight"
+                    onClick={onReevaluateWithShap}
+                    style={{ padding: '3px 10px', fontSize: '0.7rem' }}
+                  >
+                    Run Full XGBoost + SHAP
+                  </button>
+                )}
+              </div>
+            ) : (
+              factors.slice(0, 5).map((factor, index) => {
+                const isPositive = factor.impact >= 0;
+                const barWidth   = Math.max(8, Math.min(100, Math.round(((factor.importance || Math.abs(factor.impact)) / (maxImp || 1)) * 100)));
+                return (
+                  <div key={factor.factor} className="factor-item">
+                    <div className="factor-top-row">
+                      <div className="factor-name-wrapper">
+                        <span className="factor-rank">{String(index + 1).padStart(2, '0')}</span>
+                        <span className="factor-name">{factor.factor}</span>
+                      </div>
+                      <div className={`factor-impact ${isPositive ? 'positive' : 'negative'}`}>
+                        {isPositive ? <TrendingUp size={12} style={{ display: 'inline', marginRight: 3 }} /> : <TrendingDown size={12} style={{ display: 'inline', marginRight: 3 }} />}
+                        <span>{isPositive ? `+${factor.impact.toFixed(3)}` : factor.impact.toFixed(3)}</span>
+                      </div>
                     </div>
-                    <div className={`factor-impact ${isPositive ? 'positive' : 'negative'}`}>
-                      {isPositive ? <TrendingUp size={12} style={{ display: 'inline', marginRight: 3 }} /> : <TrendingDown size={12} style={{ display: 'inline', marginRight: 3 }} />}
-                      <span>{isPositive ? `+${factor.impact.toFixed(3)}` : factor.impact.toFixed(3)}</span>
+                    <div className="factor-bar-bg">
+                      <div className="factor-bar-fill" style={{ width: `${barWidth}%`, backgroundColor: isPositive ? '#fb7185' : '#34d399' }} />
                     </div>
+                    <p className="factor-desc">{factor.description}</p>
                   </div>
-                  <div className="factor-bar-bg">
-                    <div className="factor-bar-fill" style={{ width: `${barWidth}%`, backgroundColor: isPositive ? '#fb7185' : '#34d399' }} />
-                  </div>
-                  <p className="factor-desc">{factor.description}</p>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
 
           {/* Footer */}

@@ -9,7 +9,6 @@ import os
 import sys
 import time
 import subprocess
-import signal
 import pandas as pd
 import httpx
 
@@ -60,7 +59,7 @@ def run_load_test():
         "--workers", "2",
         "--log-level", "warning"
     ]
-    
+
     print(f"Starting PMS backend instance on port {PORT} (LOAD_TEST_MODE=1)...")
     server_proc = subprocess.Popen(server_cmd, env=env)
 
@@ -69,7 +68,7 @@ def run_load_test():
             raise RuntimeError(f"Server failed to start within timeout on {BASE_URL}")
 
         benchmark_results = []
- 
+
         for step in CONCURRENCY_STEPS:
             u = int(step["users"])
             r = int(step["spawn_rate"])
@@ -77,7 +76,7 @@ def run_load_test():
             csv_prefix = os.path.join(DOCS_DIR, f"locust_{u}users")
 
             print(f"\n[BENCHMARK] Running Locust: {u} concurrent users (spawn rate: {r}/s, duration: {d})...")
-            
+
             locust_cmd: list[str] = [
                 sys.executable, "-m", "locust",
                 "-f", LOCUST_FILE,
@@ -102,7 +101,7 @@ def run_load_test():
                 predict_rows = df_stats[df_stats["Name"] == "/predict"]
                 agg_rows = df_stats[df_stats["Name"] == "Aggregated"]
                 target_row = predict_rows.iloc[0] if len(predict_rows) > 0 else (agg_rows.iloc[0] if len(agg_rows) > 0 else None)
-                
+
                 if target_row is not None:
                     req_count = int(target_row.get("Request Count", 0))
                     fail_count = int(target_row.get("Failure Count", 0))
@@ -148,7 +147,7 @@ BASELINE_DATA = {
 
 def generate_markdown_report(results):
     timestamp_str = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S UTC")
-    
+
     # Generate current run table rows
     current_table_rows = []
     for r in results:
@@ -169,7 +168,7 @@ def generate_markdown_report(results):
             p50_pct = ((base["p50"] - r["p50_latency_ms"]) / base["p50"]) * 100.0
             p95_pct = ((base["p95"] - r["p95_latency_ms"]) / base["p95"]) * 100.0
             p99_pct = ((base["p99"] - r["p99_latency_ms"]) / base["p99"]) * 100.0
-            
+
             p50_delta = f"-{p50_pct:.1f}%" if p50_pct >= 0 else f"+{-p50_pct:.1f}%"
             p95_delta = f"-{p95_pct:.1f}%" if p95_pct >= 0 else f"+{-p95_pct:.1f}%"
             p99_delta = f"-{p99_pct:.1f}%" if p99_pct >= 0 else f"+{-p99_pct:.1f}%"
@@ -184,9 +183,9 @@ def generate_markdown_report(results):
 
     md_content = f"""# Industrial Load Testing & Concurrency Benchmark
 
-**Report Generated:** {timestamp_str}  
-**Testing Tool:** [Locust](https://locust.io/) (Headless Distributed Performance Harness)  
-**Target Endpoint:** `POST /predict` (ML Inference + SHAP Explainer + FFT Extraction + PostgreSQL/SQLite Audit Logging)  
+**Report Generated:** {timestamp_str}
+**Testing Tool:** [Locust](https://locust.io/) (Headless Distributed Performance Harness)
+**Target Endpoint:** `POST /predict` (ML Inference + SHAP Explainer + FFT Extraction + PostgreSQL/SQLite Audit Logging)
 **Hardware / Runtime:** Dual-Worker Process (`--workers 2`, Python 3.13 / Uvicorn ASGI Server, PostgreSQL Pool: 20 + 30 overflow)
 
 ---
@@ -200,7 +199,7 @@ Each virtual user simulates a dedicated factory edge gateway continuously stream
 > [!IMPORTANT]
 > **Production Context & Rate Limiting Bypass Disclosure:**
 > In standard production deployment, SlowAPI actively enforces a token-bucket rate limit of **60 requests/minute per client IP** (~1 req/s) on `/predict` to safeguard backend workers and database connection pools from exhaustion. For this benchmark harness, rate limiting was intentionally bypassed via `LOAD_TEST_MODE=1` (expanding the ceiling to 1,000,000 req/min) to stress-test the raw computational throughput of FFT feature extraction, calibrated XGBoost inference, SHAP TreeExplainer attribution, and PostgreSQL write commits.
-> 
+>
 > **Takeaway on Production Throughput:** Real-world throughput for any single edge gateway or unauthenticated IP will be bounded by the **60 req/min (1 req/s)** policy unless whitelisted or assigned high-throughput API tiers. Aggregate production throughput will only scale toward the benchmarked numbers when distributed across multiple distinct client IP addresses.
 
 ---

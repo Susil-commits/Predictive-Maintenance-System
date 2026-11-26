@@ -13,6 +13,7 @@ import {
 } from '../auth';
 import { uploadAvatar, isCloudinaryConfigured } from '../cloudinary';
 import ReportDetailModal from '../components/ReportDetailModal';
+import AdminOpsPanel from '../components/AdminOpsPanel';
 import { API_BASE_URL } from '../api';
 
 // ── Avatar Component ──────────────────────────────────────────────────────────
@@ -522,6 +523,9 @@ export default function AdminPage({ onLogout }) {
           <StatChip label="Cloud Storage" value="READY" color="#10b981" />
         )}
       </div>
+
+      {/* MLOps, Multi-Runtime Benchmark & Enterprise Security Control Center */}
+      <AdminOpsPanel />
 
       {/* Admin own profile card */}
       <div className="glass-panel" style={{ marginBottom: 20 }}>

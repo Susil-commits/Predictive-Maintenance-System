@@ -149,7 +149,22 @@ class PredictionOutput(BaseModel):
     )
     prediction_id: str | None = None
     timestamp: str | None = None
+    asset_id: str | None = Field(
+        None,
+        description="Resolved asset identifier associated with this telemetry evaluation",
+        json_schema_extra={"example": "CNC-MILL-01"},
+    )
     model_version: str | None = None
+    runtime: str | None = Field(
+        None,
+        description="Inference runtime executed ('onnx', 'xgboost', 'hybrid', 'hybrid-onnx-fastpath')",
+        json_schema_extra={"example": "xgboost"},
+    )
+    inference_time_ms: float | None = Field(
+        None,
+        description="Server-side inference execution latency in milliseconds",
+        json_schema_extra={"example": 1.85},
+    )
     decision_threshold: float | None = Field(
         None,
         description="Optimal decision threshold tuned via Precision-Recall curve",
@@ -314,9 +329,14 @@ class WorkOrderDispatchInput(BaseModel):
 
 class WorkOrderDispatchOutput(BaseModel):
     work_order_id: str
+    prediction_id: str | None = None
     asset_id: str
     line_id: str
+    plant_location: str | None = None
+    failure_mode: str | None = None
+    priority: str | None = None
     dispatched_at: str
+    resolved_at: str | None = None
     status: str
     cmms_target: str
     technician_qualification: str
@@ -324,6 +344,24 @@ class WorkOrderDispatchOutput(BaseModel):
     safety_interlocks: list[str]
     torque_specs_nm: float
     estimated_duration_hours: float
+    notes: str | None = None
+    resolution_notes: str | None = None
+    actual_failure_confirmed: bool | None = None
+
+
+class WorkOrderStatus(str, Enum):
+    DISPATCHED = "DISPATCHED_TO_CMMS"
+    IN_PROGRESS = "IN_PROGRESS"
+    RESOLVED = "RESOLVED"
+
+
+class WorkOrderUpdateInput(BaseModel):
+    status: WorkOrderStatus
+    resolution_notes: str | None = Field(None, description="Technician findings and corrective action summary")
+    actual_failure_confirmed: bool | None = Field(
+        None,
+        description="Ground-truth confirmation of failure for active-learning feedback",
+    )
 
 
 class ModelInfoResponse(BaseModel):
@@ -403,3 +441,30 @@ class NarrationOutput(PredictionOutput):
         None,
         description="Counterfactual minimal-fix remediation analysis if requested or computed",
     )
+
+
+class FleetAssetSummary(BaseModel):
+    asset_id: str
+    total_evaluations: int
+    high_risk_count: int
+    latest_failure_risk: str
+    latest_probability: float
+    latest_temperature: float
+    latest_vibration: float
+    latest_operating_hours: float
+    latest_regime: str
+    latest_runtime: str
+    last_seen: str | None = None
+
+
+class FleetSummaryResponse(BaseModel):
+    total_assets: int
+    critical_assets: int
+    assets: list[FleetAssetSummary]
+
+
+class AssetRULResponse(BaseModel):
+    asset_id: str
+    has_history: bool
+    history_points_used: int
+    rul: RULOutput | None = None

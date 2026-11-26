@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import enum
 import logging
+import math
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -47,7 +48,47 @@ class InferenceEngine:
         self.onnx_path = onnx_model_path
         self.onnx_session: Any = None
         self.input_name: str = ""
+        self._platt_calibrators: List[Tuple[float, float]] = []
         self._init_onnx_session()
+        self._init_platt_calibrators()
+
+    def _init_platt_calibrators(self) -> None:
+        """Extracts Platt sigmoid parameters (a_, b_) from the calibrated model for ONNX parity."""
+        pairs: List[Tuple[float, float]] = []
+        model = getattr(predictor, "model", None)
+        if model is not None and hasattr(model, "calibrated_classifiers_"):
+            try:
+                for cc in model.calibrated_classifiers_:
+                    cals = getattr(cc, "calibrators", None) or []
+                    if cals and hasattr(cals[0], "a_") and hasattr(cals[0], "b_"):
+                        pairs.append((float(cals[0].a_), float(cals[0].b_)))
+            except Exception as err:
+                logger.debug(f"Could not extract Platt calibrators from model.pkl: {err}")
+
+        if not pairs:
+            meta_cals = (getattr(predictor, "metadata", None) or {}).get("calibration", {}).get("platt_params", [])
+            for item in meta_cals:
+                if "a" in item and "b" in item:
+                    pairs.append((float(item["a"]), float(item["b"])))
+
+        self._platt_calibrators = pairs
+        if pairs:
+            logger.info(f"Loaded {len(pairs)} Platt sigmoid calibrators for calibrated ONNX edge parity.")
+
+    def calibrate_onnx_probability(self, raw_prob: float) -> float:
+        """Applies ensemble-averaged Platt sigmoid calibration to raw ONNX probability."""
+        if not self._platt_calibrators:
+            return float(raw_prob)
+        calibrated_scores: List[float] = []
+        for a, b in self._platt_calibrators:
+            z = a * float(raw_prob) + b
+            if z >= 60.0:
+                calibrated_scores.append(0.0)
+            elif z <= -60.0:
+                calibrated_scores.append(1.0)
+            else:
+                calibrated_scores.append(1.0 / (1.0 + math.exp(z)))
+        return float(sum(calibrated_scores) / len(calibrated_scores))
 
     def _init_onnx_session(self) -> None:
         """Initializes thread-safe ONNX Runtime session with optimized execution providers."""
@@ -110,7 +151,8 @@ class InferenceEngine:
         features_array = np.asarray(features_df[predictor.feature_names].values, dtype=np.float32)
 
         if runtime == InferenceRuntime.ONNX and self.onnx_session is not None:
-            label, prob = self.predict_onnx_fast(features_array)
+            _, raw_prob = self.predict_onnx_fast(features_array)
+            prob = self.calibrate_onnx_probability(raw_prob)
             duration_ms = (time.perf_counter() - t_start) * 1000.0
 
             failure_risk = "HIGH" if prob >= active_threshold else "LOW"
@@ -129,17 +171,18 @@ class InferenceEngine:
                 "shap_values": {},
                 "top_risk_factor": "unspecified (onnx-fast)",
                 "contribution_pct": None,
-                "suggested_action": "Telemetry evaluated via high-speed ONNX edge inference.",
+                "suggested_action": "Telemetry evaluated via Platt-calibrated ONNX edge inference.",
             }
 
         elif runtime == InferenceRuntime.HYBRID and self.onnx_session is not None:
             _, raw_prob = self.predict_onnx_fast(features_array)
-            # Fast-path exit if ONNX proves equipment is deep in safe zone (< 0.15)
-            if raw_prob < 0.15:
+            cal_prob = self.calibrate_onnx_probability(raw_prob)
+            # Fast-path exit when calibrated ONNX probability is safely below half the threshold
+            if cal_prob < active_threshold * 0.5:
                 duration_ms = (time.perf_counter() - t_start) * 1000.0
                 return {
                     "failure_risk": "LOW",
-                    "probability": round(raw_prob * 0.2, 4),  # Scaled approximation
+                    "probability": round(cal_prob, 4),
                     "maintenance_required": False,
                     "decision_threshold": active_threshold,
                     "runtime": "hybrid-onnx-fastpath",

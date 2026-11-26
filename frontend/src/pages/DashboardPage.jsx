@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Terminal, LogOut, Shield, User, Clock, Radio, Camera, FileText, ExternalLink, Trash2, Cloud, Eye } from 'lucide-react';
+import { Terminal, LogOut, User, Clock, Radio, FileText, ExternalLink, Trash2, Eye } from 'lucide-react';
 import { getSession, logout, logPageAccess, getAccessLog, getReportsForUser, deleteReport } from '../auth';
-import { isCloudinaryConfigured } from '../cloudinary';
 import ReportDetailModal from '../components/ReportDetailModal';
 
 // Existing PMS modules
@@ -13,9 +12,12 @@ import DriftMonitor from '../components/DriftMonitor';
 import BatchPredict from '../components/BatchPredict';
 import RULForecastCard from '../components/RULForecastCard';
 import DigitalTwinSimulator from '../components/DigitalTwinSimulator';
+import FleetOverviewPanel from '../components/FleetOverviewPanel';
+import WorkOrdersPanel from '../components/WorkOrdersPanel';
 import {
   getHealth, getModelInfo, predictMaintenance, predictRul,
   getHistory, clearHistory, getDriftStatus, exportHistory,
+  getFleetSummary, getAssetRul, getWorkOrders, connectTelemetryStream,
   API_BASE_URL
 } from '../api';
 import { Sliders, Layers, LayoutGrid, Upload, Cpu } from 'lucide-react';
@@ -28,16 +30,34 @@ const DEFAULT_FORM_DATA = {
   operating_hours: 4820
 };
 
+const DEFAULT_CONTEXT_DATA = {
+  machine_id: 'CNC-MILL-01',
+  machine_type: 'Heavy-Duty',
+  regime: 'steady_state_heavy',
+  ambient_temperature: 25.0,
+  hours_since_last_service: 120.0,
+  recent_fault_count_24h: 0,
+  temp_rate_of_change: 0.0,
+  vibration_crest_factor: 2.5,
+};
+
 export default function DashboardPage({ onLogout }) {
   const session = getSession();
 
   const [formData, setFormData]     = useState(DEFAULT_FORM_DATA);
+  const [runtime, setRuntime]       = useState('xgboost');
+  const [contextEnabled, setContextEnabled] = useState(false);
+  const [contextData, setContextData]       = useState(DEFAULT_CONTEXT_DATA);
   const [result, setResult]         = useState(null);
   const [loading, setLoading]       = useState(false);
   const [health, setHealth]         = useState(null);
   const [modelInfo, setModelInfo]   = useState(null);
   const [driftStatus, setDriftStatus] = useState(null);
   const [history, setHistory]       = useState([]);
+  const [fleetSummary, setFleetSummary] = useState(null);
+  const [workOrders, setWorkOrders] = useState([]);
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [wsStatus, setWsStatus]     = useState('connecting');
   const [errorMsg, setErrorMsg]     = useState(null);
   const [activeTab, setActiveTab]   = useState('all');
   const [myAccessLog, setMyAccessLog] = useState([]);
@@ -45,14 +65,25 @@ export default function DashboardPage({ onLogout }) {
   const [selectedReport, setSelectedReport] = useState(null);
   const [rulForecast, setRulForecast] = useState(null);
   const [rulLoading,  setRulLoading]  = useState(false);
+  const [rulSourceMeta, setRulSourceMeta] = useState(null);
 
   const refreshReports = useCallback(() => {
     if (session?.userId) setMyReports(getReportsForUser(session?.userId));
   }, [session?.userId]);
 
-  const fetchRulForecast = useCallback(async (currentData) => {
+  const fetchRulForecast = useCallback(async (currentData, assetOverride) => {
     setRulLoading(true);
     try {
+      const targetAsset = assetOverride !== undefined ? assetOverride : (selectedAsset || contextData.machine_id);
+      if (targetAsset) {
+        const assetRul = await getAssetRul(targetAsset).catch(() => null);
+        if (assetRul?.has_history && assetRul?.rul) {
+          setRulForecast(assetRul.rul);
+          setRulSourceMeta({ hasHistory: true, assetId: targetAsset, points: assetRul.history_points_used });
+          return;
+        }
+      }
+
       const target = currentData || formData;
       const trajectory = [];
       const steps = 20;
@@ -68,12 +99,13 @@ export default function DashboardPage({ onLogout }) {
       }
       const rulRes = await predictRul(trajectory);
       setRulForecast(rulRes);
+      setRulSourceMeta({ hasHistory: false });
     } catch (err) {
       console.warn('RUL calculation note:', err);
     } finally {
       setRulLoading(false);
     }
-  }, [formData]);
+  }, [formData, selectedAsset, contextData.machine_id]);
 
   // Log page access on mount
   useEffect(() => {
@@ -83,22 +115,26 @@ export default function DashboardPage({ onLogout }) {
     refreshReports();
   }, [session?.userId, refreshReports]);
 
-  const fetchSystemStatus = async () => {
+  const fetchSystemStatus = useCallback(async (assetFilter = selectedAsset) => {
     try {
-      const [healthRes, infoRes, historyRes, driftRes] = await Promise.all([
+      const [healthRes, infoRes, historyRes, driftRes, fleetRes, woRes] = await Promise.all([
         getHealth().catch(() => null),
         getModelInfo().catch(() => null),
-        getHistory().catch(() => []),
-        getDriftStatus().catch(() => null)
+        getHistory(25, assetFilter).catch(() => []),
+        getDriftStatus().catch(() => null),
+        getFleetSummary().catch(() => null),
+        getWorkOrders(assetFilter).catch(() => []),
       ]);
       if (healthRes)  setHealth(healthRes);
       if (infoRes)    setModelInfo(infoRes);
       if (historyRes) setHistory(historyRes);
       if (driftRes)   setDriftStatus(driftRes);
+      if (fleetRes)   setFleetSummary(fleetRes);
+      if (woRes)      setWorkOrders(woRes);
     } catch (err) {
       console.warn('Status fetch warning:', err);
     }
-  };
+  }, [selectedAsset]);
 
   const refreshAccessLog = useCallback(() => {
     const log = getAccessLog().filter(e => e.userId === session?.userId);
@@ -112,16 +148,58 @@ export default function DashboardPage({ onLogout }) {
       fetchSystemStatus();
     }, 15000);
     return () => clearInterval(interval);
-  }, [fetchRulForecast]);
+  }, [fetchSystemStatus, fetchRulForecast]);
+
+  // Live WebSocket telemetry stream
+  useEffect(() => {
+    const disconnect = connectTelemetryStream({
+      onStatus: setWsStatus,
+      onEvent: (ev) => {
+        if (ev?.type === 'prediction') {
+          if (!selectedAsset || ev.asset_id === selectedAsset) {
+            setHistory(prev => {
+              if (prev.some(item => item.prediction_id === ev.prediction_id)) return prev;
+              return [ev, ...prev].slice(0, 25);
+            });
+          }
+          getFleetSummary().then(res => res && setFleetSummary(res)).catch(() => {});
+        }
+      },
+    });
+    return disconnect;
+  }, [selectedAsset]);
 
   const handleFieldChange = (name, value) => setFormData(prev => ({ ...prev, [name]: value }));
+  const handleContextChange = (name, value) => setContextData(prev => ({ ...prev, [name]: value }));
+  const handleSelectAsset = (assetId) => {
+    setSelectedAsset(assetId);
+    if (assetId) {
+      setContextData(prev => ({ ...prev, machine_id: assetId }));
+    }
+    fetchSystemStatus(assetId);
+    fetchRulForecast(formData, assetId);
+  };
   const handleSelectPreset = (presetData) => {
     setFormData(presetData);
     fetchRulForecast(presetData);
   };
-  const handleResetForm = () => setFormData(DEFAULT_FORM_DATA);
+  const handleResetForm = () => {
+    setFormData(DEFAULT_FORM_DATA);
+    setContextData(DEFAULT_CONTEXT_DATA);
+  };
 
-  const handleSelectHistoryRow = (rowData) => {
+  const buildPredictPayload = useCallback(() => {
+    if (!contextEnabled) return formData;
+    const { temp_rate_of_change, vibration_crest_factor, ...ctxFields } = contextData;
+    return {
+      ...formData,
+      context: ctxFields,
+      temp_rate_of_change,
+      vibration_crest_factor,
+    };
+  }, [formData, contextEnabled, contextData]);
+
+  const handleSelectHistoryRow = (rowData, fullRow) => {
     const nextData = {
       temperature: rowData.temperature,
       rpm: rowData.rpm,
@@ -130,24 +208,32 @@ export default function DashboardPage({ onLogout }) {
       operating_hours: rowData.operating_hours
     };
     setFormData(nextData);
-    fetchRulForecast(nextData);
+    if (fullRow?.asset_id) {
+      setContextData(prev => ({ ...prev, machine_id: fullRow.asset_id }));
+    }
+    fetchRulForecast(nextData, fullRow?.asset_id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSubmit = useCallback(async (e) => {
+  const handleSubmit = useCallback(async (e, overrideRuntime) => {
     if (e && e.preventDefault) e.preventDefault();
+    const activeRuntime = typeof overrideRuntime === 'string' ? overrideRuntime : runtime;
+    const payload = buildPredictPayload();
     setLoading(true);
     setErrorMsg(null);
     try {
-      const pred = await predictMaintenance(formData);
-      setResult({ ...pred, input_data: formData });
-      fetchRulForecast(formData);
-      const [updatedHistory, updatedDrift] = await Promise.all([
-        getHistory().catch(() => []),
-        getDriftStatus().catch(() => null)
+      const pred = await predictMaintenance(payload, activeRuntime);
+      setResult({ ...pred, input_data: payload });
+      const activeAsset = pred.asset_id || (contextEnabled ? contextData.machine_id : selectedAsset);
+      fetchRulForecast(formData, activeAsset);
+      const [updatedHistory, updatedDrift, updatedFleet] = await Promise.all([
+        getHistory(25, selectedAsset).catch(() => []),
+        getDriftStatus().catch(() => null),
+        getFleetSummary().catch(() => null),
       ]);
       setHistory(updatedHistory);
       if (updatedDrift) setDriftStatus(updatedDrift);
+      if (updatedFleet) setFleetSummary(updatedFleet);
     } catch (err) {
       const isNetworkError = !err.response && (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error'));
       setErrorMsg(
@@ -159,7 +245,7 @@ export default function DashboardPage({ onLogout }) {
     } finally {
       setLoading(false);
     }
-  }, [formData, fetchRulForecast]);
+  }, [formData, runtime, contextEnabled, contextData.machine_id, selectedAsset, buildPredictPayload, fetchRulForecast]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -235,7 +321,7 @@ export default function DashboardPage({ onLogout }) {
               }}
             />
             <Radio size={12} style={{ opacity: 0.8 }} />
-            <span>{isHealthy ? 'ONLINE' : 'CONNECTING'}</span>
+            <span>{isHealthy ? (wsStatus === 'connected' ? 'LIVE WS' : 'ONLINE') : 'CONNECTING'}</span>
           </div>
           <a
             href={`${API_BASE_URL}/docs`}
@@ -293,6 +379,16 @@ export default function DashboardPage({ onLogout }) {
         </div>
       )}
 
+      {/* Multi-Asset Fleet Matrix */}
+      {(activeTab === 'all' || activeTab === 'telemetry' || activeTab === 'mlops') && (
+        <FleetOverviewPanel
+          fleet={fleetSummary}
+          selectedAsset={selectedAsset}
+          onSelectAsset={handleSelectAsset}
+          onRefresh={() => fetchSystemStatus(selectedAsset)}
+        />
+      )}
+
       {/* Telemetry */}
       {(activeTab === 'all' || activeTab === 'telemetry') && (
         <>
@@ -303,13 +399,26 @@ export default function DashboardPage({ onLogout }) {
               onSubmit={handleSubmit}
               loading={loading}
               onReset={handleResetForm}
+              runtime={runtime}
+              onRuntimeChange={setRuntime}
+              contextEnabled={contextEnabled}
+              onToggleContext={() => setContextEnabled(v => !v)}
+              contextData={contextData}
+              onContextChange={handleContextChange}
             />
-            <PredictionResult result={result} />
+            <PredictionResult
+              result={result}
+              onReevaluateWithShap={() => {
+                setRuntime('xgboost');
+                handleSubmit(null, 'xgboost');
+              }}
+            />
           </div>
           <RULForecastCard
             rulData={rulForecast}
             loading={rulLoading}
             onRefresh={() => fetchRulForecast(formData)}
+            rulSourceMeta={rulSourceMeta}
           />
         </>
       )}
@@ -325,9 +434,15 @@ export default function DashboardPage({ onLogout }) {
       {/* MLOps */}
       {(activeTab === 'all' || activeTab === 'mlops') && (
         <>
-          <DriftMonitor driftStatus={driftStatus} modelInfo={modelInfo} onRefresh={fetchSystemStatus} />
+          <DriftMonitor driftStatus={driftStatus} modelInfo={modelInfo} onRefresh={() => fetchSystemStatus(selectedAsset)} />
+          <WorkOrdersPanel
+            workOrders={workOrders}
+            selectedAsset={selectedAsset}
+            onRefresh={() => fetchSystemStatus(selectedAsset)}
+          />
           <HistoryTable
             history={history}
+            selectedAsset={selectedAsset}
             onSelectRow={handleSelectHistoryRow}
             onClearHistory={handleClearHistory}
             onExport={exportHistory}

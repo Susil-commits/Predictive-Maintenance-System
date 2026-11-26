@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Database, Trash2, ArrowUpRight, Download, Check } from 'lucide-react';
 
-export default function HistoryTable({ history, onSelectRow, onClearHistory, onExport }) {
+export default function HistoryTable({ history, onSelectRow, onClearHistory, onExport, selectedAsset }) {
   const [copiedCsv, setCopiedCsv] = useState(false);
 
   const handleExport = () => {
@@ -13,11 +13,13 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory, onE
     }
     // fallback: client-side CSV from current history prop
     if (!history || history.length === 0) return;
-    const headers = ['timestamp', 'temperature', 'rpm', 'pressure', 'vibration', 'operating_hours', 'failure_risk', 'probability'];
+    const headers = ['timestamp', 'asset_id', 'runtime', 'temperature', 'rpm', 'pressure', 'vibration', 'operating_hours', 'failure_risk', 'probability'];
     const rows = history.map(r => {
       const input = r.input_features || r;
       return [
         r.timestamp || '',
+        r.asset_id || 'CNC-MILL-01',
+        r.runtime || 'xgboost',
         input.temperature, input.rpm, input.pressure,
         input.vibration, input.operating_hours,
         r.failure_risk, r.probability
@@ -56,7 +58,7 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory, onE
           <Database size={18} className="panel-icon" />
           <span>Audit Log Database</span>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 400, fontFamily: 'var(--font-mono)' }}>
-            [{history.length} events]
+            [{history.length} events{selectedAsset ? ` · ${selectedAsset}` : ''}]
           </span>
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -88,6 +90,8 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory, onE
           <thead>
             <tr>
               <th>Timestamp</th>
+              <th>Asset</th>
+              <th>Runtime</th>
               <th>Temp (°C)</th>
               <th>RPM</th>
               <th>Pressure</th>
@@ -107,8 +111,10 @@ export default function HistoryTable({ history, onSelectRow, onClearHistory, onE
               const input = row.input_features || row;
 
               return (
-                <tr key={row.prediction_id} onClick={() => onSelectRow(input)}>
+                <tr key={row.prediction_id} onClick={() => onSelectRow(input, row)}>
                   <td style={{ color: 'var(--text-dim)' }}>{dateStr}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: '#38bdf8' }}>{row.asset_id || 'CNC-MILL-01'}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: '#a78bfa' }}>{row.runtime || 'xgboost'}</td>
                   <td>{input.temperature}</td>
                   <td>{input.rpm}</td>
                   <td>{input.pressure}</td>
