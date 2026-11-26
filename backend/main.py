@@ -76,6 +76,7 @@ from .predictor import (
     scaler,
 )
 from .realtime import telemetry_broadcaster
+from .redis_client import cache_delete_prefix, cache_get_json, cache_set_json
 from .rul_engine import predict_rul_quantiles
 from .scheduler import drift_scheduler
 from .schemas import (
@@ -1164,6 +1165,14 @@ def get_drift_status(
     if _drift_cache["report"] and _drift_cache["window"] == window and (now - _drift_cache["timestamp"] < 20.0):
         return _drift_cache["report"]
 
+    redis_cache_key = f"pms:drift_cache:{window}"
+    redis_cached = cache_get_json(redis_cache_key)
+    if isinstance(redis_cached, dict) and "max_psi" in redis_cached:
+        _drift_cache["timestamp"] = now
+        _drift_cache["window"] = window
+        _drift_cache["report"] = redis_cached
+        return redis_cached
+
     try:
         records = db.query(PredictionRecord).order_by(desc(PredictionRecord.timestamp)).limit(window).all()
         formatted_records = [r.to_dict() for r in records]
@@ -1173,10 +1182,11 @@ def get_drift_status(
         METRICS["drift_detected"] = 1 if report.get("drift_detected") else 0
         METRICS["max_psi"] = float(report.get("max_psi") or 0.0)
 
-        # Cache result
+        # Cache result locally and in Redis
         _drift_cache["timestamp"] = now
         _drift_cache["window"] = window
         _drift_cache["report"] = report
+        cache_set_json(redis_cache_key, report, ttl_seconds=20)
 
         return report
     except Exception as e:
@@ -1197,6 +1207,7 @@ def reset_drift_detector(api_key: str = Depends(require_admin_api_key)):
     Requires administrative API key ('X-API-Key' header or JWT with role == 'admin').
     """
     _drift_cache["report"] = None
+    cache_delete_prefix("pms:drift_cache:")
     loaded = drift_detector.load_reference_stats()
     METRICS["drift_detected"] = 0
     METRICS["max_psi"] = 0.0
@@ -1237,6 +1248,7 @@ def execute_retraining():
         drift_detector.load_reference_stats()
         # Invalidate drift cache on new model reload
         _drift_cache["report"] = None
+        cache_delete_prefix("pms:drift_cache:")
         try:
             get_audit_logger().record_event(
                 event_type="MODEL_RETRAIN_COMPLETED",

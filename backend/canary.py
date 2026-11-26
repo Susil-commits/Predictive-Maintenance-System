@@ -13,8 +13,10 @@ from typing import Any
 import joblib
 
 from .logging_config import get_request_id
+from .redis_client import cache_get_json, cache_set_json
 
 logger = logging.getLogger("pms.canary")
+CANARY_STATE_KEY = "pms:canary:state"
 
 ML_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml")
 PRIMARY_MODEL_PATH = os.path.join(ML_DIR, "model.pkl")
@@ -99,7 +101,29 @@ class CanaryManager:
             f"[CANARY ACTIVATED] Starting 50-request shadow evaluation for Candidate ({self.canary_version}) "
             f"vs Primary ({self.primary_version})."
         )
+        self._sync_to_redis()
         return self.get_status()
+
+    def _build_status_unlocked(self) -> dict[str, Any]:
+        rate = round(self.agreements / max(1, self.evaluated_requests), 4) if self.evaluated_requests > 0 else 1.0
+        return {
+            "is_active": self.is_active,
+            "primary_version": self.primary_version,
+            "canary_version": self.canary_version,
+            "evaluated_requests": self.evaluated_requests,
+            "remaining_requests": self.remaining_requests,
+            "agreements": self.agreements,
+            "disagreements": self.disagreements,
+            "agreement_rate": rate,
+            "ready_for_promotion": self.ready_for_promotion,
+            "auto_switch_completed": self.auto_switch_completed,
+            "recent_evaluations": self.side_by_side_logs[-10:],
+        }
+
+    def _sync_to_redis(self) -> None:
+        with self._lock:
+            snapshot = self._build_status_unlocked()
+        cache_set_json(CANARY_STATE_KEY, snapshot, ttl_seconds=86400)
 
     def evaluate_request(
         self,
@@ -172,6 +196,7 @@ class CanaryManager:
                     f"Overall Agreement Rate: {agreement_rate:.1f}%. Candidate is ready for full promotion."
                 )
 
+            self._sync_to_redis()
             return log_entry
         except Exception as err:
             logger.warning(f"[CANARY ERROR] Failed to evaluate shadow prediction: {err}")
@@ -192,12 +217,14 @@ class CanaryManager:
             logger.info(
                 f"[CANARY PROMOTED] Successfully promoted {self.canary_version} to active production primary model."
             )
-            return {
+            result = {
                 "status": "PROMOTED",
                 "new_primary_version": self.primary_version,
                 "total_shadow_evaluated": self.evaluated_requests,
                 "final_agreement_rate": round(self.agreements / max(1, self.evaluated_requests), 4),
             }
+        self._sync_to_redis()
+        return result
 
     def abort_canary(self) -> dict[str, Any]:
         """Aborts canary rollout and unloads candidate model."""
@@ -205,25 +232,18 @@ class CanaryManager:
             self.is_active = False
             self.canary_model = None
             logger.warning("[CANARY ABORTED] Canary rollout aborted. Reverting exclusively to primary model.")
-            return {"status": "ABORTED", "active_primary_version": self.primary_version}
+            result = {"status": "ABORTED", "active_primary_version": self.primary_version}
+        self._sync_to_redis()
+        return result
 
     def get_status(self) -> dict[str, Any]:
-        """Returns current canary state and progress."""
+        """Returns current canary state and progress (reading shared Redis state if present)."""
+        remote = cache_get_json(CANARY_STATE_KEY)
         with self._lock:
-            rate = round(self.agreements / max(1, self.evaluated_requests), 4) if self.evaluated_requests > 0 else 1.0
-            return {
-                "is_active": self.is_active,
-                "primary_version": self.primary_version,
-                "canary_version": self.canary_version,
-                "evaluated_requests": self.evaluated_requests,
-                "remaining_requests": self.remaining_requests,
-                "agreements": self.agreements,
-                "disagreements": self.disagreements,
-                "agreement_rate": rate,
-                "ready_for_promotion": self.ready_for_promotion,
-                "auto_switch_completed": self.auto_switch_completed,
-                "recent_evaluations": self.side_by_side_logs[-10:],
-            }
+            local = self._build_status_unlocked()
+            if isinstance(remote, dict) and not local["is_active"] and remote.get("is_active"):
+                return remote
+            return local
 
 
 canary_manager = CanaryManager()

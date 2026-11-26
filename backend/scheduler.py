@@ -24,8 +24,10 @@ from .database import SessionLocal
 from .drift_detector import drift_detector
 from .metrics import metrics
 from .models import PredictionRecord
+from .redis_client import acquire_distributed_lock, cache_get_json, cache_set_json
 
 logger = logging.getLogger("pms.scheduler")
+SCHEDULER_STATE_KEY = "pms:scheduler:state"
 
 
 class DriftScheduler:
@@ -49,9 +51,9 @@ class DriftScheduler:
     def start(self) -> None:
         """Starts the APScheduler with daily drift evaluation job."""
         if not self.scheduler.running:
-            # Schedule daily at 02:00 UTC, or default 24h interval
+            # Schedule daily at 02:00 UTC, or default 24h interval (leader-locked via Redis)
             self.scheduler.add_job(
-                self.run_drift_check,
+                self.scheduled_drift_check,
                 trigger=IntervalTrigger(hours=24),
                 id="daily_drift_monitoring",
                 name="Daily Production Data Drift & Retraining Check",
@@ -59,7 +61,20 @@ class DriftScheduler:
             )
             self.scheduler.start()
             self.state["is_running"] = True
+            self._sync_state_to_redis()
             logger.info("APScheduler initialized with daily drift check (every 24 hours).")
+
+    def _sync_state_to_redis(self) -> None:
+        with self._lock:
+            snapshot = dict(self.state)
+        cache_set_json(SCHEDULER_STATE_KEY, snapshot, ttl_seconds=86400)
+
+    async def scheduled_drift_check(self) -> dict[str, Any]:
+        """Leader-locked scheduled drift check preventing duplicate execution across workers."""
+        if not acquire_distributed_lock("pms:lock:drift_check", ttl_seconds=60):
+            logger.info("[Scheduler] Another worker holds the drift check leader lock; skipping duplicate tick.")
+            return {"status": "SKIPPED_LOCK_HELD"}
+        return await self.run_drift_check()
 
     def shutdown(self, wait: bool = False) -> None:
         """Gracefully shuts down APScheduler."""
@@ -124,6 +139,7 @@ class DriftScheduler:
             with self._lock:
                 self.state["retraining_recommended"] = True
                 self.state["last_retrain_status"] = "TRIGGERED"
+            self._sync_state_to_redis()
 
             # Trigger training pipeline in background thread to avoid blocking event loop
             threading.Thread(target=self._execute_retraining_pipeline, daemon=True).start()
@@ -140,6 +156,7 @@ class DriftScheduler:
             with self._lock:
                 self.state["retraining_recommended"] = False
                 self.state["last_retrain_status"] = "STABLE"
+            self._sync_state_to_redis()
 
             return {
                 "status": "HEALTHY",
@@ -150,6 +167,9 @@ class DriftScheduler:
 
     def _execute_retraining_pipeline(self) -> None:
         """Executes ml/train.py to generate a candidate model without auto-promoting."""
+        if not acquire_distributed_lock("pms:lock:retrain", ttl_seconds=1800):
+            logger.warning("[Scheduler Retrain] Redis retrain lock already held by another worker. Skipping.")
+            return
         train_script = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "ml",
@@ -201,8 +221,19 @@ class DriftScheduler:
                     pass
 
     def get_status(self) -> dict[str, Any]:
-        """Returns scheduler state and scheduled job details."""
+        """Returns scheduler state and scheduled job details (merging shared Redis state if present)."""
+        remote = cache_get_json(SCHEDULER_STATE_KEY)
         with self._lock:
+            merged = (
+                {**remote, **self.state}
+                if isinstance(remote, dict) and not self.state.get("last_check_timestamp")
+                else dict(self.state)
+            )
+            if isinstance(remote, dict) and remote.get("last_check_timestamp"):
+                if not merged.get("last_check_timestamp") or str(remote["last_check_timestamp"]) > str(
+                    merged["last_check_timestamp"]
+                ):
+                    merged.update(remote)
             jobs_info = []
             for j in self.scheduler.get_jobs():
                 jobs_info.append(
@@ -212,7 +243,7 @@ class DriftScheduler:
                         "next_run_time": (j.next_run_time.isoformat() if j.next_run_time else None),
                     }
                 )
-            return {**self.state, "active_jobs": jobs_info}
+            return {**merged, "active_jobs": jobs_info}
 
 
 drift_scheduler = DriftScheduler()

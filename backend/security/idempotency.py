@@ -11,14 +11,14 @@ Supports three storage tiers:
 
 from __future__ import annotations
 
-import importlib
 import json
 import logging
-import os
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
+
+from backend.redis_client import get_redis_client
 
 logger = logging.getLogger("pms.security.idempotency")
 
@@ -43,19 +43,7 @@ class IdempotencyManager:
         self._redis_client: Any = self._init_redis()
 
     def _init_redis(self) -> Any:
-        redis_url = os.getenv("REDIS_URL", "").strip()
-        if not redis_url:
-            return None
-        try:
-            redis_mod = importlib.import_module("redis")
-
-            client = redis_mod.Redis.from_url(redis_url, decode_responses=True, socket_connect_timeout=1.5)
-            client.ping()
-            logger.info("IdempotencyManager connected to Redis distributed store.")
-            return client
-        except Exception as err:
-            logger.debug(f"Redis unavailable for IdempotencyManager (using DB/memory): {err}")
-            return None
+        return get_redis_client()
 
     def _get_key_lock(self, key: str) -> threading.Lock:
         with self._global_lock:
