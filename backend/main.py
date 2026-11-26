@@ -45,6 +45,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import desc, inspect, text
 from sqlalchemy.orm import Session
 
+from .active_learning import compute_feedback_metrics, export_feedback_dataset
 from .auth import (
     require_admin_auth,
     seed_initial_admin,
@@ -81,6 +82,8 @@ from .schemas import (
     AssetRULResponse,
     CounterfactualOutput,
     DriftStatusResponse,
+    FeedbackExportResponse,
+    FeedbackMetricsResponse,
     FleetAssetSummary,
     FleetSummaryResponse,
     HealthResponse,
@@ -1206,25 +1209,89 @@ def reset_drift_detector(api_key: str = Depends(require_admin_api_key)):
 
 def execute_retraining():
     """
-    Runs the ML training pipeline script, updates version, and reloads model in memory.
+    Exports technician ground-truth work-order feedback, runs ml/train.py,
+    updates version, and reloads predictor, ONNX Platt calibrators, and drift baselines.
     Guarded by _retrain_lock.
     """
     global _retraining_active
     train_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml", "train.py")
     try:
+        try:
+            with SessionLocal() as db:
+                fb_summary = export_feedback_dataset(db)
+                logger.info(f"[Retraining] Exported {fb_summary['exported_samples']} active-learning feedback samples.")
+        except Exception as fb_err:
+            logger.warning(f"[Retraining] Feedback export skipped: {fb_err}")
+
         logger.info("[Retraining] Triggering ml/train.py...")
         result = subprocess.run([sys.executable, train_script], capture_output=True, text=True, check=True)
         logger.info(f"[Retraining] Training completed successfully. Tail: {result.stdout[-300:].strip()}")
         predictor.load_model()
+        try:
+            from .inference_engine import inference_engine
+
+            inference_engine._init_onnx_session()
+            inference_engine._init_platt_calibrators()
+        except Exception as ie_err:
+            logger.warning(f"[Retraining] Inference engine reload note: {ie_err}")
         drift_detector.load_reference_stats()
         # Invalidate drift cache on new model reload
         _drift_cache["report"] = None
+        try:
+            get_audit_logger().record_event(
+                event_type="MODEL_RETRAIN_COMPLETED",
+                actor_id="mlops_pipeline",
+                details={"new_version": predictor.version},
+                status="SUCCESS",
+            )
+        except Exception:
+            pass
         logger.info(f"[Retraining] Predictor successfully reloaded with version {predictor.version}")
     except Exception as e:
         logger.error(f"[Retraining] Pipeline error: {e}")
     finally:
         with _retrain_lock:
             _retraining_active = False
+
+
+@app.get("/mlops/feedback-metrics", response_model=FeedbackMetricsResponse, tags=["MLOps"])
+def get_active_learning_feedback_metrics(db: Session = Depends(get_db)):
+    """
+    Returns live production precision, false-alarm rate, and confusion metrics computed
+    from resolved CMMS work orders linked to logged predictions.
+    """
+    return compute_feedback_metrics(db)
+
+
+@app.post(
+    "/mlops/export-feedback",
+    response_model=FeedbackExportResponse,
+    tags=["MLOps"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+def export_active_learning_feedback(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(require_admin_api_key),
+):
+    """
+    Exports technician-confirmed production feedback samples to CSV for active-learning retraining.
+    Requires administrative authorization ('X-API-Key' or admin JWT).
+    """
+    summary = export_feedback_dataset(db)
+    try:
+        get_audit_logger().record_event(
+            event_type="ACTIVE_LEARNING_EXPORT",
+            actor_id="admin",
+            details={
+                "exported_samples": summary["exported_samples"],
+                "confirmed_faults": summary["confirmed_faults"],
+                "false_alarms": summary["false_alarms"],
+            },
+            status="SUCCESS",
+        )
+    except Exception:
+        pass
+    return summary
 
 
 @app.post(

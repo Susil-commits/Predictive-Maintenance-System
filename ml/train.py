@@ -245,6 +245,48 @@ def run_pipeline():
         if "failure_type" in df_fe.columns
         else np.array(["Normal"] * len(y_test))
     )
+    failure_type_train = (
+        np.asarray(df_fe["failure_type"].iloc[train_idx].values, dtype=object)
+        if "failure_type" in df_fe.columns
+        else np.array(["Normal"] * len(y_train), dtype=object)
+    )
+
+    # Closed-Loop Active Learning: merge technician-verified production feedback into train split only
+    feedback_path = os.path.join(os.path.dirname(ML_DIR), "data", "production_feedback.csv")
+    feedback_samples_added = 0
+    feedback_confirmed_faults = 0
+    feedback_false_alarms = 0
+    fb_weights = np.array([], dtype=np.float32)
+
+    if os.path.exists(feedback_path):
+        try:
+            fb_raw = pd.read_csv(feedback_path)
+            if not fb_raw.empty:
+                fb_fe = feature_engineering(fb_raw)
+                X_fb = pd.DataFrame(fb_fe[feature_cols]).reset_index(drop=True)
+                y_fb = pd.Series(fb_raw["failure"].astype(int)).reset_index(drop=True)
+                ft_fb = (
+                    np.asarray(fb_raw["failure_type"].fillna("Random Failures").values, dtype=object)
+                    if "failure_type" in fb_raw.columns
+                    else np.array(["Random Failures"] * len(fb_raw), dtype=object)
+                )
+                fb_weights = (
+                    np.asarray(fb_raw["source_weight"], dtype=np.float32)
+                    if "source_weight" in fb_raw.columns
+                    else np.full(len(fb_raw), 2.5, dtype=np.float32)
+                )
+                X_train = pd.DataFrame(pd.concat([X_train, X_fb], ignore_index=True))
+                y_train = pd.Series(pd.concat([y_train, y_fb], ignore_index=True))
+                failure_type_train = np.concatenate([failure_type_train, ft_fb])
+                feedback_samples_added = len(fb_raw)
+                feedback_confirmed_faults = int((y_fb == 1).sum())
+                feedback_false_alarms = int((y_fb == 0).sum())
+                print(
+                    f"\n[Active Learning] Merged {feedback_samples_added} technician-labeled production samples "
+                    f"(faults={feedback_confirmed_faults}, false_alarms={feedback_false_alarms}) into training split."
+                )
+        except Exception as fb_err:
+            print(f"[Active Learning Note] Could not load {feedback_path}: {fb_err}")
 
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -257,13 +299,10 @@ def run_pipeline():
     print(f"\n[Class Imbalance Analysis] Normal={neg_count}, Failures={pos_count} (Ratio={scale_pos_weight:.4f})")
 
     # Class-weighted sample weighting to address severe data scarcity for Tool Wear Failures (<0.45% of data)
-    failure_type_train = (
-        df_fe["failure_type"].iloc[train_idx].values
-        if "failure_type" in df_fe.columns
-        else np.array(["Normal"] * len(y_train))
-    )
-    sample_weight = np.ones(len(y_train), dtype=np.float32)
-    sample_weight[failure_type_train == "Tool Wear Failure"] = np.float32(3.0)
+    base_len = len(train_idx)
+    base_weights = np.ones(base_len, dtype=np.float32)
+    base_weights[failure_type_train[:base_len] == "Tool Wear Failure"] = np.float32(3.0)
+    sample_weight = np.concatenate([base_weights, fb_weights]) if len(fb_weights) > 0 else base_weights
     print(
         f"[Class Weighting] Applied failure-mode sample weighting: Tool Wear Failure x3.0 ({int((failure_type_train == 'Tool Wear Failure').sum())} training samples)"
     )
@@ -940,6 +979,11 @@ def run_pipeline():
         "base_features": base_features,
         "segmented_performance": segmented_results,
         "scenario_validation": scenario_results,
+        "active_learning": {
+            "feedback_samples_incorporated": feedback_samples_added,
+            "confirmed_faults": feedback_confirmed_faults,
+            "false_alarms": feedback_false_alarms,
+        },
     }
 
     with open(metadata_file, "w") as f:

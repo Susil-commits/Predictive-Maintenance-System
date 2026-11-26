@@ -382,6 +382,7 @@ class ModelInfoResponse(BaseModel):
     cv_failure_mode_performance: dict[str, Any] | None = None
     stratified_5fold_cv_per_mode: dict[str, Any] | None = None
     scenario_validation: dict[str, Any] | None = None
+    active_learning: dict[str, Any] | None = None
 
 
 class HealthResponse(BaseModel):
@@ -468,3 +469,29 @@ class AssetRULResponse(BaseModel):
     has_history: bool
     history_points_used: int
     rul: RULOutput | None = None
+
+
+class FeedbackConfusionMatrix(BaseModel):
+    true_positives: int
+    false_positives: int
+    false_negatives: int
+    true_negatives: int
+
+
+class FeedbackMetricsResponse(BaseModel):
+    total_work_orders: int
+    resolved_with_feedback: int
+    labeled_with_telemetry: int
+    confirmed_faults: int
+    false_alarms: int
+    confusion_matrix: FeedbackConfusionMatrix
+    production_precision: float | None = None
+    false_alarm_rate: float | None = None
+    failure_mode_breakdown: dict[str, dict[str, int]] = {}
+
+
+class FeedbackExportResponse(BaseModel):
+    exported_samples: int
+    confirmed_faults: int
+    false_alarms: int
+    output_path: str

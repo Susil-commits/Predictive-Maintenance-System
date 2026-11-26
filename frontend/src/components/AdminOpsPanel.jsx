@@ -12,6 +12,7 @@ import {
   Lock,
   Loader2,
   AlertTriangle,
+  Database,
 } from 'lucide-react';
 import {
   getInferenceBenchmark,
@@ -24,6 +25,8 @@ import {
   getSecurityTelemetry,
   getSecurityAuditTrail,
   verifyAuditChain,
+  getFeedbackMetrics,
+  exportFeedbackDataset,
 } from '../api';
 
 export default function AdminOpsPanel() {
@@ -40,6 +43,9 @@ export default function AdminOpsPanel() {
   const [auditEvents, setAuditEvents] = useState([]);
   const [chainValid, setChainValid] = useState(null);
   const [chainError, setChainError] = useState(null);
+  const [feedbackMetrics, setFeedbackMetrics] = useState(null);
+  const [exportStatus, setExportStatus] = useState('');
+  const [exportBusy, setExportBusy] = useState(false);
   const [opsError, setOpsError] = useState('');
   const [loadingAll, setLoadingAll] = useState(true);
 
@@ -47,11 +53,12 @@ export default function AdminOpsPanel() {
     if (showSpinner) setLoadingAll(true);
     setOpsError('');
     try {
-      const [canaryRes, schedRes, secRes, auditRes] = await Promise.all([
+      const [canaryRes, schedRes, secRes, auditRes, fbRes] = await Promise.all([
         getCanaryStatus().catch(() => null),
         getSchedulerJobs().catch(() => null),
         getSecurityTelemetry().catch(() => null),
         getSecurityAuditTrail().catch(() => null),
+        getFeedbackMetrics().catch(() => null),
       ]);
       if (canaryRes) setCanary(canaryRes);
       if (schedRes) setScheduler(schedRes);
@@ -60,6 +67,7 @@ export default function AdminOpsPanel() {
         setAuditEvents(auditRes.events || []);
         setChainValid(auditRes.chain_verified);
       }
+      if (fbRes) setFeedbackMetrics(fbRes);
     } catch (err) {
       setOpsError(err?.message || 'Failed to load MLOps & Security telemetry');
     } finally {
@@ -126,6 +134,20 @@ export default function AdminOpsPanel() {
       if (trail) setAuditEvents(trail.events || []);
     } catch (err) {
       setOpsError(err?.response?.data?.detail || err.message || 'Chain verification failed');
+    }
+  };
+
+  const handleExportFeedback = async () => {
+    setExportBusy(true);
+    setOpsError('');
+    setExportStatus('');
+    try {
+      const res = await exportFeedbackDataset();
+      setExportStatus(`Exported ${res.exported_samples} labeled samples (${res.confirmed_faults} faults, ${res.false_alarms} false alarms).`);
+    } catch (err) {
+      setOpsError(err?.response?.data?.detail || err.message || 'Feedback export failed');
+    } finally {
+      setExportBusy(false);
     }
   };
 
@@ -304,6 +326,58 @@ export default function AdminOpsPanel() {
           ) : (
             <div className="empty-state" style={{ padding: '18px 10px' }}>
               {loadingAll ? 'Loading scheduler...' : 'Scheduler status unavailable.'}
+            </div>
+          )}
+        </div>
+
+        {/* Closed-Loop Active Learning & Live Precision */}
+        <div className="glass-panel">
+          <div className="panel-header">
+            <h2 className="panel-title">
+              <Database size={17} className="panel-icon" />
+              <span>Active Learning Feedback</span>
+            </h2>
+            <button
+              type="button"
+              className="preset-btn highlight"
+              onClick={handleExportFeedback}
+              disabled={exportBusy}
+              style={{ padding: '4px 10px', fontSize: '0.7rem', gap: 5 }}
+            >
+              {exportBusy ? <Loader2 size={11} className="batch-spin" /> : <Zap size={11} />}
+              <span>Export Feedback CSV</span>
+            </button>
+          </div>
+
+          {feedbackMetrics ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'var(--font-mono)', fontSize: '0.73rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div style={{ padding: '7px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: '0.64rem', color: 'var(--text-dim)' }}>LIVE PRECISION</div>
+                  <div style={{ color: '#34d399', fontWeight: 700 }}>
+                    {feedbackMetrics.production_precision != null ? `${(feedbackMetrics.production_precision * 100).toFixed(1)}%` : 'Pending'}
+                  </div>
+                </div>
+                <div style={{ padding: '7px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: '0.64rem', color: 'var(--text-dim)' }}>FALSE ALARM RATE</div>
+                  <div style={{ color: '#fb7185', fontWeight: 700 }}>
+                    {feedbackMetrics.false_alarm_rate != null ? `${(feedbackMetrics.false_alarm_rate * 100).toFixed(1)}%` : 'Pending'}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                <span style={{ color: 'var(--text-dim)' }}>Resolved Labels</span>
+                <span style={{ color: '#e4e4e7' }}>
+                  {feedbackMetrics.resolved_with_feedback} ({feedbackMetrics.confirmed_faults} faults · {feedbackMetrics.false_alarms} nominal)
+                </span>
+              </div>
+              {exportStatus && (
+                <div style={{ fontSize: '0.7rem', color: '#34d399' }}>{exportStatus}</div>
+              )}
+            </div>
+          ) : (
+            <div className="empty-state" style={{ padding: '18px 10px' }}>
+              {loadingAll ? 'Loading feedback metrics...' : 'Feedback telemetry unavailable.'}
             </div>
           )}
         </div>

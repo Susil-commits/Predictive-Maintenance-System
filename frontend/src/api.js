@@ -228,6 +228,16 @@ export const triggerRetrain = async () => {
   return response.data;
 };
 
+export const getFeedbackMetrics = async () => {
+  const response = await api.get('/mlops/feedback-metrics');
+  return response.data;
+};
+
+export const exportFeedbackDataset = async () => {
+  const response = await api.post('/mlops/export-feedback');
+  return response.data;
+};
+
 export const getCanaryStatus = async () => {
   const response = await api.get('/canary/status');
   return response.data;

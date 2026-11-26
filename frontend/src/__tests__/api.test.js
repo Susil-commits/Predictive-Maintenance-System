@@ -11,6 +11,8 @@ import api, {
   updateWorkOrderStatus,
   getInferenceBenchmark,
   verifyAuditChain,
+  getFeedbackMetrics,
+  exportFeedbackDataset,
 } from '../api.js';
 
 test('API_BASE_URL defaults to localhost:8000 without trailing slash', () => {
@@ -59,6 +61,8 @@ test('getHistory and getWorkOrders serialize optional filters cleanly', async ()
     await updateWorkOrderStatus('WO-2026-01', { status: 'RESOLVED', actual_failure_confirmed: true });
     await getInferenceBenchmark(50);
     await verifyAuditChain();
+    await getFeedbackMetrics();
+    await exportFeedbackDataset();
 
     assert.equal(urls[0].url, '/history?limit=15&asset_id=CNC-MILL-01');
     assert.equal(urls[1].url, '/fleet/summary?limit=200');
@@ -68,6 +72,9 @@ test('getHistory and getWorkOrders serialize optional filters cleanly', async ()
     assert.equal(urls[4].url, '/maintenance/work-orders/WO-2026-01');
     assert.equal(urls[5].url, '/inference/benchmark?iterations=50');
     assert.equal(urls[6].url, '/api/security/verify-chain');
+    assert.equal(urls[7].url, '/mlops/feedback-metrics');
+    assert.equal(urls[8].method, 'post');
+    assert.equal(urls[8].url, '/mlops/export-feedback');
   } finally {
     api.defaults.adapter = origAdapter;
   }
