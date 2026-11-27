@@ -44,6 +44,7 @@ services:
       DATABASE_URL: postgresql://pms_user:pms_secret@db:5432/pms_db
       REDIS_URL: redis://redis:6379/0
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      ALERTMANAGER_WEBHOOK_SECRET: ${ALERTMANAGER_WEBHOOK_SECRET:-}
     ports:
       - "8000:8000"
 
@@ -78,6 +79,21 @@ services:
       - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
     ports:
       - "9090:9090"
+    depends_on:
+      - backend
+      - alertmanager
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: pms-alertmanager
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    ports:
+      - "9093:9093"
     depends_on:
       - backend
 

@@ -1,7 +1,7 @@
 # Predictive Maintenance System (PMS)
 
 [![PMS CI Pipeline](https://github.com/Susil-commits/Predictive-Maintenance-System/actions/workflows/ci.yml/badge.svg)](https://github.com/Susil-commits/Predictive-Maintenance-System/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-96%20Passing%20%7C%20100%25-brightgreen.svg)](backend/tests/)
+[![Tests](https://img.shields.io/badge/Tests-123%20Passing%20%7C%20Backend%20%2B%20Frontend-brightgreen.svg)](backend/tests/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-21%C2%B5s%20Latency-005CED?logo=onnx&logoColor=white)](https://onnxruntime.ai)
 [![MCP](https://img.shields.io/badge/MCP-JSON--RPC%202.0-8A2BE2)](backend/mcp_server.py)
@@ -14,11 +14,12 @@
 > - ⚡ **API Gateway**: [https://pms-backend.onrender.com](https://pms-backend.onrender.com) | 📖 **OpenAPI Docs**: [/docs](https://pms-backend.onrender.com/docs) | 📊 **Metrics**: [/metrics](https://pms-backend.onrender.com/metrics)
 
 The Predictive Maintenance System (PMS) is an end-to-end industrial machine learning platform and edge-ready API designed for real-time condition monitoring, failure risk prediction, and automated technician dispatch across industrial powertrains. It features:
-* **Context Engineering**: Operational regime awareness (`idle`, `warmup`, `steady_state_heavy`), environmental ambient factors, and temporal momentum derivatives ($dT/dt$, vibration crest factors) to eliminate context blindness in AI briefings.
+* **Context Engineering**: Operational regime awareness (`idle`, `warmup`, `steady_state_light`, `steady_state_heavy`, `shutdown`), environmental ambient factors, and temporal momentum derivatives ($dT/dt$, vibration crest factors) to eliminate context blindness in AI briefings.
 * **Harness Engineering Suite**: Zero-hardware physical degradation simulators (Thermal Runaway, Overstrain, Tool Wear, Sensor Glitches), RAG/AI evaluation benchmarks on golden cases, and automated chaos fault injection.
-* **Dual-Runtime Inferencing**: Microsecond edge scoring via C++ ONNX Runtime (0.021 ms latency, 90.4x speedup) coupled with calibrated Platt sigmoid scaling (`CalibratedClassifierCV`) and explainable SHAP TreeExplainer attributions.
-* **Model Context Protocol (MCP) Server**: Standardized JSON-RPC 2.0 interface enabling autonomous AI coding agents (Antigravity, Claude Desktop, Cursor) to inspect telemetry, run diagnostics, and dispatch maintenance orders.
-* **Enterprise Reliability**: Population drift monitoring (PSI), rolling remaining useful life (RUL) regression, dual DBAPI resilience (`psycopg` v3 / `psycopg2` / SQLite), and a responsive React 19 operational dashboard.
+* **Dual-Runtime & Vectorized ONNX Inferencing**: Microsecond C++ ONNX Runtime (`0.021 ms` latency, `90.4x` speedup) with Platt sigmoid calibration parity and vectorized 5,000-row batch scoring (`POST /batch-predict?runtime=onnx`), alongside Calibrated XGBoost + SHAP TreeExplainer attributions.
+* **Multi-Asset Fleet Streaming & Redis Coordination**: Real-time plant telemetry replay (`POST /fleet/simulate-stream`), WebSocket pub/sub streaming (`WS /ws/telemetry`), Redis 7 rate limiting, drift cache invalidation, and `SET NX EX` distributed leader locks.
+* **Closed-Loop Active Learning & Durable Persistence**: PostgreSQL/SQLite persistence across predictions, CMMS work orders, diagnostic reports, technician access logs, SHA-256 audit hash chains, and confirmed-fault CSV dataset export (`POST /mlops/export-feedback`).
+* **Turnkey Observability & Alerting**: Auto-provisioned Grafana dashboards (`monitoring/provisioning/`), 5 Prometheus alert rules, Alertmanager (`:9093`) webhook ingestion (`POST /ops/alerts/webhook`) into the cryptographic audit chain and critical CMMS dispatch, plus a standardized MCP JSON-RPC 2.0 server.
 
 > [!NOTE]
 > **Dataset & Scope Disclosure:** Trained and evaluated on the UCI AI4I 2020 synthetic milling benchmark (10,000 records). Reported metrics validate end-to-end data pipelines, calibration dynamics, and architecture, but **do not represent field reliability on physical machinery**.
@@ -131,8 +132,8 @@ PMS incorporates a dual-runtime inference architecture designed for high-frequen
 | **Calibrated XGBoost** (`ml/model.pkl`) | Python / Cython | 1.909 ms | 2.450 ms | ~520 req/sec | Full SHAP attribution & probabilistic uncertainty |
 | **Speedup Disparity** | — | **90.4x Faster** | — | — | **Sub-millisecond edge classification** |
 
-* **Reason to Implement**: Edge PLCs and high-speed CNC controllers sample at 100Hz–1kHz. Standard Python XGBoost execution (~2ms) consumes excessive CPU budget and introduces queueing jitter. Exporting the booster to ONNX eliminates interpreter overhead and unlocks 47,000+ predictions/sec per core.
-* **Honest Technical Disclosure**: The serialized ONNX model (`ml/model.onnx`) outputs uncalibrated decision probabilities. For true calibrated probabilities and local Shapley attribution, the `hybrid` runtime mode executes ONNX as a sub-millisecond triage filter, invoking the full TreeExplainer only when probability breaches the decision threshold.
+* **Reason to Implement**: Edge PLCs and high-speed CNC controllers sample at 100Hz–1kHz. Standard Python XGBoost execution (~2ms) consumes excessive CPU budget and introduces queueing jitter. Exporting the booster to ONNX eliminates interpreter overhead and unlocks 47,000+ predictions/sec per core as well as vectorized 5,000-row batch scoring (`POST /batch-predict?runtime=onnx`).
+* **Calibration Parity Disclosure**: While the raw ONNX graph (`ml/model.onnx`) outputs uncalibrated classifier margins, `InferenceEngine` extracts the 3-fold Platt sigmoid coefficients `(a, b)` into `_platt_calibrators` and applies calibrated probability parity in both single-frame (`onnx`) and vectorized batch ONNX scoring. The `hybrid` mode pairs ONNX speed with on-demand SHAP TreeExplainer attribution whenever calibrated risk exceeds threshold (`0.2849`).
 
 ---
 
@@ -209,21 +210,25 @@ PMS implements the open **Model Context Protocol (MCP)** (JSON-RPC 2.0), enablin
 
 ### Option 1: Full-Stack Docker Compose (Recommended)
 
-Start the API gateway, React UI, PostgreSQL database, Prometheus collector, and Grafana with one command:
+Start the API gateway, React UI, PostgreSQL 16, Redis 7, MLflow, Prometheus, Alertmanager, and auto-provisioned Grafana with one command (requires `PMS_API_KEY`, `JWT_SECRET`, and `ADMIN_PASSWORD` in `.env` or environment):
 
 ```bash
-docker-compose up --build -d
+cp .env.example .env   # Configure secrets first
+docker compose up --build -d
 ```
 
 | Service | Access URL | Default Credentials / Purpose |
 | :--- | :--- | :--- |
-| **React Dashboard** | `http://localhost:3000` | Operational web interface |
-| **FastAPI Backend** | `http://localhost:8000` | Interactive OpenAPI documentation at `/docs` |
-| **Prometheus** | `http://localhost:9090` | Telemetry & PSI scraping engine |
-| **Grafana** | `http://localhost:3001` | Pre-configured operational monitoring |
-| **PostgreSQL** | `localhost:5432` | User: `postgres`, Password: `password` |
+| **React Dashboard** | `http://localhost:3000` | Operational web interface (Nginx proxy) |
+| **FastAPI Backend** | `http://localhost:8000` | Interactive OpenAPI docs (`/docs`), `/metrics`, `/ops/alerts/webhook` |
+| **Prometheus** | `http://localhost:9090` | Scrapes `/metrics` & evaluates 5 rules in `prometheus/alert_rules.yml` |
+| **Alertmanager** | `http://localhost:9093` | Routes firing/resolved alerts to `backend:8000/ops/alerts/webhook` |
+| **Grafana** | `http://localhost:3001` | User: `admin`, Password: `admin` (Auto-provisioned PMS dashboard) |
+| **MLflow Registry** | `http://localhost:5000` | Experiment tracking and model artifact registry |
+| **PostgreSQL 16** | `localhost:5432` | DB: `pms_db`, User: `pms_user`, Password: `pms_secret` |
+| **Redis 7** | `localhost:6379` | Distributed rate limiting, locks, drift cache & WebSocket Pub/Sub |
 
-To tear down: `docker-compose down -v`
+To tear down: `docker compose down -v`
 
 ### Option 2: Local Python & Node.js Development
 
@@ -231,24 +236,37 @@ To tear down: `docker-compose down -v`
 # 1. Backend Setup
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r backend/requirements.txt
-cp .env.example .env
-python ml/train.py                                   # Generate serialized model artifacts
+cp .env.example .env                                 # Configure DATABASE_URL, JWT_SECRET, PMS_API_KEY, ADMIN_PASSWORD
+PYTHONPATH=. alembic upgrade head                    # Apply schema migrations
+python ml/train.py                                   # Generate calibrated PKL & ONNX model artifacts
 uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 
 # 2. Frontend Setup (separate terminal)
 cd frontend && npm install && npm run dev
 ```
 
-Run test suite: `pytest backend/tests/ -v --cov=backend --cov-report=term-missing`
+Run quality & test gates locally:
+```bash
+# Backend checks (114 tests + lint/format/types)
+ruff check backend ml harness
+black --check backend ml harness
+pyright --level warning
+pytest backend/tests/ -v --cov=backend --cov-report=term-missing
+
+# Frontend checks (zero-warning oxlint + 9 API/component tests + Vite build)
+cd frontend && npm run lint && npm test && npm run build
+```
 
 ---
 
 ## 📖 Deep Documentation & References
 
+- 📘 **[Operations, API & Runbook Reference](docs/OPERATIONS_AND_API_REFERENCE.md)**: Complete REST/WebSocket endpoint matrix, Prometheus alert rules, Alertmanager webhook bridge, Grafana provisioning, Redis coordination, and CI PostgreSQL/Redis parity.
+- 🎨 **[Frontend Architecture & Testing Guide](frontend/README.md)**: React 19 + Vite 6 component map, `oxlint --deny-warnings`, `node:test`, and `Vitest` + Testing Library guide.
 - 🎯 **[Boardroom Strategy, Forensic Audit & Agent Plan](docs/BOARDROOM_STRATEGY_AND_AUDIT.md)**: Executive C-suite presentation script, red flag kill-list, Prescriptive Digital Twin specifications, and phased agent execution roadmap.
 - ⚡ **[Distributed Systems & Performance Blueprint (50 Pillars)](docs/DISTRIBUTED_SYSTEMS_AND_PERFORMANCE.md)**: High-scale database transactions, ACID, indexing, distributed caching, idempotency, circuit breakers, CQRS, and W3C distributed tracing.
 - 🛡️ **[Enterprise Security & AI Hardening Manual](docs/ENTERPRISE_SECURITY.md)**: Zero-trust architecture, cryptographic audit hash chains, prompt injection defenses, canary honeytokens, and SOC 2 / ISO 27001 compliance.
-- 🏛️ **[System Architecture Reference](docs/ARCHITECTURE.md)**: Four-tier deep dive, physics formulas, FFT spectral extraction, DB pooling, and canary mechanics.
+- 🏛️ **[System Architecture Reference](docs/ARCHITECTURE.md)**: Four-tier deep dive, physics formulas, FFT spectral extraction, Platt ONNX calibration parity, Redis coordination, DB pooling, and canary mechanics.
 - 💼 **[Business Case & Industrial ROI](docs/BUSINESS_CASE.md)**: Worked economic example on downtime reduction, cost-sensitive optimization matrix, and unit economics.
 - 📋 **[Scientific Model Card](ml/MODEL_CARD.md)**: Explicit intended and out-of-scope uses, calibration reliability curves, slice verification, and known weaknesses.
 - 🚀 **[Load Testing & Concurrency Benchmark](docs/LOAD_TEST_RESULTS.md)**: Locust benchmark results at 10, 50, and 100 users, connection pooling mechanics, and latency breakdown.
@@ -258,7 +276,7 @@ Run test suite: `pytest backend/tests/ -v --cov=backend --cov-report=term-missin
 
 ## 📜 License & Citation
 
-Licensed under the **MIT License** — see [LICENSE](LICENSE).
+Licensed under the **MIT License** ([MIT](https://opensource.org/licenses/MIT)). See [SECURITY.md](SECURITY.md) for responsible vulnerability disclosure.
 
 ```bibtex
 @misc{pms2026,

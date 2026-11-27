@@ -84,7 +84,7 @@ PMS supports multi-runtime execution across C++ ONNX Runtime and Python XGBoost:
 | **Calibrated XGBoost (Python)** | `ml/model.pkl` | 1.909 ms | 2.450 ms | ~520 req/sec | Full SHAP TreeExplainer attribution & Platt scaling |
 | **Speedup Factor** | — | **90.4x Faster** | — | — | Sub-millisecond edge triage |
 
-> **Calibration Disclosure**: `ml/model.onnx` was serialized from the raw uncalibrated `XGBClassifier` booster. It outputs raw decision margins rather than Platt-calibrated probabilities. To balance microsecond latency with strict probabilistic calibration, the `hybrid` runtime mode executes ONNX as a sub-millisecond triage filter, invoking the calibrated `CalibratedClassifierCV` + SHAP TreeExplainer only when probability breaches the decision threshold.
+> **Calibration Parity Disclosure**: `ml/model.onnx` serializes the underlying `XGBClassifier` graph for C++ ONNX Runtime execution, while [`InferenceEngine`](../backend/inference_engine.py) extracts the 3-fold Platt sigmoid parameters `(a, b)` into `_platt_calibrators` (`calibrate_onnx_probability`) to apply Platt calibration parity across both single-frame ONNX inference and vectorized batch scoring (`predict_onnx_batch`). The `hybrid` mode pairs ONNX scoring with on-demand SHAP TreeExplainer attribution whenever calibrated risk exceeds threshold (`0.2849`).
 
 ## Context Engineering & Physical Degradation Verification
 

@@ -335,6 +335,14 @@ export const getCircuitStatus = async () => {
   return response.data;
 };
 
+export const getOpsAlerts = async (limit = 50, severity = null, status = null) => {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (severity) params.set('severity', severity);
+  if (status) params.set('status', status);
+  const response = await api.get(`/ops/alerts?${params.toString()}`);
+  return response.data;
+};
+
 export const batchPredict = async (file, runtime = 'xgboost') => {
   const formData = new FormData();
   formData.append('file', file);

@@ -495,3 +495,45 @@ class FeedbackExportResponse(BaseModel):
     confirmed_faults: int
     false_alarms: int
     output_path: str
+
+
+class AlertmanagerAlertItem(BaseModel):
+    status: str = "firing"
+    labels: dict[str, str] = {}
+    annotations: dict[str, str] = {}
+    startsAt: str | None = None
+    endsAt: str | None = None
+    generatorURL: str | None = None
+    fingerprint: str | None = None
+
+
+class AlertmanagerWebhookPayload(BaseModel):
+    version: str | None = None
+    groupKey: str | None = None
+    status: str = "firing"
+    receiver: str | None = None
+    groupLabels: dict[str, str] = {}
+    commonLabels: dict[str, str] = {}
+    commonAnnotations: dict[str, str] = {}
+    externalURL: str | None = None
+    alerts: list[AlertmanagerAlertItem] = []
+
+
+class OpsAlertRecord(BaseModel):
+    event_index: int
+    timestamp: float
+    alertname: str
+    severity: str
+    status: str
+    summary: str = ""
+    description: str = ""
+    asset_id: str | None = None
+    fingerprint: str | None = None
+    work_order_id: str | None = None
+    event_hash: str
+
+
+class OpsAlertWebhookResponse(BaseModel):
+    received_alerts: int
+    recorded_events: int
+    dispatched_work_orders: list[str] = []

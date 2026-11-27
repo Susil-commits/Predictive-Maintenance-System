@@ -91,6 +91,97 @@ jobs:
           python -m harness.eval.eval_harness
           python -m harness.chaos.chaos_runner
 
+  postgres-redis-parity:
+    name: PostgreSQL 16 & Redis 7 Integration Parity
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pms_db
+          POSTGRES_USER: pms_user
+          POSTGRES_PASSWORD: pms_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U pms_user -d pms_db"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgomp1 libpq-dev
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Generate Ephemeral CI Secrets
+        run: |
+          ADMIN_PWD="${{ secrets.CI_TEST_ADMIN_PASSWORD }}"
+          [ -z "$ADMIN_PWD" ] && ADMIN_PWD=$(openssl rand -hex 32)
+          echo "ADMIN_PASSWORD=$ADMIN_PWD" >> $GITHUB_ENV
+
+          JWT_SEC="${{ secrets.CI_TEST_JWT_SECRET }}"
+          [ -z "$JWT_SEC" ] && JWT_SEC=$(openssl rand -hex 32)
+          echo "JWT_SECRET=$JWT_SEC" >> $GITHUB_ENV
+
+          API_KEY="${{ secrets.CI_TEST_API_KEY }}"
+          [ -z "$API_KEY" ] && API_KEY=$(openssl rand -hex 32)
+          echo "PMS_API_KEY=$API_KEY" >> $GITHUB_ENV
+
+      - name: Run Alembic Migrations against PostgreSQL 16
+        env:
+          DATABASE_URL: postgresql://pms_user:pms_secret@localhost:5432/pms_db
+          PYTHONPATH: .
+        run: |
+          alembic upgrade head
+
+      - name: Verify Live Redis 7 Connectivity & Distributed Lock
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          PYTHONPATH: .
+        run: |
+          python -c "from backend.redis_client import get_redis_client, acquire_distributed_lock; client = get_redis_client(); assert client is not None and client.ping(); assert acquire_distributed_lock('ci:parity:lock', ttl_seconds=5) is True; print('REDIS_PARITY_OK')"
+
+      - name: Validate Monitoring YAML & Dashboard JSON
+        run: |
+          python -c "import json, yaml; [yaml.safe_load(open(p)) for p in ['prometheus/prometheus.yml','prometheus/alert_rules.yml','prometheus/alertmanager.yml','monitoring/provisioning/datasources/prometheus.yml','monitoring/provisioning/dashboards/pms.yml','docker-compose.yml']]; json.load(open('monitoring/grafana_dashboard.json')); print('MONITORING_CONFIG_OK')"
+
+      - name: Run Integration Tests against PostgreSQL 16 + Redis 7
+        env:
+          DATABASE_URL: postgresql://pms_user:pms_secret@localhost:5432/pms_db
+          REDIS_URL: redis://localhost:6379/0
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: ${{ env.ADMIN_PASSWORD }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          PMS_API_KEY: ${{ env.PMS_API_KEY }}
+          PYTHONPATH: .
+        run: |
+          pytest backend/tests/test_persistent_enterprise.py backend/tests/test_reports_and_access_logs.py backend/tests/test_alertmanager_webhook.py backend/tests/test_fleet_and_streaming.py -v
+
   audit:
     name: Security Vulnerability Audit (pip-audit)
     runs-on: ubuntu-latest

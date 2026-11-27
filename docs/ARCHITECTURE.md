@@ -27,22 +27,26 @@ flowchart TD
         Ingest --> Drift["Population Stability Index (PSI)<br/>(Real-Time Data Drift Engine)"]
     end
 
-    subgraph TIER3["Tier 3: Persistence & Storage"]
+    subgraph TIER3["Tier 3: Persistence, Coordination & Storage"]
         direction TB
         XGBoost --> ORM["SQLAlchemy ORM Layer<br/>(Pool Size: 20, Overflow: 30)"]
         RUL --> ORM
+        Gateway --> Redis["Redis 7 Scaling Layer<br/>(Rate Limit, Locks, Drift Cache, WS Pub/Sub)"]
         ORM --> DB_Driver{"Dual DBAPI Driver Adapter"}
         DB_Driver -->|Primary| Psycopg3["PostgreSQL (psycopg v3)"]
         DB_Driver -->|Fallback 1| Psycopg2["PostgreSQL (psycopg2-binary)"]
         DB_Driver -->|Fallback 2| SQLite["Local SQLite (pms.db)"]
     end
 
-    subgraph TIER4["Tier 4: Presentation & Observability"]
+    subgraph TIER4["Tier 4: Presentation, Alerting & Observability"]
         direction TB
-        XGBoost --> UI["React 19 Operations Dashboard<br/>(Telemetry Scoring, Batch Uploads, History)"]
+        XGBoost --> UI["React 19 Operations Dashboard<br/>(Fleet Matrix, WS Replay, Batch, Reports)"]
         Drift --> UI
-        Gateway --> Prometheus["Prometheus Metrics (/metrics)<br/>(Latencies, Counters, PSI Gauges)"]
-        Prometheus --> Grafana["Grafana Telemetry Dashboards"]
+        Redis --> WS["WebSocket Telemetry Bus (/ws/telemetry)"]
+        WS --> UI
+        Gateway --> Prometheus["Prometheus Metrics & Alert Rules<br/>(Latencies, PSI Gauges, 5 Alert Rules)"]
+        Prometheus --> Grafana["Auto-Provisioned Grafana Dashboards"]
+        Prometheus --> Alertmanager["Alertmanager (/ops/alerts/webhook)<br/>(SHA-256 Audit + Critical Auto-CMMS)"]
         Gateway --> Canary["Canary Deployment Engine<br/>(10% -> 50% -> 100% Traffic Splitting)"]
     end
 
@@ -194,11 +198,16 @@ Industrial IoT streams generate telemetry at 100 Hz to 1 kHz per machine. Standa
         └──► Hybrid Dispatcher  ──► Triage filter via ONNX; executes SHAP only when risk is elevated
 ```
 
-### B. Empirical Benchmark Results
+### B. Empirical Benchmark & Calibration Parity
 - **ONNX Runtime (C++ Execution Provider)**: **0.021 ms** (21 µs) mean latency; throughput: **~47,600 req/sec** per CPU core.
-- **Calibrated XGBoost (Python)**: **1.909 ms** mean latency; throughput: **~520 req/sec**.
+- **Platt ONNX Calibration Parity**: `InferenceEngine` extracts the 3-fold Platt sigmoid parameters `(a, b)` into `_platt_calibrators` (`calibrate_onnx_probability`), keeping ONNX single-frame and vectorized `predict_onnx_batch` scores probabilistically calibrated without Python interpreter overhead.
+- **Calibrated XGBoost (Python)**: **1.909 ms** mean latency; throughput: **~520 req/sec** with full SHAP TreeExplainer attributions.
 - **Speedup Factor**: **90.4x faster**.
-- **Execution Routing**: Configurable via `runtime` parameter (`POST /predict?runtime=onnx|xgboost|hybrid`) or `X-Inference-Runtime` header.
+- **Execution Routing**: Configurable via `runtime` parameter (`POST /predict?runtime=onnx|xgboost|hybrid`, `POST /batch-predict?runtime=onnx|xgboost`) or `X-Inference-Runtime` header.
+
+### C. Closed-Loop Active Learning & Alertmanager Operations
+- **Technician Work-Order Feedback Loop**: Work orders resolved via `PATCH /maintenance/work-orders/{id}` record `actual_failure_confirmed`, feeding `compute_feedback_metrics` (`GET /mlops/feedback-metrics`) and leakage-free CSV export (`POST /mlops/export-feedback`) for candidate retraining.
+- **Turnkey Alerting Bridge**: Prometheus evaluates 5 rules in `prometheus/alert_rules.yml`, routes firing/resolved notifications via `prometheus/alertmanager.yml` to `POST /ops/alerts/webhook`, persists `PROMETHEUS_ALERT` records into the tamper-evident SHA-256 audit chain, pushes `ops_alert` frames over `WS /ws/telemetry`, and auto-dispatches deduplicated CMMS work orders on critical asset alerts.
 
 ---
 

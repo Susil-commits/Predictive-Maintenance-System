@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 from .active_learning import compute_feedback_metrics, export_feedback_dataset
 from .auth import (
     require_admin_auth,
+    require_alert_webhook_auth,
     require_authenticated_user,
     seed_initial_admin,
 )
@@ -82,6 +83,7 @@ from .reports import router as reports_router
 from .rul_engine import predict_rul_quantiles
 from .scheduler import drift_scheduler
 from .schemas import (
+    AlertmanagerWebhookPayload,
     AssetRULResponse,
     CounterfactualOutput,
     DriftStatusResponse,
@@ -92,6 +94,8 @@ from .schemas import (
     HealthResponse,
     ModelInfoResponse,
     NarrationOutput,
+    OpsAlertRecord,
+    OpsAlertWebhookResponse,
     PredictionInput,
     PredictionOutput,
     RULOutput,
@@ -680,35 +684,9 @@ def simulate_prescriptive_derate(request: Request, payload: SimulateDerateInput)
         )
 
 
-@app.post("/maintenance/dispatch-work-order", response_model=WorkOrderDispatchOutput, tags=["Maintenance & CMMS"])
-def dispatch_cmms_work_order(
-    payload: WorkOrderDispatchInput,
-    response: Response,
-    x_idempotency_key: str | None = Header(None, alias="X-Idempotency-Key"),
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    db: Session = Depends(get_db),
-):
-    """
-    Closed-Loop CMMS/ERP Dispatch Integration:
-    Compiles, persists, and dispatches an ISO-compliant, digitally signed work order payload formatted for
-    enterprise maintenance systems (SAP Plant Maintenance / IBM Maximo).
-    Guarantees exact-once execution via Idempotency-Key header support (Item 25).
-    """
-    idem_key = x_idempotency_key or idempotency_key
-    idempotency_mgr = get_idempotency_manager()
-
-    if idem_key:
-        cached = idempotency_mgr.get(idem_key)
-        if cached:
-            response.headers["X-Idempotent-Replay"] = "true"
-            response.headers["X-Cache-Lookup"] = "HIT"
-            return cached.data
-
-    now = datetime.now(UTC)
-    work_order_id = f"WO-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
-
-    # Standardized Bill of Materials (BOM) based on failure mode
-    mode = payload.failure_mode.lower()
+def _build_cmms_work_order_spec(failure_mode: str) -> dict[str, Any]:
+    """Resolves standardized CMMS BOM, duration, torque specs, and LOTO interlocks for a failure mode."""
+    mode = failure_mode.lower()
     if "therm" in mode:
         bom = [
             {"part_number": "HEX-PUMP-GASKET-68", "description": "Thermal Heat Exchanger Gasket Set", "qty": "1"},
@@ -754,13 +732,29 @@ def dispatch_cmms_work_order(
         duration = 4.5
         torque = 45.0
 
-    cmms_target = "SAP Plant Maintenance (SAP PM / IBM Maximo Connector)"
-    tech_qual = "Level II Vibration Analyst / Mechanical Specialist"
-    interlocks = [
-        "Lockout/Tagout (LOTO) procedure mandatory before mechanical decoupling",
-        "Verify zero residual hydraulic accumulator pressure prior to flange release",
-        "PPE: Arc-flash shield and thermal protective gloves required",
-    ]
+    return {
+        "cmms_target": "SAP Plant Maintenance (SAP PM / IBM Maximo Connector)",
+        "technician_qualification": "Level II Vibration Analyst / Mechanical Specialist",
+        "required_bom_parts": bom,
+        "safety_interlocks": [
+            "Lockout/Tagout (LOTO) procedure mandatory before mechanical decoupling",
+            "Verify zero residual hydraulic accumulator pressure prior to flange release",
+            "PPE: Arc-flash shield and thermal protective gloves required",
+        ],
+        "torque_specs_nm": torque,
+        "estimated_duration_hours": duration,
+    }
+
+
+def _persist_cmms_work_order(
+    payload: WorkOrderDispatchInput,
+    db: Session,
+    actor_id: str = "cmms_dispatcher",
+) -> dict[str, Any]:
+    """Compiles, persists, audits, and optionally webhooks an ISO-compliant CMMS work order."""
+    now = datetime.now(UTC)
+    work_order_id = f"WO-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    spec = _build_cmms_work_order_spec(payload.failure_mode)
 
     result = {
         "work_order_id": work_order_id,
@@ -773,12 +767,12 @@ def dispatch_cmms_work_order(
         "dispatched_at": now.isoformat(),
         "resolved_at": None,
         "status": "DISPATCHED_TO_CMMS",
-        "cmms_target": cmms_target,
-        "technician_qualification": tech_qual,
-        "required_bom_parts": bom,
-        "safety_interlocks": interlocks,
-        "torque_specs_nm": torque,
-        "estimated_duration_hours": duration,
+        "cmms_target": spec["cmms_target"],
+        "technician_qualification": spec["technician_qualification"],
+        "required_bom_parts": spec["required_bom_parts"],
+        "safety_interlocks": spec["safety_interlocks"],
+        "torque_specs_nm": spec["torque_specs_nm"],
+        "estimated_duration_hours": spec["estimated_duration_hours"],
         "notes": payload.notes,
         "resolution_notes": None,
         "actual_failure_confirmed": None,
@@ -794,12 +788,12 @@ def dispatch_cmms_work_order(
             failure_mode=payload.failure_mode,
             priority=payload.priority,
             status="DISPATCHED_TO_CMMS",
-            cmms_target=cmms_target,
-            technician_qualification=tech_qual,
-            required_bom_parts=bom,
-            safety_interlocks=interlocks,
-            torque_specs_nm=torque,
-            estimated_duration_hours=duration,
+            cmms_target=spec["cmms_target"],
+            technician_qualification=spec["technician_qualification"],
+            required_bom_parts=spec["required_bom_parts"],
+            safety_interlocks=spec["safety_interlocks"],
+            torque_specs_nm=spec["torque_specs_nm"],
+            estimated_duration_hours=spec["estimated_duration_hours"],
             notes=payload.notes,
             dispatched_at=now,
         )
@@ -812,7 +806,7 @@ def dispatch_cmms_work_order(
     try:
         get_audit_logger().record_event(
             event_type="CMMS_WORK_ORDER_DISPATCH",
-            actor_id="cmms_dispatcher",
+            actor_id=actor_id,
             details={
                 "work_order_id": work_order_id,
                 "asset_id": payload.asset_id,
@@ -832,6 +826,35 @@ def dispatch_cmms_work_order(
             httpx.post(webhook_url, json=result, timeout=3.0)
         except Exception as wh_err:
             logger.warning(f"CMMS outbound webhook failed for {work_order_id}: {wh_err}")
+
+    return result
+
+
+@app.post("/maintenance/dispatch-work-order", response_model=WorkOrderDispatchOutput, tags=["Maintenance & CMMS"])
+def dispatch_cmms_work_order(
+    payload: WorkOrderDispatchInput,
+    response: Response,
+    x_idempotency_key: str | None = Header(None, alias="X-Idempotency-Key"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    Closed-Loop CMMS/ERP Dispatch Integration:
+    Compiles, persists, and dispatches an ISO-compliant, digitally signed work order payload formatted for
+    enterprise maintenance systems (SAP Plant Maintenance / IBM Maximo).
+    Guarantees exact-once execution via Idempotency-Key header support (Item 25).
+    """
+    idem_key = x_idempotency_key or idempotency_key
+    idempotency_mgr = get_idempotency_manager()
+
+    if idem_key:
+        cached = idempotency_mgr.get(idem_key)
+        if cached:
+            response.headers["X-Idempotent-Replay"] = "true"
+            response.headers["X-Cache-Lookup"] = "HIT"
+            return cached.data
+
+    result = _persist_cmms_work_order(payload=payload, db=db, actor_id="cmms_dispatcher")
 
     if idem_key:
         idempotency_mgr.set(idem_key, 200, result)
@@ -1546,9 +1569,150 @@ async def verify_audit_chain(admin_auth: Any = Depends(require_admin_api_key)):
     tags=["Security & Compliance"],
     openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
 )
-async def get_circuit_status(admin_auth: Any = Depends(require_admin_api_key)):
+async def get_circuit_status(admin_auth: Any = Depends(require_admin_auth)):
     """Returns AI provider circuit breaker operational states."""
     failover_mgr = get_failover_manager()
     return {
         "providers": failover_mgr.all_statuses(),
     }
+
+
+# ==================== Alertmanager Webhook & Ops Alert Stream ====================
+
+
+@app.post(
+    "/ops/alerts/webhook",
+    response_model=OpsAlertWebhookResponse,
+    tags=["Observability & Ops"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+async def ingest_alertmanager_webhook(
+    payload: AlertmanagerWebhookPayload,
+    db: Session = Depends(get_db),
+    webhook_auth: dict[str, Any] = Depends(require_alert_webhook_auth),
+):
+    """
+    Receives Prometheus Alertmanager v4 webhooks, records tamper-evident audit events,
+    broadcasts live ops alerts over /ws/telemetry, and auto-dispatches deduplicated CMMS
+    work orders for critical asset-scoped firing alerts.
+    """
+    audit_logger = get_audit_logger()
+    idempotency_mgr = get_idempotency_manager()
+    dispatched_work_orders: list[str] = []
+    recorded_events = 0
+
+    alerts_to_process = payload.alerts or []
+    for alert in alerts_to_process:
+        labels = {**payload.commonLabels, **alert.labels}
+        annotations = {**payload.commonAnnotations, **alert.annotations}
+        alertname = labels.get("alertname", "PMSAlert")
+        severity = labels.get("severity", "warning")
+        alert_status = (alert.status or payload.status or "firing").lower()
+        asset_id = labels.get("asset_id")
+        fingerprint = alert.fingerprint or f"{alertname}:{severity}:{asset_id or 'global'}"
+        work_order_id: str | None = None
+
+        if alert_status == "firing" and severity == "critical" and asset_id:
+            idem_key = f"alertmanager:{fingerprint}:{alert_status}"
+            cached_wo = idempotency_mgr.get(idem_key)
+            if cached_wo and isinstance(cached_wo.data, dict):
+                work_order_id = cached_wo.data.get("work_order_id")
+            else:
+                wo_result = _persist_cmms_work_order(
+                    payload=WorkOrderDispatchInput(
+                        prediction_id=None,
+                        asset_id=asset_id,
+                        line_id=labels.get("line_id") or "Prometheus-Watchdog",
+                        plant_location=labels.get("plant_location") or "Plant 1 - Prometheus Watchdog",
+                        failure_mode=annotations.get("summary") or alertname,
+                        priority="CRITICAL",
+                        notes=annotations.get("description") or f"Triggered by Alertmanager rule {alertname}",
+                    ),
+                    db=db,
+                    actor_id=webhook_auth.get("actor", "alertmanager"),
+                )
+                work_order_id = str(wo_result["work_order_id"])
+                idempotency_mgr.set(idem_key, 200, wo_result)
+                dispatched_work_orders.append(work_order_id)
+
+        audit_logger.record_event(
+            event_type="PROMETHEUS_ALERT",
+            actor_id=webhook_auth.get("actor", "alertmanager"),
+            details={
+                "alertname": alertname,
+                "severity": severity,
+                "status": alert_status,
+                "summary": annotations.get("summary", ""),
+                "description": annotations.get("description", ""),
+                "asset_id": asset_id,
+                "fingerprint": fingerprint,
+                "work_order_id": work_order_id,
+                "receiver": payload.receiver,
+            },
+            status=alert_status.upper(),
+        )
+        recorded_events += 1
+
+        telemetry_broadcaster.publish(
+            {
+                "type": "ops_alert",
+                "alertname": alertname,
+                "severity": severity,
+                "status": alert_status,
+                "summary": annotations.get("summary", ""),
+                "asset_id": asset_id,
+                "work_order_id": work_order_id,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+
+    return OpsAlertWebhookResponse(
+        received_alerts=len(alerts_to_process),
+        recorded_events=recorded_events,
+        dispatched_work_orders=dispatched_work_orders,
+    )
+
+
+@app.get(
+    "/ops/alerts",
+    response_model=list[OpsAlertRecord],
+    tags=["Observability & Ops"],
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+async def list_ops_alerts(
+    limit: int = Query(50, ge=1, le=200),
+    severity: str | None = Query(None, description="Optional severity filter (critical, warning)"),
+    status_filter: str | None = Query(None, alias="status", description="Optional status filter (firing, resolved)"),
+    _user: dict[str, Any] = Depends(require_authenticated_user),
+):
+    """Returns recent Prometheus Alertmanager incidents persisted in the cryptographic audit trail."""
+    raw_events = get_audit_logger().get_recent_events(limit=max(limit * 5, 250))
+    results: list[OpsAlertRecord] = []
+    for ev in raw_events:
+        if ev.get("event_type") != "PROMETHEUS_ALERT":
+            continue
+        details = ev.get("details") or {}
+        ev_severity = str(details.get("severity", "warning"))
+        ev_status = str(details.get("status", ev.get("status", "firing"))).lower()
+        if severity and ev_severity.lower() != severity.lower():
+            continue
+        if status_filter and ev_status != status_filter.lower():
+            continue
+        results.append(
+            OpsAlertRecord(
+                event_index=int(ev["index"]),
+                timestamp=float(ev["timestamp"]),
+                alertname=str(details.get("alertname", "PMSAlert")),
+                severity=ev_severity,
+                status=ev_status,
+                summary=str(details.get("summary", "")),
+                description=str(details.get("description", "")),
+                asset_id=details.get("asset_id"),
+                fingerprint=details.get("fingerprint"),
+                work_order_id=details.get("work_order_id"),
+                event_hash=str(ev["event_hash"]),
+            )
+        )
+        if len(results) >= limit:
+            break
+    return results

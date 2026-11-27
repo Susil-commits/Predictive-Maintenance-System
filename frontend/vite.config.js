@@ -8,4 +8,9 @@ export default defineConfig({
   build: {
     sourcemap: false,
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/__tests__/setup.js',
+    include: ['src/__tests__/**/*.test.jsx'],
+  },
 })

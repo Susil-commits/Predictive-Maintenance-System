@@ -153,6 +153,23 @@ def require_admin_auth(
     )
 
 
+def require_alert_webhook_auth(
+    authorization: str | None = Header(None, alias="Authorization"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+) -> dict:
+    """
+    Accepts a configured ALERTMANAGER_WEBHOOK_SECRET Bearer token, PMS_API_KEY, or Admin JWT
+    for Alertmanager webhook ingestion into Ops / CMMS workflows.
+    """
+    webhook_secret = os.getenv("ALERTMANAGER_WEBHOOK_SECRET", "").strip()
+    if authorization and authorization.startswith("Bearer ") and webhook_secret:
+        token = authorization.split(" ", 1)[1].strip()
+        if secrets.compare_digest(token, webhook_secret):
+            return {"auth_type": "webhook_secret", "role": "admin", "actor": "alertmanager"}
+
+    return require_admin_auth(authorization=authorization, x_api_key=x_api_key)
+
+
 def require_authenticated_user(
     authorization: str | None = Header(None, alias="Authorization"),
     x_api_key: str | None = Header(None, alias="X-API-Key"),

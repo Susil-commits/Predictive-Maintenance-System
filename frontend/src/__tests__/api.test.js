@@ -19,6 +19,7 @@ import api, {
   getAccessLogsApi,
   logAccessEventApi,
   simulateFleetStream,
+  getOpsAlerts,
 } from '../api.js';
 
 test('API_BASE_URL defaults to localhost:8000 without trailing slash', () => {
@@ -75,6 +76,7 @@ test('getHistory and getWorkOrders serialize optional filters cleanly', async ()
     await getAccessLogsApi(40);
     await logAccessEventApi('dashboard', 'Admin');
     await simulateFleetStream({ scenario: 'thermal', steps: 3, runtime: 'onnx' });
+    await getOpsAlerts(25, 'critical', 'firing');
 
     assert.equal(urls[0].url, '/history?limit=15&asset_id=CNC-MILL-01');
     assert.equal(urls[1].url, '/fleet/summary?limit=200');
@@ -97,6 +99,7 @@ test('getHistory and getWorkOrders serialize optional filters cleanly', async ()
     assert.equal(urls[13].url, '/auth/access-logs');
     assert.equal(urls[14].method, 'post');
     assert.equal(urls[14].url, '/fleet/simulate-stream?scenario=thermal&steps=3&runtime=onnx');
+    assert.equal(urls[15].url, '/ops/alerts?limit=25&severity=critical&status=firing');
   } finally {
     api.defaults.adapter = origAdapter;
   }
