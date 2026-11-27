@@ -13,6 +13,11 @@ import api, {
   verifyAuditChain,
   getFeedbackMetrics,
   exportFeedbackDataset,
+  getReportsApi,
+  saveReportApi,
+  deleteReportApi,
+  getAccessLogsApi,
+  logAccessEventApi,
 } from '../api.js';
 
 test('API_BASE_URL defaults to localhost:8000 without trailing slash', () => {
@@ -63,6 +68,11 @@ test('getHistory and getWorkOrders serialize optional filters cleanly', async ()
     await verifyAuditChain();
     await getFeedbackMetrics();
     await exportFeedbackDataset();
+    await getReportsApi('user-1', 50);
+    await saveReportApi({ risk: 'HIGH', probability: 0.9 });
+    await deleteReportApi('report-123');
+    await getAccessLogsApi(40);
+    await logAccessEventApi('dashboard', 'Admin');
 
     assert.equal(urls[0].url, '/history?limit=15&asset_id=CNC-MILL-01');
     assert.equal(urls[1].url, '/fleet/summary?limit=200');
@@ -75,6 +85,14 @@ test('getHistory and getWorkOrders serialize optional filters cleanly', async ()
     assert.equal(urls[7].url, '/mlops/feedback-metrics');
     assert.equal(urls[8].method, 'post');
     assert.equal(urls[8].url, '/mlops/export-feedback');
+    assert.equal(urls[9].url, '/reports?limit=50&user_id=user-1');
+    assert.equal(urls[10].method, 'post');
+    assert.equal(urls[10].url, '/reports');
+    assert.equal(urls[11].method, 'delete');
+    assert.equal(urls[11].url, '/reports/report-123');
+    assert.equal(urls[12].url, '/auth/access-logs?limit=40');
+    assert.equal(urls[13].method, 'post');
+    assert.equal(urls[13].url, '/auth/access-logs');
   } finally {
     api.defaults.adapter = origAdapter;
   }

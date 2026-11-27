@@ -9,7 +9,8 @@ import {
   getUsers, addUser, deleteUser, getSession, logout,
   getAccessLog, updateUserAvatar, getAdminAvatar,
   getAllReportsGrouped, deleteReport, clearAllReports,
-  clearAccessLog, deleteAvatar, syncUsersFromBackend
+  clearAccessLog, deleteAvatar, syncUsersFromBackend,
+  syncReportsFromBackend, syncAccessLogsFromBackend,
 } from '../auth';
 import { uploadAvatar, isCloudinaryConfigured } from '../cloudinary';
 import ReportDetailModal from '../components/ReportDetailModal';
@@ -132,13 +133,21 @@ function AccessLogPanel() {
   const [log, setLog] = useState(() => getAccessLog().slice(0, 50));
   const [confirmClear, setConfirmClear] = useState(false);
 
-  const handleClear = () => {
+  React.useEffect(() => {
+    let active = true;
+    syncAccessLogsFromBackend(50).then(remote => {
+      if (active && Array.isArray(remote)) setLog(remote.slice(0, 50));
+    });
+    return () => { active = false; };
+  }, []);
+
+  const handleClear = async () => {
     if (!confirmClear) {
       setConfirmClear(true);
       setTimeout(() => setConfirmClear(false), 3000);
       return;
     }
-    clearAccessLog();
+    await clearAccessLog();
     setLog([]);
     setConfirmClear(false);
   };
@@ -224,16 +233,24 @@ function AdminReportsPanel({ onSelectReport, reportsVersion, onReportDeleted }) 
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [clearConfirm, setClearConfirm] = useState(false);
 
-  const refresh = () => setReports(getAllReportsGrouped());
+  const refresh = React.useCallback(async () => {
+    setReports(getAllReportsGrouped());
+    await syncReportsFromBackend();
+    setReports(getAllReportsGrouped());
+  }, []);
 
   React.useEffect(() => {
-    refresh();
-  }, [reportsVersion]);
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) refresh();
+    });
+    return () => { active = false; };
+  }, [reportsVersion, refresh]);
 
-  const handleDelete = (userId, reportId) => {
+  const handleDelete = async (userId, reportId) => {
     if (deleteConfirmId === reportId) {
-      deleteReport(userId, reportId);
-      refresh();
+      await deleteReport(userId, reportId);
+      await refresh();
       setDeleteConfirmId(null);
       if (onReportDeleted) onReportDeleted();
     } else {
@@ -242,14 +259,14 @@ function AdminReportsPanel({ onSelectReport, reportsVersion, onReportDeleted }) 
     }
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     if (!clearConfirm) {
       setClearConfirm(true);
       setTimeout(() => setClearConfirm(false), 3000);
       return;
     }
-    clearAllReports();
-    refresh();
+    await clearAllReports();
+    await refresh();
     setClearConfirm(false);
     if (onReportDeleted) onReportDeleted();
   };
@@ -426,6 +443,8 @@ export default function AdminPage({ onLogout }) {
 
   React.useEffect(() => {
     syncUsersFromBackend().then(u => setUsers(u));
+    syncReportsFromBackend().then(() => setReportsVersion(v => v + 1));
+    syncAccessLogsFromBackend(100);
   }, []);
 
   const handleAddUser = async (e) => {
@@ -721,8 +740,8 @@ export default function AdminPage({ onLogout }) {
         <ReportDetailModal
           report={selectedReport}
           onClose={() => setSelectedReport(null)}
-          onDelete={(r) => {
-            deleteReport(r.userId, r.reportId);
+          onDelete={async (r) => {
+            await deleteReport(r.userId, r.reportId);
             setReportsVersion(v => v + 1);
             setSelectedReport(null);
           }}

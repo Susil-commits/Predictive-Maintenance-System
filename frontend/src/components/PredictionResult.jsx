@@ -177,7 +177,7 @@ function ReportPrompt({ result, onSaved, onView, onClose }) {
         cloudinaryUrl = await uploadPredictionReport(result, result.prediction_id || Date.now());
       }
 
-      const entry = saveReport({
+      const entry = await saveReport({
         predictionId:  result.prediction_id || null,
         risk:          result.failure_risk,
         probability:   result.probability,
@@ -368,7 +368,7 @@ export default function PredictionResult({ result, onReevaluateWithShap }) {
     if (isCloudinaryConfigured()) {
       cloudinaryUrl = await uploadPredictionReport(result, result.prediction_id || Date.now());
     }
-    const entry = saveReport({
+    const entry = await saveReport({
       predictionId: result.prediction_id || null,
       risk: result.failure_risk,
       probability: result.probability,

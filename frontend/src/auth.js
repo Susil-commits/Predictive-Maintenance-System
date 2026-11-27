@@ -13,7 +13,19 @@
  *   pms_access_log  → JSON array of { username, name, role, loginAt, page } (access tracking)
  */
 
-import { loginApi, getUsersApi, createUserApi, deleteUserApi } from './api';
+import {
+  loginApi,
+  getUsersApi,
+  createUserApi,
+  deleteUserApi,
+  getAccessLogsApi,
+  logAccessEventApi,
+  clearAccessLogsApi,
+  getReportsApi,
+  saveReportApi,
+  deleteReportApi,
+  clearAllReportsApi,
+} from './api';
 
 const TOKEN_KEY   = 'pms_token';
 const SESSION_KEY = 'pms_session';
@@ -234,7 +246,7 @@ export function deleteAvatar(userId) {
   }
 }
 
-// ── Access Log ───────────────────────────────────────────────────────────────
+// ── Access Log (PostgreSQL + local cache) ────────────────────────────────────
 
 function _logAccess(session) {
   try {
@@ -252,7 +264,20 @@ export function getAccessLog() {
   }
 }
 
-export function logPageAccess(page) {
+export async function syncAccessLogsFromBackend(limit = 100) {
+  try {
+    const remote = await getAccessLogsApi(limit);
+    if (Array.isArray(remote)) {
+      localStorage.setItem(LOG_KEY, JSON.stringify(remote));
+      return remote;
+    }
+  } catch (err) {
+    console.warn('[PMS Auth] Could not sync access logs from backend:', err.message);
+  }
+  return getAccessLog();
+}
+
+export async function logPageAccess(page) {
   const session = getSession();
   if (!session) return;
   try {
@@ -260,15 +285,30 @@ export function logPageAccess(page) {
     log.unshift({ ...session, page, accessedAt: new Date().toISOString() });
     localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(0, 200)));
   } catch { /* ignore */ }
+
+  if (getToken()) {
+    try {
+      await logAccessEventApi(page, session.name);
+    } catch (err) {
+      console.warn('[PMS Auth] Backend access log note:', err.message);
+    }
+  }
 }
 
-export function clearAccessLog() {
+export async function clearAccessLog() {
+  try {
+    if (getToken()) {
+      await clearAccessLogsApi();
+    }
+  } catch (err) {
+    console.warn('[PMS Auth] Backend clear access log note:', err.message);
+  }
   try {
     localStorage.removeItem(LOG_KEY);
   } catch { /* ignore */ }
 }
 
-// ── Report Store ─────────────────────────────────────────────────────────────
+// ── Report Store (PostgreSQL + local cache) ──────────────────────────────────
 
 function _getAllReports() {
   try {
@@ -284,24 +324,66 @@ function _saveAllReports(all) {
   } catch { /* ignore */ }
 }
 
-export function saveReport(report) {
+export async function syncReportsFromBackend() {
+  try {
+    const remote = await getReportsApi(null, 200);
+    if (Array.isArray(remote)) {
+      const grouped = {};
+      for (const r of remote) {
+        const uid = r.userId || 'unknown';
+        if (!grouped[uid]) grouped[uid] = [];
+        grouped[uid].push(r);
+      }
+      _saveAllReports(grouped);
+      return remote;
+    }
+  } catch (err) {
+    console.warn('[PMS Auth] Could not sync reports from backend:', err.message);
+  }
+  return getAllReportsGrouped();
+}
+
+export async function saveReport(report) {
   const all = _getAllReports();
   const { userId } = report;
   if (!userId) throw new Error('report.userId is required');
-  const entry = {
-    reportId:        'report-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-    predictionId:    report.predictionId  || null,
-    risk:            report.risk          || 'UNKNOWN',
-    probability:     report.probability   ?? null,
-    inputData:       report.inputData     || {},
-    shapFactors:     report.shapFactors   || [],
-    cloudinaryUrl:   report.cloudinaryUrl || null,
-    savedAt:         new Date().toISOString(),
-    userId,
-    userName:        report.userName || 'Unknown',
-    userDesignation: report.userDesignation || 'Maintenance Specialist',
-  };
-  all[userId] = [entry, ...(all[userId] || [])].slice(0, 100);
+
+  let entry = null;
+  if (getToken()) {
+    try {
+      entry = await saveReportApi({
+        predictionId: report.predictionId || null,
+        risk: report.risk || 'UNKNOWN',
+        probability: report.probability ?? null,
+        inputData: report.inputData || {},
+        shapFactors: report.shapFactors || [],
+        cloudinaryUrl: report.cloudinaryUrl || null,
+        userName: report.userName || 'Unknown',
+        userDesignation: report.userDesignation || 'Maintenance Specialist',
+      });
+    } catch (err) {
+      console.warn('[PMS Auth] Backend report save fallback to cache:', err.message);
+    }
+  }
+
+  if (!entry) {
+    entry = {
+      reportId:        'report-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      predictionId:    report.predictionId  || null,
+      risk:            report.risk          || 'UNKNOWN',
+      probability:     report.probability   ?? null,
+      inputData:       report.inputData     || {},
+      shapFactors:     report.shapFactors   || [],
+      cloudinaryUrl:   report.cloudinaryUrl || null,
+      savedAt:         new Date().toISOString(),
+      userId,
+      userName:        report.userName || 'Unknown',
+      userDesignation: report.userDesignation || 'Maintenance Specialist',
+    };
+  }
+
+  const targetUid = entry.userId || userId;
+  all[targetUid] = [entry, ...(all[targetUid] || []).filter(r => r.reportId !== entry.reportId)].slice(0, 100);
   _saveAllReports(all);
   return entry;
 }
@@ -310,7 +392,14 @@ export function getReportsForUser(userId) {
   return (_getAllReports()[userId] || []);
 }
 
-export function deleteReport(userId, reportId) {
+export async function deleteReport(userId, reportId) {
+  if (getToken()) {
+    try {
+      await deleteReportApi(reportId);
+    } catch (err) {
+      console.warn('[PMS Auth] Backend delete report note:', err.message);
+    }
+  }
   const all = _getAllReports();
   if (all[userId]) {
     all[userId] = all[userId].filter(r => r.reportId !== reportId);
@@ -335,7 +424,14 @@ export function getAllReportsGrouped() {
   ).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
 }
 
-export function clearAllReports() {
+export async function clearAllReports() {
+  if (getToken()) {
+    try {
+      await clearAllReportsApi();
+    } catch (err) {
+      console.warn('[PMS Auth] Backend clear all reports note:', err.message);
+    }
+  }
   try {
     localStorage.removeItem(REPORTS_KEY);
   } catch { /* ignore */ }

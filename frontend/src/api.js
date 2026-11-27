@@ -76,6 +76,43 @@ export const deleteUserApi = async (userId) => {
   return response.data;
 };
 
+export const getAccessLogsApi = async (limit = 100) => {
+  const response = await api.get(`/auth/access-logs?limit=${limit}`);
+  return response.data;
+};
+
+export const logAccessEventApi = async (page = 'dashboard', name = null) => {
+  const response = await api.post('/auth/access-logs', { page, name });
+  return response.data;
+};
+
+export const clearAccessLogsApi = async () => {
+  const response = await api.delete('/auth/access-logs');
+  return response.data;
+};
+
+export const getReportsApi = async (userId = null, limit = 100) => {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (userId) params.set('user_id', userId);
+  const response = await api.get(`/reports?${params.toString()}`);
+  return response.data;
+};
+
+export const saveReportApi = async (reportData) => {
+  const response = await api.post('/reports', reportData);
+  return response.data;
+};
+
+export const deleteReportApi = async (reportId) => {
+  const response = await api.delete(`/reports/${encodeURIComponent(reportId)}`);
+  return response.data;
+};
+
+export const clearAllReportsApi = async () => {
+  const response = await api.delete('/reports');
+  return response.data;
+};
+
 export const getHealth = async () => {
   const response = await api.get('/health');
   return response.data;

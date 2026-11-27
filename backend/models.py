@@ -157,3 +157,69 @@ class IdempotencyKeyRecord(Base):
     data = Column(JSON, nullable=False)
     created_at = Column(Float, nullable=False)
     expires_at = Column(Float, nullable=False, index=True)
+
+
+class DiagnosticReportRecord(Base):
+    __tablename__ = "diagnostic_reports"
+    __table_args__ = (Index("ix_diagnostic_reports_user_saved", "user_id", "saved_at"),)
+
+    report_id = Column(String(64), primary_key=True, index=True, default=lambda: f"report-{uuid.uuid4().hex[:12]}")
+    prediction_id = Column(String(64), nullable=True, index=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    username = Column(String(64), nullable=False)
+    user_name = Column(String(128), nullable=False)
+    user_designation = Column(String(128), nullable=True, default="Maintenance Specialist")
+    risk = Column(String(16), nullable=False, index=True)
+    probability = Column(Float, nullable=True)
+    input_data = Column(JSON, nullable=False, default=dict)
+    shap_factors = Column(JSON, nullable=False, default=list)
+    cloudinary_url = Column(String(512), nullable=True)
+    saved_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
+
+    def to_dict(self):
+        self_any: Any = self
+        saved_val = self_any.saved_at
+        return {
+            "reportId": str(self_any.report_id or ""),
+            "predictionId": self_any.prediction_id,
+            "userId": str(self_any.user_id or ""),
+            "username": str(self_any.username or ""),
+            "userName": str(self_any.user_name or ""),
+            "userDesignation": self_any.user_designation or "Maintenance Specialist",
+            "risk": str(self_any.risk or "UNKNOWN"),
+            "probability": float(self_any.probability) if self_any.probability is not None else None,
+            "inputData": self_any.input_data or {},
+            "shapFactors": self_any.shap_factors or [],
+            "cloudinaryUrl": self_any.cloudinary_url,
+            "savedAt": saved_val.isoformat() if saved_val is not None else "",
+        }
+
+
+class UserAccessLogRecord(Base):
+    __tablename__ = "user_access_logs"
+    __table_args__ = (Index("ix_user_access_logs_user_ts", "user_id", "accessed_at"),)
+
+    id = Column(String(64), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(64), nullable=False, index=True)
+    username = Column(String(64), nullable=False)
+    name = Column(String(128), nullable=False)
+    role = Column(String(32), nullable=False)
+    designation = Column(String(128), nullable=True, default="Maintenance Specialist")
+    page = Column(String(64), nullable=False, default="login")
+    accessed_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
+
+    def to_dict(self):
+        self_any: Any = self
+        ts_val = self_any.accessed_at
+        iso_ts = ts_val.isoformat() if ts_val is not None else ""
+        return {
+            "id": str(self_any.id or ""),
+            "userId": str(self_any.user_id or ""),
+            "username": str(self_any.username or ""),
+            "name": str(self_any.name or ""),
+            "role": str(self_any.role or "employee"),
+            "designation": self_any.designation or "Maintenance Specialist",
+            "page": str(self_any.page or "login"),
+            "loginAt": iso_ts,
+            "accessedAt": iso_ts,
+        }

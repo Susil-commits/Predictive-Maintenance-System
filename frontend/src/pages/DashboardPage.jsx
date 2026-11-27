@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Terminal, LogOut, User, Clock, Radio, FileText, ExternalLink, Trash2, Eye } from 'lucide-react';
-import { getSession, logout, logPageAccess, getAccessLog, getReportsForUser, deleteReport } from '../auth';
+import {
+  getSession, logout, logPageAccess, getAccessLog, getReportsForUser, deleteReport,
+  syncReportsFromBackend, syncAccessLogsFromBackend,
+} from '../auth';
 import ReportDetailModal from '../components/ReportDetailModal';
 
 // Existing PMS modules
@@ -67,8 +70,11 @@ export default function DashboardPage({ onLogout }) {
   const [rulLoading,  setRulLoading]  = useState(false);
   const [rulSourceMeta, setRulSourceMeta] = useState(null);
 
-  const refreshReports = useCallback(() => {
-    if (session?.userId) setMyReports(getReportsForUser(session?.userId));
+  const refreshReports = useCallback(async () => {
+    if (!session?.userId) return;
+    setMyReports(getReportsForUser(session.userId));
+    await syncReportsFromBackend();
+    setMyReports(getReportsForUser(session.userId));
   }, [session?.userId]);
 
   const fetchRulForecast = useCallback(async (currentData, assetOverride) => {
@@ -109,10 +115,16 @@ export default function DashboardPage({ onLogout }) {
 
   // Log page access on mount
   useEffect(() => {
-    logPageAccess('dashboard');
-    const log = getAccessLog().filter(e => e.userId === session?.userId);
-    setMyAccessLog(log);
-    refreshReports();
+    let active = true;
+    Promise.resolve().then(async () => {
+      await logPageAccess('dashboard');
+      const syncedLogs = await syncAccessLogsFromBackend();
+      if (active) {
+        setMyAccessLog(syncedLogs.filter(e => e.userId === session?.userId));
+      }
+      await refreshReports();
+    });
+    return () => { active = false; };
   }, [session?.userId, refreshReports]);
 
   const fetchSystemStatus = useCallback(async (assetFilter = selectedAsset) => {
@@ -136,8 +148,9 @@ export default function DashboardPage({ onLogout }) {
     }
   }, [selectedAsset]);
 
-  const refreshAccessLog = useCallback(() => {
-    const log = getAccessLog().filter(e => e.userId === session?.userId);
+  const refreshAccessLog = useCallback(async () => {
+    const synced = await syncAccessLogsFromBackend();
+    const log = synced.filter(e => e.userId === session?.userId);
     setMyAccessLog(log);
   }, [session?.userId]);
 
@@ -498,8 +511,8 @@ export default function DashboardPage({ onLogout }) {
                     <button
                       type="button"
                       className="preset-btn"
-                      onClick={() => {
-                        deleteReport(session?.userId, r.reportId);
+                      onClick={async () => {
+                        await deleteReport(session?.userId, r.reportId);
                         setMyReports(getReportsForUser(session?.userId));
                       }}
                       style={{ padding: '3px 9px', fontSize: '0.7rem', color: '#fda4af', borderColor: 'rgba(244,63,94,0.3)', gap: 5 }}
@@ -562,8 +575,8 @@ export default function DashboardPage({ onLogout }) {
         <ReportDetailModal
           report={selectedReport}
           onClose={() => setSelectedReport(null)}
-          onDelete={(r) => {
-            deleteReport(session?.userId, r.reportId);
+          onDelete={async (r) => {
+            await deleteReport(session?.userId, r.reportId);
             setMyReports(getReportsForUser(session?.userId));
             setSelectedReport(null);
           }}

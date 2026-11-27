@@ -17,12 +17,13 @@ from typing import Any
 
 import bcrypt
 import jwt
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import User
+from .models import User, UserAccessLogRecord
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,44 @@ def require_admin_auth(
     )
 
 
+def require_authenticated_user(
+    authorization: str | None = Header(None, alias="Authorization"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+) -> dict:
+    """
+    Dependency accepting any valid Bearer JWT (admin or employee) or Admin API key.
+    """
+    if x_api_key and secrets.compare_digest(x_api_key.strip(), PMS_API_KEY):
+        return {
+            "auth_type": "api_key",
+            "user_id": "admin-api-key",
+            "sub": "admin",
+            "role": "admin",
+            "designation": "System Administrator",
+        }
+
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        try:
+            payload = decode_access_token(token)
+            return {"auth_type": "jwt", **payload}
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired. Please log in again.",
+            )
+        except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token.",
+            )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required. Provide a Bearer token or X-API-Key header.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Admin User Seeding
 # ---------------------------------------------------------------------------
@@ -222,6 +261,11 @@ class UserCreateRequest(BaseModel):
     designation: str | None = Field(None, max_length=128)
 
 
+class AccessLogCreateRequest(BaseModel):
+    page: str = Field("dashboard", min_length=1, max_length=64)
+    name: str | None = Field(None, max_length=128)
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -260,6 +304,21 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             "designation": user_designation,
         }
     )
+
+    try:
+        access_entry = UserAccessLogRecord(
+            user_id=str(user_obj.id),
+            username=str(user_obj.username),
+            name="Administrator" if user_obj.role == "admin" else str(user_obj.username),
+            role=str(user_obj.role),
+            designation=str(user_designation),
+            page="login",
+        )
+        db.add(access_entry)
+        db.commit()
+    except Exception as log_err:
+        db.rollback()
+        logger.debug(f"Could not persist login access log: {log_err}")
 
     return {"access_token": token, "token_type": "bearer", "user": user.to_dict()}
 
@@ -322,3 +381,60 @@ def delete_user(
     db.delete(target)
     db.commit()
     return {"message": f"User '{target_obj.username}' deleted successfully."}
+
+
+@router.post("/access-logs", status_code=status.HTTP_201_CREATED)
+def record_access_log(
+    req: AccessLogCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user),
+):
+    """Records a page/session access event in PostgreSQL for the authenticated user."""
+    role = str(current_user.get("role", "employee"))
+    username = str(current_user.get("sub", "unknown"))
+    user_id = str(current_user.get("user_id", username))
+    display_name = (req.name or "").strip() or ("Administrator" if role == "admin" else username)
+    designation = str(
+        current_user.get("designation") or ("System Administrator" if role == "admin" else "Maintenance Specialist")
+    )
+    entry = UserAccessLogRecord(
+        user_id=user_id,
+        username=username,
+        name=display_name,
+        role=role,
+        designation=designation,
+        page=req.page.strip(),
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry.to_dict()
+
+
+@router.get("/access-logs")
+def list_access_logs(
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user),
+):
+    """Returns access events: all events for admins, or self-scoped events for employees."""
+    query = db.query(UserAccessLogRecord)
+    if current_user.get("role") != "admin":
+        user_id = str(current_user.get("user_id", ""))
+        query = query.filter(UserAccessLogRecord.user_id == user_id)
+    rows = query.order_by(desc(UserAccessLogRecord.accessed_at)).limit(limit).all()
+    return [r.to_dict() for r in rows]
+
+
+@router.delete(
+    "/access-logs",
+    openapi_extra={"security": [{"ApiKeyAuth": []}, {"BearerAuth": []}]},
+)
+def clear_access_logs(
+    db: Session = Depends(get_db),
+    admin_auth: dict = Depends(require_admin_auth),
+):
+    """Clears all persisted user access logs. Requires admin authorization."""
+    deleted = db.query(UserAccessLogRecord).delete()
+    db.commit()
+    return {"message": f"Cleared {deleted} access log events."}

@@ -77,6 +77,7 @@ from .predictor import (
 )
 from .realtime import telemetry_broadcaster
 from .redis_client import cache_delete_prefix, cache_get_json, cache_set_json
+from .reports import router as reports_router
 from .rul_engine import predict_rul_quantiles
 from .scheduler import drift_scheduler
 from .schemas import (
@@ -265,9 +266,10 @@ async def custom_redoc_docs():
     return HTMLResponse(get_pms_redoc_html(openapi_url=app.openapi_url or "/openapi.json"))
 
 
-# Register authentication & batch routes
+# Register authentication, batch, & reports routes
 app.include_router(auth_router)
 app.include_router(batch_router)
+app.include_router(reports_router)
 
 
 def require_admin_api_key(
