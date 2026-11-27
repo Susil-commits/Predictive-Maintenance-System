@@ -93,6 +93,7 @@ export default function BatchPredict() {
   const [dragging, setDragging] = useState(false);
   const [file, setFile]         = useState(null);
   const [loading, setLoading]   = useState(false);
+  const [batchRuntime, setBatchRuntime] = useState('xgboost');
   const [result, setResult]     = useState(null);
   const [error, setError]       = useState(null);
   const fileInputRef = useRef();
@@ -110,7 +111,7 @@ export default function BatchPredict() {
     setLoading(true);
 
     try {
-      const res = await batchPredict(f);
+      const res = await batchPredict(f, batchRuntime);
       setResult(res);
     } catch (err) {
       const msg = err?.response?.data?.detail || err.message || 'Batch prediction failed';
@@ -151,7 +152,23 @@ export default function BatchPredict() {
           <span>Batch Predict</span>
           <span className="field-unit" style={{ marginLeft: 8 }}>CSV / JSON / XLSX / PARQUET</span>
         </h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={`preset-btn ${batchRuntime === 'xgboost' ? 'highlight' : ''}`}
+            onClick={() => setBatchRuntime('xgboost')}
+            style={{ padding: '3px 9px', fontSize: '0.68rem', fontFamily: 'var(--font-mono)' }}
+          >
+            XGBoost + SHAP
+          </button>
+          <button
+            type="button"
+            className={`preset-btn ${batchRuntime === 'onnx' ? 'highlight' : ''}`}
+            onClick={() => setBatchRuntime('onnx')}
+            style={{ padding: '3px 9px', fontSize: '0.68rem', fontFamily: 'var(--font-mono)' }}
+          >
+            ONNX Vectorized
+          </button>
           {(file || result) && (
             <button type="button" className="preset-btn" onClick={clearAll} style={{ padding: '4px 8px', fontSize: '0.7rem' }}>
               <X size={12} /> Clear
@@ -227,6 +244,12 @@ export default function BatchPredict() {
               <span className="batch-stat-val" style={{ color: '#34d399' }}>{result.low_risk_count}</span>
               <span className="batch-stat-label">LOW Risk</span>
             </div>
+            {result.elapsed_ms != null && (
+              <div className="batch-stat">
+                <span className="batch-stat-val" style={{ color: '#38bdf8' }}>{result.elapsed_ms} ms</span>
+                <span className="batch-stat-label">{(result.runtime || 'xgboost').toUpperCase()}</span>
+              </div>
+            )}
             {result.error_rows > 0 && (
               <div className="batch-stat">
                 <span className="batch-stat-val" style={{ color: '#f59e0b' }}>{result.error_rows}</span>

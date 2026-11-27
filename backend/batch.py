@@ -14,6 +14,7 @@ Errors are reported row-by-row (bad rows are skipped, not fail-all).
 import csv
 import io
 import json
+import time
 
 import numpy as np
 import pandas as pd
@@ -179,42 +180,57 @@ def _coerce_and_validate_row(row: dict) -> tuple[dict | None, str | None]:
     return result, None
 
 
-def _run_batch_inference(df_norm: pd.DataFrame, threshold: float) -> list[dict]:
+def _run_batch_inference(df_norm: pd.DataFrame, threshold: float, runtime: str = "xgboost") -> list[dict]:
     """
-    Executes per-row feature validation and SHAP model inference in a threadpool worker.
+    Executes per-row feature validation and inference (vectorized ONNX or row-wise XGBoost+SHAP).
     """
-    results: list[dict] = []
+    use_onnx = runtime.lower() == "onnx"
+    staged_rows: list[dict] = []
+    valid_indices: list[int] = []
+    valid_inputs: list[dict] = []
+
     for idx, row_series in df_norm.iterrows():
         row_dict = row_series.to_dict()
-        row_result: dict = {"row_index": int(idx)}  # type: ignore[arg-type]
-
-        # Copy raw input for transparency
-        row_result["input_data"] = {k: row_dict.get(k) for k in COLUMN_ALIASES}
-
-        # Validate
+        row_result: dict = {
+            "row_index": int(idx),  # type: ignore[arg-type]
+            "input_data": {k: row_dict.get(k) for k in COLUMN_ALIASES},
+        }
         coerced, err = _coerce_and_validate_row(row_dict)
-        if err:
-            row_result["error"] = err
-            results.append(row_result)
-            continue
+        if err or coerced is None:
+            row_result["error"] = err or "Validation failed"
+            staged_rows.append(row_result)
+        else:
+            valid_indices.append(len(staged_rows))
+            valid_inputs.append(coerced)
+            staged_rows.append(row_result)
 
-        # Inference
+    if use_onnx and valid_inputs:
+        from .inference_engine import inference_engine
+
+        if inference_engine.onnx_session is not None:
+            batch_preds = inference_engine.predict_onnx_batch(valid_inputs, threshold=threshold)
+            for pos, pred in zip(valid_indices, batch_preds):
+                staged_rows[pos]["prediction"] = pred["failure_risk"]
+                staged_rows[pos]["probability"] = pred["probability"]
+                staged_rows[pos]["maintenance_required"] = pred["maintenance_required"]
+                staged_rows[pos]["shap_values"] = pred["shap_values"]
+                staged_rows[pos]["contributing_factors"] = pred["contributing_factors"]
+                staged_rows[pos]["decision_threshold"] = pred["decision_threshold"]
+            return staged_rows
+
+    for pos, coerced in zip(valid_indices, valid_inputs):
         try:
-            pred = predictor.predict(coerced, threshold=threshold)  # type: ignore[arg-type]
+            pred = predictor.predict(coerced, threshold=threshold)
+            staged_rows[pos]["prediction"] = pred["failure_risk"]
+            staged_rows[pos]["probability"] = pred["probability"]
+            staged_rows[pos]["maintenance_required"] = pred["maintenance_required"]
+            staged_rows[pos]["shap_values"] = pred["shap_values"]
+            staged_rows[pos]["contributing_factors"] = pred["contributing_factors"]
+            staged_rows[pos]["decision_threshold"] = pred["decision_threshold"]
         except Exception as exc:
-            row_result["error"] = f"Inference failed: {exc}"
-            results.append(row_result)
-            continue
+            staged_rows[pos]["error"] = f"Inference failed: {exc}"
 
-        row_result["prediction"] = pred["failure_risk"]
-        row_result["probability"] = pred["probability"]
-        row_result["maintenance_required"] = pred["maintenance_required"]
-        row_result["shap_values"] = pred["shap_values"]
-        row_result["contributing_factors"] = pred["contributing_factors"]
-        row_result["decision_threshold"] = pred["decision_threshold"]
-        results.append(row_result)
-
-    return results
+    return staged_rows
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +248,7 @@ def _run_batch_inference(df_norm: pd.DataFrame, threshold: float) -> list[dict]:
 async def batch_predict(
     request: Request,
     file: UploadFile = File(..., description="CSV, JSON, Excel (.xlsx), or Parquet telemetry file"),
+    runtime: str = Query("xgboost", description="Inference runtime: 'xgboost' (with SHAP) or 'onnx' (vectorized)"),
     api_key: str = Depends(require_admin_api_key),
 ):
     """
@@ -275,9 +292,12 @@ async def batch_predict(
     df_norm = df_selected.rename(columns={v: k for k, v in col_map.items()})
 
     threshold = getattr(predictor, "threshold", 0.50)
+    active_runtime = "onnx" if runtime.lower() == "onnx" else "xgboost"
+    t0 = time.perf_counter()
 
     # Offload CPU-heavy inference from the main asyncio event loop to prevent freezing concurrent requests/health-checks
-    results = await run_in_threadpool(_run_batch_inference, df_norm, threshold)
+    results = await run_in_threadpool(_run_batch_inference, df_norm, threshold, active_runtime)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
 
     # --- Summary statistics ---
     valid_rows = [r for r in results if "error" not in r]
@@ -291,6 +311,8 @@ async def batch_predict(
         "error_rows": len(error_rows),
         "high_risk_count": high_risk,
         "low_risk_count": low_risk,
+        "runtime": active_runtime,
+        "elapsed_ms": elapsed_ms,
         "results": results,
     }
 

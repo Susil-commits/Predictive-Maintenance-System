@@ -1,7 +1,14 @@
 import React from 'react';
-import { Server, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Server, AlertTriangle, CheckCircle2, RefreshCw, Play, Loader2 } from 'lucide-react';
 
-export default function FleetOverviewPanel({ fleet, selectedAsset, onSelectAsset, onRefresh }) {
+export default function FleetOverviewPanel({
+  fleet,
+  selectedAsset,
+  onSelectAsset,
+  onRefresh,
+  onSimulateStream,
+  simulating = false,
+}) {
   const assets = fleet?.assets || [];
 
   return (
@@ -14,7 +21,7 @@ export default function FleetOverviewPanel({ fleet, selectedAsset, onSelectAsset
             [{fleet?.total_assets ?? assets.length} assets · {fleet?.critical_assets ?? 0} critical]
           </span>
         </h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {selectedAsset && (
             <button
               type="button"
@@ -23,6 +30,19 @@ export default function FleetOverviewPanel({ fleet, selectedAsset, onSelectAsset
               style={{ padding: '3px 9px', fontSize: '0.7rem' }}
             >
               Show All Assets
+            </button>
+          )}
+          {onSimulateStream && (
+            <button
+              type="button"
+              className="preset-btn highlight"
+              onClick={onSimulateStream}
+              disabled={simulating}
+              style={{ padding: '3px 9px', fontSize: '0.7rem', gap: 5 }}
+              title="Replay physical degradation curves across multiple assets over WS /ws/telemetry"
+            >
+              {simulating ? <Loader2 size={11} className="batch-spin" /> : <Play size={11} />}
+              <span>{simulating ? 'Streaming...' : 'Simulate Live Fleet'}</span>
             </button>
           )}
           {onRefresh && (

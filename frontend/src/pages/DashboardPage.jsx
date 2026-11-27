@@ -20,8 +20,8 @@ import WorkOrdersPanel from '../components/WorkOrdersPanel';
 import {
   getHealth, getModelInfo, predictMaintenance, predictRul,
   getHistory, clearHistory, getDriftStatus, exportHistory,
-  getFleetSummary, getAssetRul, getWorkOrders, connectTelemetryStream,
-  API_BASE_URL
+  getFleetSummary, getAssetRul, getWorkOrders, simulateFleetStream,
+  connectTelemetryStream, API_BASE_URL
 } from '../api';
 import { Sliders, Layers, LayoutGrid, Upload, Cpu } from 'lucide-react';
 
@@ -59,6 +59,7 @@ export default function DashboardPage({ onLogout }) {
   const [history, setHistory]       = useState([]);
   const [fleetSummary, setFleetSummary] = useState(null);
   const [workOrders, setWorkOrders] = useState([]);
+  const [simulatingFleet, setSimulatingFleet] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [wsStatus, setWsStatus]     = useState('connecting');
   const [errorMsg, setErrorMsg]     = useState(null);
@@ -283,6 +284,19 @@ export default function DashboardPage({ onLogout }) {
 
   const isHealthy = health?.status === 'healthy';
 
+  const handleSimulateFleet = async () => {
+    setSimulatingFleet(true);
+    setErrorMsg(null);
+    try {
+      await simulateFleetStream({ scenario: 'all', steps: 4, runtime: 'onnx' });
+      await fetchSystemStatus(selectedAsset);
+    } catch (err) {
+      setErrorMsg(err?.response?.data?.detail || err.message || 'Fleet telemetry simulation failed');
+    } finally {
+      setSimulatingFleet(false);
+    }
+  };
+
   return (
     <div className="app-container">
       {/* Header */}
@@ -399,6 +413,8 @@ export default function DashboardPage({ onLogout }) {
           selectedAsset={selectedAsset}
           onSelectAsset={handleSelectAsset}
           onRefresh={() => fetchSystemStatus(selectedAsset)}
+          onSimulateStream={handleSimulateFleet}
+          simulating={simulatingFleet}
         />
       )}
 

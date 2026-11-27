@@ -194,6 +194,16 @@ export const getAssetRul = async (assetId, windowSize = 30) => {
   return response.data;
 };
 
+export const simulateFleetStream = async ({ scenario = 'all', steps = 4, runtime = 'onnx' } = {}) => {
+  const params = new URLSearchParams({
+    scenario,
+    steps: String(steps),
+    runtime,
+  });
+  const response = await api.post(`/fleet/simulate-stream?${params.toString()}`);
+  return response.data;
+};
+
 export const connectTelemetryStream = ({ onEvent, onStatus } = {}) => {
   let ws = null;
   let closedByUser = false;
@@ -325,10 +335,10 @@ export const getCircuitStatus = async () => {
   return response.data;
 };
 
-export const batchPredict = async (file) => {
+export const batchPredict = async (file, runtime = 'xgboost') => {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post('/batch-predict', formData, {
+  const response = await api.post(`/batch-predict?runtime=${encodeURIComponent(runtime)}`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   });

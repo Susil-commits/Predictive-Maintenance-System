@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 from .active_learning import compute_feedback_metrics, export_feedback_dataset
 from .auth import (
     require_admin_auth,
+    require_authenticated_user,
     seed_initial_admin,
 )
 from .auth import (
@@ -1048,6 +1049,93 @@ def get_asset_rul_forecast(
         "has_history": True,
         "history_points_used": len(series),
         "rul": rul_result,
+    }
+
+
+@app.post("/fleet/simulate-stream", tags=["Fleet & Streaming"])
+def simulate_fleet_telemetry_stream(
+    scenario: str = Query("all", description="'thermal', 'overstrain', 'tool_wear', 'sensor_glitch', or 'all'"),
+    steps: int = Query(5, ge=1, le=20, description="Number of telemetry steps to sample per scenario"),
+    runtime: str = Query("onnx", description="Inference runtime ('onnx', 'xgboost', 'hybrid')"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user),
+):
+    """
+    Replays physical degradation curves from the harness scenarios through the live inference engine,
+    persists asset telemetry to the database, and broadcasts real-time updates over WS /ws/telemetry.
+    """
+    from harness.scenarios import SCENARIO_REGISTRY
+
+    from .inference_engine import InferenceRuntime, inference_engine
+
+    key = scenario.lower().strip()
+    if key == "all":
+        selected_keys = ["thermal", "overstrain", "tool_wear"]
+    elif key in SCENARIO_REGISTRY:
+        selected_keys = [key]
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown scenario '{scenario}'. Valid options: all, {', '.join(SCENARIO_REGISTRY.keys())}",
+        )
+
+    rt = (
+        InferenceRuntime(runtime.lower()) if runtime.lower() in ("onnx", "xgboost", "hybrid") else InferenceRuntime.ONNX
+    )
+    threshold = getattr(predictor, "threshold", 0.50)
+
+    t0 = time.perf_counter()
+    emitted_assets: list[str] = []
+    events_emitted = 0
+    high_risk_alerts = 0
+
+    for sc_key in selected_keys:
+        sc_cls = SCENARIO_REGISTRY[sc_key]
+        sc_instance = sc_cls()
+        generated = sc_instance.generate()
+        if not generated:
+            continue
+
+        # Sample evenly across the scenario timeline
+        if len(generated) <= steps:
+            sampled = generated
+        else:
+            stride = (len(generated) - 1) / max(1, steps - 1)
+            sampled = [generated[round(i * stride)] for i in range(steps)]
+
+        for step in sampled:
+            payload_dict = step.to_payload()
+            parsed_input = PredictionInput(**payload_dict)
+            pred_result = inference_engine.predict(parsed_input.model_dump(), runtime=rt, threshold=threshold)
+            pred_result["failure_risk"] = "HIGH" if pred_result["probability"] >= threshold else "LOW"
+            pred_result["maintenance_required"] = pred_result["probability"] >= threshold
+            pred_result["decision_threshold"] = threshold
+
+            METRICS["total_predictions"] += 1
+            if pred_result["failure_risk"] == "HIGH":
+                METRICS["high_risk_predictions"] += 1
+                high_risk_alerts += 1
+            else:
+                METRICS["low_risk_predictions"] += 1
+            metrics.record_prediction(pred_result["failure_risk"])
+
+            pred_id = str(uuid.uuid4())
+            now = datetime.now(UTC)
+            _persist_and_broadcast_prediction(db, parsed_input, pred_result, pred_id, now)
+            asset_tag = str(pred_result.get("asset_id") or sc_instance.machine_id)
+            if asset_tag not in emitted_assets:
+                emitted_assets.append(asset_tag)
+            events_emitted += 1
+
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+    return {
+        "status": "completed",
+        "runtime": rt.value,
+        "scenarios": selected_keys,
+        "events_emitted": events_emitted,
+        "high_risk_alerts": high_risk_alerts,
+        "assets": emitted_assets,
+        "elapsed_ms": elapsed_ms,
     }
 
 

@@ -18,6 +18,7 @@ import api, {
   deleteReportApi,
   getAccessLogsApi,
   logAccessEventApi,
+  simulateFleetStream,
 } from '../api.js';
 
 test('API_BASE_URL defaults to localhost:8000 without trailing slash', () => {
@@ -73,6 +74,7 @@ test('getHistory and getWorkOrders serialize optional filters cleanly', async ()
     await deleteReportApi('report-123');
     await getAccessLogsApi(40);
     await logAccessEventApi('dashboard', 'Admin');
+    await simulateFleetStream({ scenario: 'thermal', steps: 3, runtime: 'onnx' });
 
     assert.equal(urls[0].url, '/history?limit=15&asset_id=CNC-MILL-01');
     assert.equal(urls[1].url, '/fleet/summary?limit=200');
@@ -93,6 +95,8 @@ test('getHistory and getWorkOrders serialize optional filters cleanly', async ()
     assert.equal(urls[12].url, '/auth/access-logs?limit=40');
     assert.equal(urls[13].method, 'post');
     assert.equal(urls[13].url, '/auth/access-logs');
+    assert.equal(urls[14].method, 'post');
+    assert.equal(urls[14].url, '/fleet/simulate-stream?scenario=thermal&steps=3&runtime=onnx');
   } finally {
     api.defaults.adapter = origAdapter;
   }

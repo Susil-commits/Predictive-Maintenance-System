@@ -131,6 +131,84 @@ class InferenceEngine:
         prob = float(outputs[1][0][1])
         return label, prob
 
+    def predict_onnx_batch(
+        self,
+        rows: List[Dict[str, Any]],
+        threshold: float | None = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Vectorized batch feature engineering, ONNX Runtime matrix scoring, and Platt calibration.
+        Processes up to 5,000 rows in a single C++ ONNX session call.
+        """
+        if self.onnx_session is None:
+            raise RuntimeError("ONNX Runtime is not available.")
+        if not rows:
+            return []
+
+        import pandas as pd
+        from scipy.fft import rfft, rfftfreq
+
+        active_threshold = threshold if threshold is not None else getattr(predictor, "threshold", 0.2849)
+        df = pd.DataFrame(rows)
+        df["temp_pressure_index"] = (df["temperature"] * df["pressure"]) / 100.0
+        df["vibration_wear_index"] = df["vibration"] * (df["operating_hours"] / 1000.0)
+        df["rpm_vibration_ratio"] = (df["rpm"] * df["vibration"]) / 1000.0
+        df["thermal_excess"] = np.maximum(0.0, df["temperature"] - 86.0)
+        df["overstrain_index"] = (df["pressure"] / 25.0) * np.maximum(0.0, df["vibration"] - 0.35)
+        df["mechanical_power"] = (df["rpm"] * df["pressure"]) / 1000.0
+
+        m = len(df)
+        fs, n_fft = 2048, 512
+        rpm_arr = np.asarray(df["rpm"], dtype=float).reshape(m, 1)
+        vib_arr = np.asarray(df["vibration"], dtype=float).reshape(m, 1)
+        press_arr = np.asarray(df["pressure"], dtype=float).reshape(m, 1)
+        hours_arr = np.asarray(df["operating_hours"], dtype=float).reshape(m, 1)
+
+        f0 = np.maximum(10.0, rpm_arr / 60.0)
+        t_grid = np.arange(n_fft) / float(fs)
+        a1 = vib_arr * 0.65
+        a2 = vib_arr * 0.25 * (press_arr / 25.0)
+        f_res = 450.0 + np.minimum(1.0, hours_arr / 6000.0) * 350.0
+        a_hf = vib_arr * 0.35 * np.minimum(1.5, hours_arr / 3000.0)
+
+        signals = (
+            a1 * np.sin(2.0 * np.pi * f0 * t_grid)
+            + a2 * np.sin(2.0 * np.pi * 2.0 * f0 * t_grid)
+            + a_hf * np.sin(2.0 * np.pi * f_res * t_grid)
+        )
+        freqs = np.asarray(rfftfreq(n_fft, 1.0 / fs))
+        pwr = np.abs(np.asarray(rfft(signals, axis=1))) ** 2 / float(n_fft)
+        dom_idx = np.argmax(pwr[:, 1:], axis=1) + 1
+        low_mask = (freqs >= 10.0) & (freqs <= 100.0)
+        high_mask = (freqs >= 300.0) & (freqs <= 1000.0)
+        tot_pwr = np.sum(pwr, axis=1) + 1e-8
+
+        df["vib_dominant_freq"] = np.round(freqs[dom_idx], 1)
+        df["vib_spectral_energy_low"] = np.round(np.sum(pwr[:, low_mask], axis=1), 2)
+        df["vib_spectral_energy_high"] = np.round(np.sum(pwr[:, high_mask], axis=1), 2)
+        df["vib_spectral_centroid"] = np.round(np.sum(pwr * freqs, axis=1) / tot_pwr, 1)
+
+        x_mat = np.asarray(df[predictor.feature_names].values, dtype=np.float32)
+        outputs: Any = self.onnx_session.run(None, {self.input_name: x_mat})
+        raw_probs = outputs[1][:, 1]
+
+        results: List[Dict[str, Any]] = []
+        for raw_p in raw_probs:
+            prob = round(self.calibrate_onnx_probability(float(raw_p)), 4)
+            is_high = prob >= active_threshold
+            results.append(
+                {
+                    "failure_risk": "HIGH" if is_high else "LOW",
+                    "probability": prob,
+                    "maintenance_required": is_high,
+                    "decision_threshold": active_threshold,
+                    "runtime": "onnx",
+                    "shap_values": {},
+                    "contributing_factors": [],
+                }
+            )
+        return results
+
     def predict(
         self,
         input_dict: Dict[str, Any],
