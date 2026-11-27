@@ -1,14 +1,14 @@
 import React, { useState, useRef } from 'react';
 import {
   Upload, FileText, AlertTriangle, CheckCircle2,
-  BarChart3, ChevronDown, ChevronUp, Loader2, X,
-  AlertCircle, TrendingUp, TrendingDown, Download
+  ChevronDown, ChevronUp, Loader2, X,
+  AlertCircle, TrendingUp, TrendingDown
 } from 'lucide-react';
 import { batchPredict } from '../api';
 
 const ACCEPTED_EXTS = ['.csv', '.json', '.xlsx', '.parquet'];
 
-function RowResult({ row, index }) {
+function RowResult({ row }) {
   const [open, setOpen] = useState(false);
   const isErr = Boolean(row.error);
   const isHigh = row.prediction === 'HIGH';
@@ -139,10 +139,6 @@ export default function BatchPredict() {
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
-
-  const highRisk = result?.results?.filter(r => r.prediction === 'HIGH') || [];
-  const lowRisk  = result?.results?.filter(r => r.prediction === 'LOW' && !r.error) || [];
-  const errRows  = result?.results?.filter(r => r.error) || [];
 
   return (
     <div className="glass-panel" style={{ marginBottom: '24px' }}>

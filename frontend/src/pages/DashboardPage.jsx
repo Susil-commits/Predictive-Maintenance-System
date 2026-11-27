@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Terminal, LogOut, User, Clock, Radio, FileText, ExternalLink, Trash2, Eye } from 'lucide-react';
 import {
-  getSession, logout, logPageAccess, getAccessLog, getReportsForUser, deleteReport,
+  getSession, logout, logPageAccess, getReportsForUser, deleteReport,
   syncReportsFromBackend, syncAccessLogsFromBackend,
 } from '../auth';
 import ReportDetailModal from '../components/ReportDetailModal';
@@ -156,12 +156,19 @@ export default function DashboardPage({ onLogout }) {
   }, [session?.userId]);
 
   useEffect(() => {
-    fetchSystemStatus();
-    fetchRulForecast(DEFAULT_FORM_DATA);
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active) return;
+      fetchSystemStatus();
+      fetchRulForecast(DEFAULT_FORM_DATA);
+    });
     const interval = setInterval(() => {
       fetchSystemStatus();
     }, 15000);
-    return () => clearInterval(interval);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [fetchSystemStatus, fetchRulForecast]);
 
   // Live WebSocket telemetry stream

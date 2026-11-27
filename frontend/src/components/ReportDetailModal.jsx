@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   X, FileText, ExternalLink, Trash2, AlertOctagon,
   CheckCircle2, TrendingUp, TrendingDown, Clock,
-  User, Database, Cloud, Code, Layers
+  User, Cloud, Code, Layers
 } from 'lucide-react';
 
 export default function ReportDetailModal({ report, onClose, onDelete }) {

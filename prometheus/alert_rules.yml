@@ -1,0 +1,47 @@
+groups:
+  - name: pms_mlops_and_reliability_alerts
+    rules:
+      - alert: PMSBackendDown
+        expr: up{job="pms-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PMS FastAPI backend scrape target unreachable"
+          description: "Prometheus cannot scrape /metrics from pms-backend for more than 1 minute."
+
+      - alert: PMSDataDriftCritical
+        expr: pms_drift_max_psi >= 0.25
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical telemetry feature drift detected (PSI >= 0.25)"
+          description: "Maximum Population Stability Index is {{ $value }}; candidate model retraining is recommended."
+
+      - alert: PMSDataDriftWarning
+        expr: pms_drift_max_psi >= 0.10 and pms_drift_max_psi < 0.25
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Moderate telemetry distribution shift (PSI >= 0.10)"
+          description: "Maximum Population Stability Index is {{ $value }}."
+
+      - alert: PMSHighRiskPredictionSpike
+        expr: increase(pms_predictions_high_risk[5m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated volume of HIGH failure-risk equipment alerts"
+          description: "{{ $value }} HIGH risk predictions recorded in the last 5 minutes."
+
+      - alert: PMSInferenceLatencyHigh
+        expr: histogram_quantile(0.95, rate(pms_predict_latency_seconds_bucket[5m])) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 /predict inference latency exceeds 500ms"
+          description: "95th percentile prediction latency is {{ $value }}s."

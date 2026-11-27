@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Thermometer, Activity, Gauge, RotateCw, Clock,
-  FileSpreadsheet, Database, Cpu, Radio, Shield,
+  FileSpreadsheet, Database, Radio, Shield,
   BarChart3, Zap, AlertTriangle, Play,
   Pause, Eye
 } from 'lucide-react';

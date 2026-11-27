@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import {
   AlertOctagon, CheckCircle2, TrendingUp, TrendingDown,
   Terminal, ShieldAlert, Hash, Clock,
-  Cloud, Eye, EyeOff, Save, ExternalLink,
-  Loader2, Check, Trash2, X, FileText,
+  Cloud, Eye, ExternalLink,
+  Loader2, Check, X, FileText,
   Wrench, Sparkles, ArrowRight, DollarSign, Send, CheckSquare, ShieldCheck,
   BookOpen, Cpu
 } from 'lucide-react';
@@ -285,7 +285,10 @@ export default function PredictionResult({ result, onReevaluateWithShap }) {
   // When a new result comes in, automatically ask whether to View or Save and evaluate counterfactual if high risk
 
   React.useEffect(() => {
-    if (result) {
+    if (!result) return undefined;
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active) return;
       setShowPrompt(true);
       setShowViewer(false);
       setSavedEntry(null);
@@ -298,12 +301,13 @@ export default function PredictionResult({ result, onReevaluateWithShap }) {
       if (result.failure_risk === 'HIGH' && result.input_data) {
         setCfLoading(true);
         predictCounterfactual(result.input_data)
-          .then(data => setCfData(data))
-          .catch(err => setCfError(err.message || 'Counterfactual evaluation failed'))
-          .finally(() => setCfLoading(false));
+          .then(data => { if (active) setCfData(data); })
+          .catch(err => { if (active) setCfError(err.message || 'Counterfactual evaluation failed'); })
+          .finally(() => { if (active) setCfLoading(false); });
       }
-    }
-  }, [result?.prediction_id, result?.timestamp]);
+    });
+    return () => { active = false; };
+  }, [result]);
 
   const handleFetchCounterfactual = () => {
     if (!result?.input_data || cfLoading) return;

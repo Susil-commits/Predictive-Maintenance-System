@@ -16,10 +16,10 @@ function TypewriterConsole() {
   const [lines, setLines] = useState([]);
   const [curLine, setCurLine] = useState(0);
   const [curChar, setCurChar] = useState(0);
-  const [done, setDone] = useState(false);
+  const done = curLine >= TYPEWRITER_LINES.length;
 
   useEffect(() => {
-    if (curLine >= TYPEWRITER_LINES.length) { setDone(true); return; }
+    if (curLine >= TYPEWRITER_LINES.length) return;
     const target = TYPEWRITER_LINES[curLine];
     if (curChar < target.length) {
       const t = setTimeout(() => setCurChar(c => c + 1), 22);
@@ -121,7 +121,9 @@ export default function LandingPage({ onNavigateLogin }) {
   const elapsedTimerRef = useRef(null);
   const isMountedRef = useRef(true);
 
-  const checkServer = useCallback(async (isManual = false) => {
+  const checkServerRef = useRef(null);
+
+  const checkServer = useCallback(async () => {
     if (pingInProgressRef.current) return;
     pingInProgressRef.current = true;
     setIsPinging(true);
@@ -140,7 +142,7 @@ export default function LandingPage({ onNavigateLogin }) {
         }
         clearTimeout(pollTimerRef.current);
         // Light heartbeat every 60s while on landing page
-        pollTimerRef.current = setTimeout(() => checkServer(false), 60000);
+        pollTimerRef.current = setTimeout(() => checkServerRef.current?.(), 60000);
         return;
       }
       throw new Error('Non-healthy response');
@@ -149,7 +151,7 @@ export default function LandingPage({ onNavigateLogin }) {
       setServerStatus('waking');
       clearTimeout(pollTimerRef.current);
       // Cold start takes ~30s on Render; retry every 3.5s
-      pollTimerRef.current = setTimeout(() => checkServer(false), 3500);
+      pollTimerRef.current = setTimeout(() => checkServerRef.current?.(), 3500);
     } finally {
       pingInProgressRef.current = false;
       if (isMountedRef.current) {
@@ -157,6 +159,10 @@ export default function LandingPage({ onNavigateLogin }) {
       }
     }
   }, []);
+
+  useEffect(() => {
+    checkServerRef.current = checkServer;
+  }, [checkServer]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -170,7 +176,9 @@ export default function LandingPage({ onNavigateLogin }) {
     }, 1000);
 
     // Immediate ping on landing page load to wake up Render backend
-    checkServer(false);
+    Promise.resolve().then(() => {
+      if (isMountedRef.current) checkServer();
+    });
 
     return () => {
       isMountedRef.current = false;

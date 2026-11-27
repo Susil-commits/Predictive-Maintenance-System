@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import {
   Terminal, Users, Plus, Trash2, Shield, LogOut,
-  Eye, EyeOff, Check, AlertCircle, Clock, User,
+  Eye, EyeOff, Check, AlertCircle, User,
   Activity, Camera, Loader2, ExternalLink, FileText,
-  Filter, Layers, Cloud, Briefcase
+  Filter, Cloud, Briefcase
 } from 'lucide-react';
 import {
   getUsers, addUser, deleteUser, getSession, logout,
@@ -51,7 +51,7 @@ function UserAvatar({ url, name, size = 36 }) {
   );
 }
 
-function AvatarUploadBtn({ userId, currentUrl, name, onUploaded, onDeleted }) {
+function AvatarUploadBtn({ userId, currentUrl, onUploaded, onDeleted }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');

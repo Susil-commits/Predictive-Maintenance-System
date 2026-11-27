@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Sliders, Cpu, Activity, TrendingDown, Clock, ShieldCheck, DollarSign, RefreshCw, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Cpu, DollarSign, RefreshCw, ArrowRight } from 'lucide-react';
 import { simulateDerate } from '../api';
 
 export default function DigitalTwinSimulator({ baselineTelemetry }) {
@@ -32,7 +32,11 @@ export default function DigitalTwinSimulator({ baselineTelemetry }) {
   }, [baselineTelemetry, rpmDerate, pressureDerate, coolantDelta]);
 
   useEffect(() => {
-    runSimulation();
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) runSimulation();
+    });
+    return () => { active = false; };
   }, [runSimulation]);
 
   const baseProb = simResult ? (simResult.baseline_probability * 100).toFixed(1) : '85.0';

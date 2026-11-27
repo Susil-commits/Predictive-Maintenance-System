@@ -58,7 +58,6 @@ export default function TelemetryForm({
   // Real-time engineered features calculated client-side matching predictor.py
   const tempPressureIndex = ((formData.temperature * formData.pressure) / 100.0).toFixed(2);
   const vibrationWearIndex = (formData.vibration * (formData.operating_hours / 1000.0)).toFixed(2);
-  const rpmVibRatio = ((formData.rpm * formData.vibration) / 1000.0).toFixed(2);
   const thermalExcess = Math.max(0, formData.temperature - 86.0).toFixed(1);
   const overstrainIndex = ((formData.pressure / 25.0) * Math.max(0, formData.vibration - 0.35)).toFixed(2);
 

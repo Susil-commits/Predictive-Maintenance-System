@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, Activity, AlertTriangle, CheckCircle, RefreshCw, Gauge, ShieldCheck, Wrench } from 'lucide-react';
+import { Clock, Activity, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 
 export default function RULForecastCard({ rulData, loading, onRefresh, rulSourceMeta }) {
   if (!rulData && !loading) {
